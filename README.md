@@ -44,6 +44,9 @@ and render again. Originals are never modified.
   before/after, storytime) that a project can override.
 - **Cheap project overview** — `sve report` prints one screen (or JSON) with everything an editor
   or an AI agent needs to know about a project.
+- **Product recognition (optional)** — a local CLIP model finds the products shown in the footage
+  (`sve products`), picks windows from a text description (`search.text`) and proposes one shot
+  per product in unboxing plans.
 
 ## Requirements
 
@@ -67,7 +70,7 @@ and render again. Originals are never modified.
 python -m venv .venv && source .venv/bin/activate
 pip install -e .              # the engine and the `sve` command
 pip install -e ".[music]"     # + yt-dlp, for `sve music`
-pip install -e ".[vision]"    # + sentence-transformers, for optional visual models
+pip install -e ".[vision]"    # + sentence-transformers: local CLIP product recognition (optional)
 pip install -e ".[dev]"       # + pytest
 ```
 
@@ -118,8 +121,8 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve report <project> [--json]` | `informe` | One compact screen (≲50 lines) or JSON: sources, plan/timeline, texts, music, versions and their files, products, check results. Reads only files on disk — instant. |
 | `sve recipes` | `recetas` | List the available recipes. |
 | `sve music "<artist song or URL>"` | `musica` | Download a track with yt-dlp into `music/` and analyze its tempo, beats and drop. |
-| `sve products <project>` | `productos` | *Provided by the `products` command:* finds product segments and writes `cache/products.json`. |
-| `sve check <project> [--version vN] [--out DIR]` | `verificar` | *Provided by the `check` command:* checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
+| `sve products <project>` | `productos` | Recognize the products shown in the sources with the local CLIP model (optional `[vision]` extra; downloaded on first use) and print them; writes `cache/products.json`. See [Product recognition](#product-recognition-optional). |
+| `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):
 
@@ -188,6 +191,38 @@ Shot times are seconds **inside each source**; text times are seconds of the **f
 ```
 
 Full reference: [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md).
+
+## Product recognition (optional)
+
+A local **CLIP** model (through `sentence-transformers`, CPU by default, nothing leaves your
+machine) can recognize the products shown in the footage. It is an **optional extra**:
+
+```bash
+pip install -e ".[vision]"
+```
+
+The first use downloads the models once (**≈1.2 GB**, to the Hugging Face cache); frame
+embeddings are cached per source in `cache/<id>_clip.npy`. Without the extra the engine works as
+before. What uses it:
+
+- **`sve products <project>`** — always uses the model (and downloads it if needed): prints a table
+  of the product segments (source, start–end, best window, proposed name, confidence, score) and
+  writes `cache/products.json`, which `sve report` summarizes. Names come from a packaged list of
+  ~80 small products in the project language (`vision.vocabulary` sets your own list).
+- **`search.text`** in a shot — `{"source": 0, "search": {"text": "phone case", "range": [40, 60]}}`
+  picks the window that best matches the description. It uses the model **whenever it is
+  available**; otherwise it falls back to the `product` heuristic with a warning.
+- **Unboxing plans** — the `unboxing` recipe sets `vision.product_plan: true`: with the model
+  available, `sve plan` proposes one shot per detected product (a card with its proposed name and
+  an `n/N` counter; the most confident `vision.stars` products get a fast → slow ramp and a
+  polaroid; a collage at the end). Without the model, the regular plan is made.
+- **CLIP product criterion (opt-in)** — with `vision.product_search: true`, a `search` with
+  `criterion: product` scores frames with the model instead of the sharpness/color heuristic.
+  It is off by default because it changes the windows of existing plans.
+
+"Available" follows `vision.enabled`: `auto` (default) = used when installed **and** already
+downloaded; `true` = may download it; `false` = never (except `sve products`). All keys:
+[docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#vision).
 
 ## Language
 

@@ -72,6 +72,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `render` | `render` |
 | `montar` | `build` |
 | `ver` | `view` |
+| `informe` | `report` |
 | `recetas` | `recipes` |
 | `musica` | `music` |
 | `verificar` | `check` |

@@ -6,13 +6,15 @@ Python (no FFmpeg, no files); everything that touches the outside world sits beh
 ```
 src/social_video_editor/
 ├── domain/        pure logic: models, configuration, pieces (Composite), timeline, beat math,
-│                  shot selection, transitions/effects catalogs, text layout, color math
+│                  shot selection, transitions/effects catalogs, text layout, color math,
+│                  render checks, product detection math (products.py)
 ├── ports/         typing.Protocol interfaces the application needs
-├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/
-├── application/   use cases: analyze, plan, render, thumbs, view, report, music, project
+├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/
+├── application/   use cases: analyze, plan, render, thumbs, view, report, check, products, music, project
 ├── container.py   composition root: wires every port to its adapter (build_services)
 ├── cli.py         argparse front end (`sve …`)
-└── recipes/       packaged YAML recipes (base.yaml + one per video type)
+├── recipes/       packaged YAML recipes (base.yaml + one per video type)
+└── data/vocabulary/  packaged product names (es/en) for the vision model
 ```
 
 Dependency rule: `domain` imports nothing from the other layers; `application` uses `domain` and
@@ -35,7 +37,8 @@ the `Services` bundle of ports (`application/services.py`); `adapters` implement
 | `ProjectRepository` | `adapters/files/projects.py` · `YamlProjectRepository` | project.yaml, plan.json, version folders, outputs, music lookup. |
 | `CacheStore` | `adapters/files/cache.py` · `JsonCacheStore` | Per-project JSON cache (media info, analyses, words, music analyses). |
 | `MusicDownloader` | `adapters/ytdlp/downloader.py` · `YtDlpDownloader` | `sve music`. |
-| `VisualDetector` | — (`None` in `container.py`) | Reserved for a visual (CLIP-style) model. |
+| `RenderInspector` | `adapters/ffmpeg/inspector.py` · `FfmpegRenderInspector` | `sve check`: EBU R128 loudness series, decoded audio, black/frozen frames, listening snippets (rules in `domain/check.py`). |
+| `VisualDetector` | `adapters/clip/detector.py` · `ClipVisualDetector` | Local CLIP via sentence-transformers (optional `[vision]` extra, imported lazily): frame and text embeddings in one space; frame embeddings cached in `cache/<id>_clip.npy`. Scoring, segmentation and labeling live in `domain/products.py`. |
 
 Supporting adapter modules: `adapters/files/legacy_es.py` translates Spanish files written by
 earlier versions **when they are loaded** (the domain only sees English keys; tables in
@@ -103,13 +106,18 @@ sources ──analyze──▶ cache/<id>_media.json, <id>_analysis.json (sample
                       4. master to −14 LUFS / −1 dBTP → vN/<name>.mp4, .srt, cover,
                          plan_used.json, config_used.json, summary.json
                       ▼
-                    check  (provided by `sve check`) ──▶ vN/check.json + listen/ excerpts
+                    check  (`sve check`) ──▶ vN/check.json + listen/ excerpts
                       ▼
                     report ──▶ one screen / JSON from the files above (reads only)
 ```
 
-`sve products` (provided by that command) adds `cache/products.json`, which a plan can use and
-`sve report` summarizes.
+With the optional vision model (`application/products.py`, `VisualDetector` port):
+`sve products` writes `cache/products.json` (summarized by `sve report`); `plan` proposes one shot
+per detected product when `vision.product_plan` is on (the `unboxing` recipe) and falls back to
+the regular planner otherwise; render step 1 scores `search` windows with it for `search.text`
+(whenever the model is available) and for `criterion: product` when `vision.product_search` is
+on (opt-in). `vision.enabled` (`auto` / `true` / `false`) decides when the model may be loaded or
+downloaded.
 
 Segment files are keyed by a hash of everything that affects them (shot keys, source, size,
 relevant config, draft flag, `SEGMENT_VERSION`), so re-rendering after a plan edit only encodes

@@ -72,7 +72,7 @@ Every shot has a `type` (default `video`). Common keys:
 |---|---|---|---|
 | `source` | int | required | Index of the source clip. |
 | `start`, `end` | seconds | required unless `search` | Window inside the source. |
-| `search` | object | — | Let the engine pick the window at render time: `{"range": [a, b], "dur": 1.8, "criterion": "product"}`. `criterion`: `product` (sharp, colorful, still image) or `action` (motion + loudness). Recomputed on every render; the resolved window is kept as `_searched` in `plan_used.json`. |
+| `search` | object | — | Let the engine pick the window at render time: `{"range": [a, b], "dur": 1.8, "criterion": "product"}`. `range` defaults to the whole source, `dur` to 1.8 s. `criterion`: `product` (sharp, colorful, still image) or `action` (motion + loudness); with `vision.product_search: true` the `product` criterion is scored by the CLIP model. `text` (e.g. `{"text": "phone case", "range": [40, 60]}`) picks the window that best matches a description using the vision model whenever it is available (otherwise the `product` heuristic, with a warning). Recomputed on every render; the resolved window is kept as `_searched` in `plan_used.json`. |
 | `speed` | float | `1.0` | Playback speed (audio is time-stretched). |
 | `continuous` | bool | `false` | With beat alignment: start exactly where the previous shot (same source) ended — for fast→slow ramps. |
 | `effects` | list | `[]` | Camera effects (see below). |
@@ -264,7 +264,7 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `music.align` | — | `exact` = every cut exactly on a beat (automatic when a shot has `beats`). |
 | `music.cuts_on_beat` / `half_beats` | true / true | Otherwise, move cuts to the nearest beat (or half beat) within 0.3 s. |
 | `music.fade_in` / `fade_out` | 0.25 / 1.0 | Fades (s). |
-| `music.bpm`, `music.tempo_factor` | — | *Provided by `sve check`* (tempo-related settings); `sve report` shows them when set. |
+| `music.bpm` / `tempo_factor` | null / null | Force the tempo (e.g. 120) / multiply the detected one (2 = double, 0.5 = half) when detection picks half or double. `sve music` shows the alternatives; `sve report` shows them when set. |
 | `sfx.enabled` | true | Sound effects on/off. |
 | `sfx.volume_db` | −12 | Base level. |
 | `sfx.pop_on_texts` / `typing` / `typing_db` / `whoosh_on_transitions` | true / true / −9 / true | Which effects play. |
@@ -288,6 +288,31 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `export.cover` / `cover_at` | true / 1.6 | Export a cover JPEG taken at that second. |
 | `polaroid.width` / `center_y` / `font` / `drop_time` / `flash` | 0.70 / 0.5 / Bradley Hand Bold / 0.16 / 0.10 | Photo size, crop center, caption font, landing time, flash duration. |
 | `collage.columns` / `subdivision` / `y0` / `y1` | 4 / 2 / 0.215 / 0.72 | Grid columns, appearance rate, vertical zone (kept in the safe zone). |
+
+### `vision`
+
+Local CLIP model (optional extra `pip install -e ".[vision]"`, ≈1.2 GB downloaded on first use).
+Used by `sve products`, by `search.text`, by `sve plan` when `product_plan` is on, and by
+`criterion: product` searches when `product_search` is on.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `vision.enabled` | `auto` | `auto` = used when installed and already downloaded; `true` = may download the model; `false` = never (`sve products` always uses it). |
+| `vision.model` / `text_model` | `sentence-transformers/clip-ViT-B-32` / `…/clip-ViT-B-32-multilingual-v1` | Image model; text model in the same space (Spanish, English and 50+ languages). |
+| `vision.device` | `cpu` | `cpu`, `mps` (Apple GPU, opt-in; falls back to CPU on invalid values) or `cuda`. |
+| `vision.fps` | 2 | Frames per second embedded (from the proxy; cached in `cache/<id>_clip.npy`). |
+| `vision.positive` / `negative` | see `base.yaml` | Prompts describing a product shot / what is not one (`{es: […], en: […]}`). |
+| `vision.weights` | `{prompts: 0.5, objectness: 1.0, novelty: 1.0, sharpness: 0.5}` | Parts of the product score. |
+| `vision.min_score` / `extend_score` | 0.35 / −0.25 | Standardized score where a product starts / that neighboring frames need to join it. |
+| `vision.continuity` | 0.78 | Similarity between consecutive frames below which a new product starts. |
+| `vision.min_duration` / `max_duration` | 1.0 / 25.0 | Seconds a product must be visible / longest segment. |
+| `vision.same_product` | 0.82 | Two stretches this similar (and < 20 s apart) are merged as one product. |
+| `vision.window` | 2.0 | Seconds of the best moment of each product (`best` in `products.json`). |
+| `vision.max_products` | 15 | At most this many products (the best-scoring ones, kept in story order). |
+| `vision.stars` | 3 | The most confident products get a fast → slow ramp and a polaroid in the product plan. |
+| `vision.vocabulary` | null | null = packaged list of ~80 small products (es/en); or your own list of names. |
+| `vision.product_plan` | false (`unboxing`: true) | `sve plan` makes one shot per detected product (card with its name + `n/N` counter, collage at the end). |
+| `vision.product_search` | false | Opt-in: `search` with `criterion: product` uses the vision model (changes the windows of existing plans). `search.text` uses it regardless. |
 
 ### Export profiles (`sve render --profile`)
 
@@ -319,8 +344,7 @@ Written by other commands:
 
 | File | Written by | Shape |
 |---|---|---|
-| `cache/products.json` | `sve products` | `{"segments": [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}], "model", "language"}` |
+| `cache/products.json` | `sve products` (and `sve plan` with `vision.product_plan`) | `{"segments": [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}], "model", "language"}` |
+| `cache/<id>_clip.npy`, `<id>_clip.json` | anything that uses the vision model | Frame embeddings of a source and their timestamps. |
 | `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}` |
 
-The `search` object of a shot can also take a `text` key (legacy `buscar.texto`), *provided by
-`sve products`*.
