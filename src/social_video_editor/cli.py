@@ -7,15 +7,17 @@
   sve render  <project> [--draft] [--profile youtube] [--no-music]
   sve build   <project> [--draft]          (analyze + thumbs + plan if missing + render)
   sve view    <project>                    (plan and timeline summary)
+  sve report  <project> [--json]           (one-screen project report; reads only files on disk)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
 
-Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, recetas, musica and
+Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica and
 --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
 """
 from __future__ import annotations
 
 import argparse
+import json
 
 from .adapters.files.legacy_es import profile_name
 from .application.analyze import prepare_sources
@@ -23,6 +25,7 @@ from .application.music import download_music
 from .application.plan import make_plan
 from .application.project import new_project, recipe_lines
 from .application.render import render
+from .application.report import build_report, report_json, report_lines
 from .application.thumbs import contact_sheets
 from .application.view import load_plan, view_lines
 from .container import build_services
@@ -70,6 +73,11 @@ def cmd_view(svc, a):
     print("\n".join(view_lines(svc, _project(svc, a.project))))
 
 
+def cmd_report(svc, a):
+    r = build_report(svc, _project(svc, a.project))
+    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r)))
+
+
 def cmd_recipes(svc, a):
     print("\n".join(recipe_lines(svc)))
 
@@ -113,6 +121,10 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("view", aliases=["ver"], help="plan and timeline summary")
     s.add_argument("project")
     s.set_defaults(f=cmd_view)
+    s = sub.add_parser("report", aliases=["informe"], help="one-screen project report (for people and AI agents)")
+    s.add_argument("project")
+    s.add_argument("--json", action="store_true", help="machine-readable output")
+    s.set_defaults(f=cmd_report)
     sub.add_parser("recipes", aliases=["recetas"], help="list recipes").set_defaults(f=cmd_recipes)
     s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")
     s.add_argument("query")
