@@ -14,7 +14,7 @@ import numpy as np
 
 from .pieces import Sequence, Shot
 from .timebase import frames
-from .transitions import transition_duration
+from .transitions import entry_overlap, transition_duration
 
 
 @dataclass
@@ -73,17 +73,11 @@ def compute_timeline(plan_or_sequence, cfg: dict) -> Timeline:
     t = 0.0
     for i, piece in enumerate(seq.shots()):
         dur = piece.duration(fps)
-        d = 0.0 if i == 0 else transition_duration(piece.transition, cfg)
-        d = min(d, dur / 2, clips[-1].dur / 2) if clips else 0.0
-        d = frames(d, fps)
+        d = entry_overlap(piece.transition, dur, clips[-1].dur if clips else None, cfg, fps)
         start = t - d
         clips.append(Clip(i, piece, dur, d, round(start, 4), round(start + dur, 4)))
         t = start + dur
     return Timeline(seq, clips)
-
-
-def total_duration(tl: Timeline) -> float:
-    return tl.total
 
 
 def absolute_texts(plan: dict, tl: Timeline) -> list[dict]:

@@ -111,6 +111,12 @@ sources ──analyze──▶ cache/<id>_media.json, <id>_analysis.json (sample
                     report ──▶ one screen / JSON from the files above (reads only)
 ```
 
+`<id>` is the file name plus a short hash of the source's resolved path, size and modification
+time (`clip_0001_3fa2c9d1`), so two clips with the same name in different folders never share a
+cache and a replaced file is analyzed again. Caches written by earlier versions under the bare
+file name (`clip_0001_media.json` / `_info.json`) keep being used while they record the same
+resolved path (and size, once recorded).
+
 With the optional vision model (`application/products.py`, `VisualDetector` port):
 `sve products` writes `cache/products.json` (summarized by `sve report`); `plan` proposes one shot
 per detected product when `vision.product_plan` is on (the `unboxing` recipe) and falls back to

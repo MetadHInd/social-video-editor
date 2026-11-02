@@ -12,8 +12,4 @@ def new_project(svc: Services, name: str, recipe: str, sources: list[str]) -> Pa
 
 
 def recipe_lines(svc: Services) -> list[str]:
-    out = []
-    for name, path in svc.recipes.available().items():
-        first = path.read_text(encoding="utf-8").splitlines()[0] if path.stat().st_size else ""
-        out.append(f"{name:<15} {first}")
-    return out
+    return [f"{name:<15} {svc.recipes.description(name)}" for name in svc.recipes.available()]

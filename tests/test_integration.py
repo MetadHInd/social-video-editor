@@ -142,6 +142,12 @@ def test_draft_render_end_to_end(workspace, monkeypatch):
     assert summary["duration_sec"] == pytest.approx(total, abs=0.01)
     assert summary["music"]["file"] == "clicks.wav"
     assert [s["type"] for s in summary["shot_details"]] == ["video", "polaroid", "collage"]
+    # docs/PLAN_FORMAT.md documents every key render writes to summary.json (on its table row)
+    row = next(line for line in (Path(__file__).resolve().parent.parent / "docs" / "PLAN_FORMAT.md")
+               .read_text(encoding="utf-8").splitlines() if line.startswith("| `summary.json`"))
+    documented = {*summary, *summary["audio"], *summary["shot_details"][0], *summary["stems"],
+                  *(summary["text_boxes"][0] if summary["text_boxes"] else {})}
+    assert not [k for k in documented if f"`{k}`" not in row]
 
     s = probe(final)
     v = next(x for x in s["streams"] if x["codec_type"] == "video")

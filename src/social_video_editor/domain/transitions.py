@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .models import UserError
+from .timebase import DEFAULT_FPS, frames
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,16 @@ def get_transition(name: str) -> Transition:
     if name not in TRANSITIONS:
         raise UserError(f"Unknown transition '{name}'. Options: {', '.join(TRANSITIONS)}")
     return TRANSITIONS[name]
+
+
+def entry_overlap(name: str, dur: float, prev_dur: float | None, cfg: dict, fps: int = DEFAULT_FPS) -> float:
+    """Seconds a shot entering with transition `name` overlaps the previous shot (whole frames).
+
+    At most half of either shot; 0 for the first shot (prev_dur None) and for hard cuts.
+    """
+    if prev_dur is None:
+        return 0.0
+    return frames(min(transition_duration(name, cfg), dur / 2, prev_dur / 2), fps)
 
 
 def transition_duration(name: str, cfg: dict) -> float:

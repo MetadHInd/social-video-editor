@@ -170,6 +170,14 @@ commented). Each recipe only overrides what it changes; a project overrides the 
 Put `recipes/<name>.yaml` in your workspace to add a recipe or replace a packaged one. The first
 line comment is shown by `sve recipes`.
 
+How a configuration is resolved (`YamlRecipeRepository.load`): every file name is looked up first
+in `<workspace>/recipes/` (or legacy `recetas/`), then among the packaged recipes, and the **first
+file found is used whole — files with the same name are never merged with each other**. Then
+`base.yaml` (the first one found) ← `<recipe>.yaml` (the first one found) ← `project.yaml →
+settings` are deep-merged in that order. So a workspace `recipes/base.yaml` *replaces* the packaged
+base for every recipe, and must therefore be a complete copy of it (a file with only a few keys
+would lose every other default).
+
 ## The plan (`plan.json`)
 
 Shot times are seconds **inside each source**; text times are seconds of the **final video**
@@ -262,9 +270,14 @@ settings:
 ```
 
 Legacy Spanish project files work the same way: `ajustes: {idioma: en}` in `proyecto.yaml`.
-To make English the default for every project in a workspace, copy a recipe into
-`<workspace>/recipes/` and add `language: en` at the top (a workspace recipe replaces the packaged
-one with the same name). Any other value is rejected (`Unknown language`).
+To make English the default for **every** project in a workspace, copy the whole packaged
+[`recipes/base.yaml`](src/social_video_editor/recipes/base.yaml) to `<workspace>/recipes/base.yaml`
+and change its `language: es` line to `language: en`. Every recipe (packaged or yours) is merged on
+top of that base, so all of them inherit English unless the recipe itself or a project's
+`settings` sets `language`. (Copying only one recipe, e.g. `recipes/unboxing.yaml` with
+`language: en`, changes only the projects that use that recipe; a `base.yaml` with nothing but
+`language: en` replaces the packaged base and loses every other default — see
+[Recipes](#recipes).) Any other value is rejected (`Unknown language`).
 
 ## Testing
 

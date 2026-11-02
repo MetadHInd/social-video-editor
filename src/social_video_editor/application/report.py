@@ -18,7 +18,7 @@ from ..domain.models import Project, UserError
 from ..domain.pieces import Group, Sequence
 from ..domain.timebase import mmss
 from ..domain.timeline import compute_timeline
-from .analyze import source_id
+from .analyze import resolve_source_id
 from .services import Services
 
 LOW_CONFIDENCE = 0.5      # products below this confidence: look at the images before trusting them
@@ -52,7 +52,7 @@ def build_report(svc: Services, project: Project) -> dict:
 def _sources(svc: Services, project: Project) -> list[dict]:
     out = []
     for i, s in enumerate(project.sources):
-        info = svc.cache.load(project.cache, "media", source_id(s["path"])) or {}
+        info = svc.cache.load(project.cache, "media", resolve_source_id(svc, project.cache, s["path"])) or {}
         out.append({"index": i, "file": Path(s["path"]).name, "duration": info.get("duration"),
                     "hdr": info.get("hdr"), "has_audio": info.get("has_audio")})
     return out
@@ -133,9 +133,9 @@ def _music(svc: Services, project: Project, cfg: dict, latest: dict | None) -> d
 
 def _version_entry(svc: Services, folder: Path) -> dict:
     summary = svc.projects.load_summary(folder) or {}
-    files = sorted(p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(("_", "."))
+    files = sorted(p.name for p in svc.projects.list_files(folder) if not p.name.startswith(("_", "."))
                    and p.suffix.lower() in MEDIA_EXT)
-    listen = next((d for d in (folder / "listen", folder / "escuchar") if d.is_dir()), None)
+    listen = next((d for d in (folder / "listen", folder / "escuchar") if svc.projects.exists(d)), None)
     audio = summary.get("audio") or {}
     return {
         "name": folder.name,
@@ -143,8 +143,8 @@ def _version_entry(svc: Services, folder: Path) -> dict:
         "duration": summary.get("duration_sec"), "shots": summary.get("shots"),
         "resolution": summary.get("resolution"), "lufs": audio.get("after_lufs"),
         "true_peak": audio.get("true_peak_dbtp"), "files": files,
-        "check": (folder / "check.json").is_file(),
-        "listen": len([p for p in listen.iterdir() if p.is_file()]) if listen else 0,
+        "check": svc.projects.exists(folder / "check.json"),
+        "listen": len(svc.projects.list_files(listen)) if listen else 0,
         "summary": summary or None,
     }
 

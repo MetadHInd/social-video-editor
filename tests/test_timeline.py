@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from social_video_editor.domain.timeline import (absolute_texts, align_to_beats, compute_timeline, frames,
-                                                 snap_cuts_to_beats, total_duration)
+                                                 snap_cuts_to_beats)
 
 FPS = 30
 
@@ -35,7 +35,7 @@ def test_compute_timeline(cfg):
     assert [c.overlap for c in tl] == pytest.approx([0.0, 0.4, 0.0, 7 / 30])
     assert [c.out_start for c in tl] == pytest.approx([0.0, 1.6, 2.6, 3.5667], abs=1e-4)
     assert [c.out_end for c in tl] == pytest.approx([2.0, 2.6, 3.8, 5.3667], abs=1e-4)
-    assert total_duration(tl) == tl.total == pytest.approx(5.3667, abs=1e-4)
+    assert tl.total == pytest.approx(5.3667, abs=1e-4)
     assert compute_timeline({"shots": []}, cfg).total == 0.0
     assert tl[2].piece.kind == "polaroid" and tl[2].data["from_shot"] == 1     # keeps the shot's fields
     assert tl[2].as_dict()["from_shot"] == 1 and tl[2].as_dict()["dur"] == pytest.approx(1.2)

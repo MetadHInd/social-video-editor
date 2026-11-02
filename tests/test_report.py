@@ -25,8 +25,11 @@ def _project(ws: Path, name: str = "demo", shots: list | None = None) -> Path:
     (d / "project.yaml").write_text(
         f"name: {name}\nrecipe: unboxing\nsources:\n  - {src / 'clip_a.mov'}\n  - path: {src / 'clip_b.mov'}\n"
         "settings:\n  music: {start_at: auto, tempo_factor: 1.5}\n", encoding="utf-8")
-    _json(d / "cache" / "clip_a_media.json", {"duration": 482.0, "hdr": True, "has_audio": True})
-    _json(d / "cache" / "clip_b_media.json", {"duration": 12.5, "hdr": False, "has_audio": False})
+    # stem-only cache names (earlier versions): used because they record this very file
+    _json(d / "cache" / "clip_a_media.json", {"path": str(src / "clip_a.mov"), "duration": 482.0, "hdr": True,
+                                              "has_audio": True})
+    _json(d / "cache" / "clip_b_media.json", {"path": str(src / "clip_b.mov"), "duration": 12.5, "hdr": False,
+                                              "has_audio": False})
     (ws / "music").mkdir()
     (ws / "music" / "Some Song.mp3").write_bytes(b"")
     _json(d / "cache" / "music_Some_Song.json", {"duration": 180, "tempo": 120.0, "interval": 0.5,

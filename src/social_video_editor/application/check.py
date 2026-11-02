@@ -276,9 +276,7 @@ def check_version(svc: Services, project: str, version: str | None = None,
     out_dir = Path(out).expanduser() if out else v["dir"]
     sub = labels(v["config"].get("language", "es"))["listen"]
     listen_dir = out_dir / sub
-    if listen_dir.is_dir():                 # stale snippets of an earlier check
-        for old in listen_dir.glob("*.wav"):
-            old.unlink()
+    svc.projects.clear_files(listen_dir, "*.wav")     # stale snippets of an earlier check
     listen = []
     picks = ck.pick_moments(c.moments, int(th["listen_max"]))
     for i, m in enumerate(picks, 1):

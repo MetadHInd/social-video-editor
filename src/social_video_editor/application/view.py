@@ -19,7 +19,8 @@ def load_plan(svc: Services, project: Project) -> dict:
 
 
 def view_lines(svc: Services, project: Project) -> list[str]:
-    plan, _, _, _, tl = prepare_edit(svc, project, load_plan(svc, project), copy.deepcopy(project.cfg))
+    cfg = copy.deepcopy(project.cfg)
+    plan, _, _, _, tl = prepare_edit(svc, project, load_plan(svc, project), cfg)
     lines = [f"{project.name} — recipe '{project.recipe}' — {len(tl)} shots — {tl.total:.1f} s"]
 
     def shot_line(clip) -> str:
@@ -27,11 +28,11 @@ def view_lines(svc: Services, project: Project) -> list[str]:
         return (f" {clip.index:>2} [{mmss(clip.out_start)}–{mmss(clip.out_end)}] {clip.piece.describe()} "
                 f"{clip.piece.transition:<12} {clip.piece.role:<10} {fx}").rstrip()
 
-    fps = int(project.cfg["output"]["fps"])
+    fps = int(cfg["output"]["fps"])
     for item in tl.sequence.children():
         if isinstance(item, Group):
             shots = item.shots()
-            lines.append(f"    group '{item.label}': {len(shots)} shots, {item.duration(fps):.2f} s")
+            lines.append(f"    group '{item.label}': {len(shots)} shots, {item.duration(fps, cfg):.2f} s")
         for shot in item.shots():
             lines.append(shot_line(tl[shot.index]))
     for tx in absolute_texts(plan, tl):

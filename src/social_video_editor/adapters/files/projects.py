@@ -173,12 +173,26 @@ class YamlProjectRepository:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(text, encoding="utf-8")
 
+    def exists(self, path: Path) -> bool:
+        return Path(path).exists()
+
     def remove(self, path: Path) -> None:
         path = Path(path)
         if path.is_dir():
             shutil.rmtree(path, ignore_errors=True)
         else:
             path.unlink(missing_ok=True)
+
+    def clear_files(self, folder: Path, pattern: str) -> None:
+        folder = Path(folder)
+        if folder.is_dir():
+            for p in folder.glob(pattern):
+                if p.is_file():
+                    p.unlink()
+
+    def list_files(self, folder: Path) -> list[Path]:
+        folder = Path(folder)
+        return sorted(p for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []
 
     # ── music ────────────────────────────────────────────────────────────────
     def music_dir(self) -> Path:

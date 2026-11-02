@@ -187,19 +187,54 @@ def test_cache_store_reads_legacy_files(tmp_path):
     assert store.load(cache, "analysis", "missing") is None
 
 
-def test_legacy_keys_doc_lists_every_mapping():
-    doc = (Path(__file__).resolve().parent.parent / "docs" / "LEGACY_KEYS.md").read_text(encoding="utf-8")
+def _doc_rows(markdown: str) -> set[tuple[str, str]]:
+    """(first cell, second cell) of every markdown table row."""
+    rows = set()
+    for line in markdown.splitlines():
+        if line.lstrip().startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) >= 2:
+                rows.add((cells[0], cells[1]))
+    return rows
 
-    def check(ctx):
+
+def test_legacy_keys_doc_lists_every_mapping():
+    """Every Spanish → English mapping is documented on ONE table row: | `es` | `en` |."""
+    doc = (Path(__file__).resolve().parent.parent / "docs" / "LEGACY_KEYS.md").read_text(encoding="utf-8")
+    rows = _doc_rows(doc)
+    missing = []
+
+    def pair(es, en, where):
+        if (f"`{es}`", f"`{en}`") not in rows:
+            missing.append(f"{where}: | `{es}` | `{en}` |")
+
+    def check(ctx, where):
         for es, en in ctx.keys.items():
-            assert f"`{es}`" in doc and f"`{en}`" in doc, (es, en)
-        for table in ctx.values.values():
+            pair(es, en, where)
+        for key, table in ctx.values.items():
             for es, en in table.items():
-                assert f"`{es}`" in doc and f"`{en}`" in doc, (es, en)
-        for c in ctx.children.values():
-            check(c)
+                pair(es, en, f"{where}.{key} (value)")
+        for es, en in ctx.entry_names.items():
+            pair(es, en, f"{where} (name)")
+        for key, c in ctx.children.items():
+            check(c, f"{where}.{key}")
         if ctx.entry:
-            check(ctx.entry)
-    for ctx in (legacy_es.CONFIG, legacy_es.PLAN, legacy_es.PROJECT, legacy_es.ANALYSIS, legacy_es.MEDIA_INFO,
-                legacy_es.MUSIC_ANALYSIS, legacy_es.SUMMARY):
-        check(ctx)
+            check(ctx.entry, f"{where}.*")
+    for name in ("CONFIG", "PLAN", "PROJECT", "ANALYSIS", "MEDIA_INFO", "MUSIC_ANALYSIS", "SUMMARY"):
+        check(getattr(legacy_es, name), name)
+    for en, es in legacy_es.FILES.items():
+        pair(es, en, "FILES")
+    for en, es in legacy_es.FOLDERS.items():
+        if en != es:
+            pair(es, en, "FOLDERS")
+    for kind, (new, old, ctx) in legacy_es.CACHE_FILES.items():
+        pair(old.format(key="<id>"), new.format(key="<id>"), "CACHE_FILES")
+    for table in (legacy_es.RECIPE_NAMES, legacy_es.PROFILES, legacy_es.SFX_NAMES):
+        for es, en in table.items():
+            pair(es, en, "names")
+    assert not missing, "not documented on one row:\n" + "\n".join(missing)
+
+
+def test_doc_rows_pairs_cells_of_the_same_row():
+    rows = _doc_rows("| Spanish | English |\n|---|---|\n| `a` | `x` |\n| `b` | `y` |\n")
+    assert ("`a`", "`x`") in rows and ("`a`", "`y`") not in rows      # mentioned, but on different rows

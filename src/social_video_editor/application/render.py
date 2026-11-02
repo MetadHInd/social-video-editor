@@ -64,9 +64,7 @@ class ShotRenderer:
 
     def _segment_path(self, signature: dict, prefix: str = "", n: int = 16) -> Path:
         key = json.dumps(signature, sort_keys=True, default=str)
-        path = self.cache / "segments" / f"{prefix}{hashlib.sha1(key.encode()).hexdigest()[:n]}.mkv"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
+        return self.svc.cache.file(self.cache, f"segments/{prefix}{hashlib.sha1(key.encode()).hexdigest()[:n]}.mkv")
 
     # ── video shots ──────────────────────────────────────────────────────────
     def visit_video(self, shot: VideoShot) -> Path:
@@ -79,7 +77,7 @@ class ShotRenderer:
             "src": info["path"], "W": self.W, "H": self.H,
             "cfg": {k: self.cfg.get(k) for k in ("color", "framing", "audio", "effects")},
             "draft": self.draft, "v": SEGMENT_VERSION})
-        if path.exists():
+        if self.svc.cache.has(path):
             return path
         times = np.linspace(d["start"] + 0.05, max(d["end"] - 0.05, d["start"] + 0.06), 6)
         stats = color_math.measure(self.svc.video.read_frames(info["proxy"], times))
@@ -119,7 +117,7 @@ class ShotRenderer:
     def visit_polaroid(self, shot: PolaroidShot) -> Path:
         audio = self._continuation_audio(shot.from_shot, self.tl[shot.index].dur)
         d, path = self._drawn_path(shot, [shot.from_shot], audio)
-        if path.exists():
+        if self.svc.cache.has(path):
             return path
         png = self.svc.encoder.extract_frame(self.segments[shot.from_shot], path.with_suffix(".last.png"))
         try:
@@ -127,12 +125,12 @@ class ShotRenderer:
             return self.svc.encoder.encode_frames(frames, int(round(d["dur"] * self.fps)), self.W, self.H,
                                                   self.fps, path, audio)
         finally:
-            png.unlink(missing_ok=True)
+            self.svc.cache.discard(png)
 
     def visit_collage(self, shot: CollageShot) -> Path:
         audio = self._continuation_audio(shot.background_from, self.tl[shot.index].dur)
         d, path = self._drawn_path(shot, shot.from_shots + [shot.background_from], audio)
-        if path.exists():
+        if self.svc.cache.has(path):
             return path
         pngs = []
         try:
@@ -149,7 +147,7 @@ class ShotRenderer:
                                                   self.fps, path, audio)
         finally:
             for p in pngs:
-                p.unlink(missing_ok=True)
+                self.svc.cache.discard(p)
 
 
 def sound_events(timeline: Timeline, texts: list[dict], keystrokes: list[float], cfg: dict) -> list:
@@ -222,25 +220,24 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     suffix = variant_suffix(lang, draft, profile, no_music)
     vdir = svc.projects.variant_folder(project, suffix) if suffix else svc.projects.new_version(project)
     name = output_name(project.name, lang, draft, profile, no_music)
-    texts = absolute_texts(plan, tl)
-    groups = subtitle_groups(analyses, tl, cfg) if cfg["subtitles"].get("auto", True) else []
-    boxes: list[dict] = []
-    layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
-    # same typing speed on screen, but at most sfx.typing_max_per_sec click SOUNDS per second
-    keystrokes = thin_keystrokes(keystrokes, float(cfg["sfx"].get("typing_max_per_sec", 16)))
-    events = sound_events(tl, texts, keystrokes, cfg)
-    sfx = svc.sfx.mix_track(events, total, vdir / "_sfx.wav") if events else None
-
-    voice = any(has_voice(analyses[w[0]], w[1], w[2])
-                for w in (c.piece.source_window() for c in tl) if w is not None)
     premaster = vdir / f"_{name}_premaster.mkv"
     final = vdir / f"{name}.mp4"
-    try:
+    boxes: list[dict] = []
+    try:                                  # any failure from here on marks the folder vN_failed / vN_fallida
+        texts = absolute_texts(plan, tl)
+        groups = subtitle_groups(analyses, tl, cfg) if cfg["subtitles"].get("auto", True) else []
+        voice = any(has_voice(analyses[w[0]], w[1], w[2])
+                    for w in (c.piece.source_window() for c in tl) if w is not None)
+        layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
+        # same typing speed on screen, but at most sfx.typing_max_per_sec click SOUNDS per second
+        keystrokes = thin_keystrokes(keystrokes, float(cfg["sfx"].get("typing_max_per_sec", 16)))
+        events = sound_events(tl, texts, keystrokes, cfg)
+        sfx = svc.sfx.mix_track(events, total, vdir / "_sfx.wav") if events else None
         svc.encoder.compose([{"dur": c.dur, "overlap": c.overlap, "transition": c.piece.transition} for c in tl],
                             segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster,
                             stems_dir=vdir / "stems")
         lufs = svc.encoder.master_audio(premaster, final, cfg)
-    except Exception:
+    except BaseException:                 # UserError is a SystemExit; Ctrl-C also leaves the folder marked
         failed = svc.projects.mark_failed(vdir, labels(lang)["failed"])
         log(f"Render failed; diagnostic files in {failed}")
         raise
@@ -264,7 +261,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
                           "in_video": f"{mmss(c.out_start)}–{mmss(c.out_end)}",
                           "cut_sec": round(tl.cut(c.index), 3),
                           "role": c.data.get("role"), "transition": c.data.get("transition")} for c in tl],
-        "stems": {k: f"stems/{k}.wav" for k in ("original", "music", "sfx") if (vdir / "stems" / f"{k}.wav").exists()},
+        "stems": {k: f"stems/{k}.wav" for k in ("original", "music", "sfx") if svc.projects.exists(vdir / "stems" / f"{k}.wav")},
         "text_boxes": boxes,
         "typing": typing_bursts(keystrokes),
     }

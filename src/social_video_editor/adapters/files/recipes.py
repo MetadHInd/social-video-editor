@@ -1,6 +1,7 @@
 """Recipes: <workspace>/recipes/<name>.yaml (or legacy recetas/) first, then the packaged ones."""
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 
 from ...domain.config import deep_merge, resolve
@@ -8,6 +9,8 @@ from ...domain.models import UserError
 from . import legacy_es
 from .jsonio import read_yaml
 from .workspace import PACKAGE_RECIPES, subdirs
+
+VOCABULARY_PACKAGE = "social_video_editor.data.vocabulary"
 
 
 class YamlRecipeRepository:
@@ -31,6 +34,19 @@ class YamlRecipeRepository:
             for p in sorted(d.glob("*.yaml")):
                 out[legacy_es.recipe_name(p.stem)] = p
         return dict(sorted(out.items()))
+
+    def description(self, name: str) -> str:
+        """First line of the recipe file (its comment header), "" if the file is empty."""
+        path = self.path(name)
+        if path is None:
+            raise UserError(f"Recipe '{name}' not found. Available: {', '.join(self.available())}")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return lines[0] if lines else ""
+
+    def vocabulary(self, language: str) -> list[str]:
+        """Packaged product names (data/vocabulary/products.<language>.txt), comments and blanks skipped."""
+        text = resources.files(VOCABULARY_PACKAGE).joinpath(f"products.{language}.txt").read_text(encoding="utf-8")
+        return [x.strip() for x in text.splitlines() if x.strip() and not x.lstrip().startswith("#")]
 
     def read(self, name: str) -> dict:
         """One recipe file alone (translated to English keys)."""

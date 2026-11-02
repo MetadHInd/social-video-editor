@@ -19,6 +19,10 @@ class MediaProbe(Protocol):
 
     def duration(self, path: str | Path) -> float: ...
 
+    def fingerprint(self, path: str | Path) -> dict:
+        """Identity of a file on disk: {"path": resolved path, "size": bytes, "mtime_ns"}
+        (size/mtime_ns are None when the file does not exist)."""
+
 
 class VideoEncoder(Protocol):
     def make_proxy(self, info: dict, out: Path, hdr_white: float) -> Path:
@@ -107,6 +111,15 @@ class RecipeRepository(Protocol):
 
     def available(self) -> dict[str, Path]: ...
 
+    def read(self, name: str) -> dict:
+        """One recipe file alone (English keys); UserError if it does not exist."""
+
+    def description(self, name: str) -> str:
+        """First line of a recipe file (its comment header), "" if empty."""
+
+    def vocabulary(self, language: str) -> list[str]:
+        """Packaged product names in `language` (es | en), line-aligned across languages."""
+
 
 class ProjectRepository(Protocol):
     def resolve(self, name_or_path: str) -> Path: ...
@@ -126,6 +139,16 @@ class ProjectRepository(Protocol):
     def read_json(self, path: Path) -> dict | list | None: ...
     def load_summary(self, folder: Path) -> dict | None: ...
     def write_text(self, path: Path, text: str) -> None: ...
+    def exists(self, path: Path) -> bool: ...
+    def remove(self, path: Path) -> None:
+        """Deletes a file or a folder (missing ones are ignored)."""
+
+    def clear_files(self, folder: Path, pattern: str) -> None:
+        """Deletes the files of `folder` matching `pattern` (nothing if the folder is missing)."""
+
+    def list_files(self, folder: Path) -> list[Path]:
+        """Files (not folders) directly inside `folder`; [] if it does not exist."""
+
     def find_music(self, music_cfg: dict, project_dir: Path) -> Path | None: ...
     def music_dir(self) -> Path: ...
 
@@ -151,6 +174,14 @@ class CacheStore(Protocol):
 
     def load(self, cache_dir: Path, kind: str, key: str, newer_than: Path | None = None) -> dict | list | None: ...
     def save(self, cache_dir: Path, kind: str, key: str, data) -> Path: ...
+
+    def file(self, cache_dir: Path, name: str) -> Path:
+        """Path of a cache file (e.g. "segments/<hash>.mkv"); its parent folder is created."""
+
+    def has(self, path: Path) -> bool: ...
+
+    def discard(self, path: Path) -> None:
+        """Deletes a temporary cache file (missing ones are ignored)."""
 
 
 class MusicDownloader(Protocol):

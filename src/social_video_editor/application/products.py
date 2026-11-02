@@ -11,7 +11,6 @@ true = may download it (≈1.2 GB, only once); false = never. `sve products` alw
 from __future__ import annotations
 
 from collections.abc import Callable
-from importlib import resources
 
 import numpy as np
 
@@ -22,14 +21,7 @@ from ..log import log
 from .analyze import prepare_sources
 from .services import Services
 
-VOCABULARY_PACKAGE = "social_video_editor.data.vocabulary"
 LABEL_TEMPLATES = {"es": "una foto de {}", "en": "a photo of {}"}
-
-
-def packaged_vocabulary(language: str) -> list[str]:
-    """Names of ~80 common small products in `language` (es | en), line-aligned across languages."""
-    text = resources.files(VOCABULARY_PACKAGE).joinpath(f"products.{language}.txt").read_text(encoding="utf-8")
-    return [x.strip() for x in text.splitlines() if x.strip() and not x.lstrip().startswith("#")]
 
 
 def vision_available(svc: Services, cfg: dict, explicit: bool = False) -> bool:
@@ -81,8 +73,8 @@ class Vision:
         if custom:
             tpl = LABEL_TEMPLATES.get(self.language, "{}")
             return self.texts([tpl.format(x) for x in custom]), list(custom)
-        english = packaged_vocabulary("en")
-        labels = packaged_vocabulary(self.language) if self.language != "en" else english
+        english = self.svc.recipes.vocabulary("en")
+        labels = self.svc.recipes.vocabulary(self.language) if self.language != "en" else english
         return self.texts([LABEL_TEMPLATES["en"].format(x) for x in english]), labels
 
     def detect(self) -> list[dict]:

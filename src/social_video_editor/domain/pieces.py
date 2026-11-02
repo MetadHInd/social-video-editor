@@ -27,6 +27,7 @@ from typing import Protocol
 from .effects import freeze_seconds
 from .models import PlanError
 from .timebase import DEFAULT_FPS, frames, mmss
+from .transitions import entry_overlap
 
 DRAWN_SECONDS_PER_BEAT = 0.6     # drawn shot without "dur": 0.6 s per beat (2 beats by default)
 APPEAR_MARGIN = 0.15             # collage photos must start popping at least this long before the end
@@ -292,6 +293,16 @@ def make_shot(data: dict, index: int) -> Shot:
 
 # ── composites ───────────────────────────────────────────────────────────────
 
+def chain_duration(shots: list, fps: int = DEFAULT_FPS, cfg: dict | None = None) -> float:
+    """Length of consecutive shots played one after another, minus the overlaps of their transitions."""
+    total, prev = 0.0, None
+    for s in shots:
+        dur = s.duration(fps)
+        total += dur - entry_overlap(s.transition, dur, prev, cfg or {}, fps)
+        prev = dur
+    return round(total, 4)
+
+
 class Group(Piece):
     """Consecutive shots that belong together (e.g. a star product: fast + slow + polaroid)."""
 
@@ -303,8 +314,11 @@ class Group(Piece):
     def children(self) -> list[Piece]:
         return self.items
 
-    def duration(self, fps: int = DEFAULT_FPS) -> float:
-        return sum(c.duration(fps) for c in self.items)
+    def duration(self, fps: int = DEFAULT_FPS, cfg: dict | None = None) -> float:
+        """From the start of its first shot to the end of its last one in the video: the overlaps of the
+        transitions BETWEEN its shots are subtracted (as compute_timeline does; cfg gives the
+        transition durations, None = defaults). The entry transition of the first shot is not."""
+        return chain_duration(self.shots(), fps, cfg)
 
 
 class Sequence(Piece):
@@ -336,8 +350,11 @@ class Sequence(Piece):
     def children(self) -> list[Piece]:
         return self.items
 
-    def duration(self, fps: int = DEFAULT_FPS) -> float:
-        return sum(c.duration(fps) for c in self.items)
+    def duration(self, fps: int = DEFAULT_FPS, cfg: dict | None = None) -> float:
+        """From the start of its first shot to the end of its last one in the video: the overlaps of the
+        transitions BETWEEN its shots are subtracted (as compute_timeline does; cfg gives the
+        transition durations, None = defaults). The entry transition of the first shot is not."""
+        return chain_duration(self.shots(), fps, cfg)
 
     def render_order(self) -> list[int]:
         """Shot indices in an order where every shot comes after the shots it is drawn from.

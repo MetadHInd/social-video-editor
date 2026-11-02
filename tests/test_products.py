@@ -8,6 +8,7 @@ import pytest
 
 from social_video_editor.adapters.clip.detector import ClipVisualDetector
 from social_video_editor.adapters.files import legacy_es
+from social_video_editor.adapters.files.recipes import YamlRecipeRepository
 from social_video_editor.application import products as app
 from social_video_editor.cli import parser
 from social_video_editor.domain import products as dp
@@ -253,7 +254,7 @@ class FakeProjects:
 
 class FakeServices:
     def __init__(self, detector):
-        self.visual, self.projects = detector, FakeProjects()
+        self.visual, self.projects, self.recipes = detector, FakeProjects(), YamlRecipeRepository()
 
 
 def _project(tmp_path, cfg):
@@ -277,7 +278,7 @@ def test_vision_detect_products_json_and_table(tmp_path, cfg):
 
 
 def test_packaged_vocabulary_is_aligned_across_languages():
-    es, en = app.packaged_vocabulary("es"), app.packaged_vocabulary("en")
+    es, en = YamlRecipeRepository().vocabulary("es"), YamlRecipeRepository().vocabulary("en")
     assert len(es) == len(en) >= 75 and len(set(es)) == len(es) and len(set(en)) == len(en)
     for pair in (("aretes", "earrings"), ("funda de celular", "phone case"), ("bolígrafos", "pens"),
                  ("audífonos", "headphones"), ("botella", "bottle")):

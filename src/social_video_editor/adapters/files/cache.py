@@ -25,3 +25,14 @@ class JsonCacheStore:
         p = Path(cache_dir) / legacy_es.CACHE_FILES[kind][0].format(key=key)
         write_json(p, data)
         return p
+
+    def file(self, cache_dir: Path, name: str) -> Path:
+        p = Path(cache_dir) / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def has(self, path: Path) -> bool:
+        return Path(path).exists()
+
+    def discard(self, path: Path) -> None:
+        Path(path).unlink(missing_ok=True)

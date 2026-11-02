@@ -12,7 +12,7 @@ from .services import Services
 
 
 def make_plan(svc: Services, project: Project, force: bool = False) -> Path | None:
-    if project.plan_path.exists() and not force:
+    if svc.projects.exists(project.plan_path) and not force:
         log(f"{project.plan_path} already exists (use --force to redo it; a copy is kept).")
         return None
     infos, analyses = prepare_sources(svc, project)
