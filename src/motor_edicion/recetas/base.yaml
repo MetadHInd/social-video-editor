@@ -1,0 +1,183 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RECETA BASE — valores por defecto para TODO video. Cada receta de tipo
+# (unboxing.yaml, tutorial.yaml…) y cada proyecto.yaml (sección "ajustes")
+# solo sobrescriben lo que necesitan. El porqué de cada valor está en
+# docs/INVESTIGACION.md (sección "Reglas de edición → parámetros").
+# ─────────────────────────────────────────────────────────────────────────────
+
+salida:
+  ancho: 1080            # 9:16 vertical; el formato vertical aumenta comentarios y compartidos (Xiao et al., 2024)
+  alto: 1920
+  fps: 30
+  perfiles: [tiktok]     # tiktok | reels | shorts | youtube (16:9) — ver motor_edicion/exportar.py
+
+duracion:
+  objetivo: 30           # segundos. <15 s compite por % de finalización; 30 s+ por tiempo total de visualización
+  minimo: 12
+  maximo: 60
+
+ritmo:
+  toma_min: 0.8          # ninguna toma dura menos (se vuelve ilegible)
+  toma_max: 3.2          # cambio visual cada ~2-3 s (interrupción de patrón)
+  frase_max: 5.0         # si hay voz, una toma puede alargarse hasta acabar la frase
+  separacion_min: 0.6    # dos tomas de la misma fuente no se pisan
+  acelerar_sin_voz: 1.0  # 1.2 = tomas sin voz al 120 % de velocidad
+
+gancho:
+  estrategia: teaser     # teaser = mostrar primero el mejor momento (1-2 s) y luego contar la historia | inicio = empezar por el principio
+  duracion: 1.6
+  texto: null            # texto grande en pantalla los primeros segundos (recomendado). Ej: "¿Valió la pena? 😳"
+  transicion: flash      # cómo se pasa del gancho a la historia
+
+cierre:
+  bucle: true            # el final conecta con el inicio → re-reproducciones
+  fundido_audio: 0.25
+
+seleccion:               # cómo se puntúa cada momento del material
+  pesos:
+    movimiento: 1.0      # acción en pantalla (moderada; el exceso se penaliza por desenfoque)
+    audio: 0.7           # volumen por encima de lo normal
+    picos: 0.8           # sonidos bruscos: rasgar, abrir, risas, "¡wow!"
+    voz: 1.0             # se está hablando
+    palabras_clave: 2.0  # aparece alguna palabra de la lista de abajo
+    nitidez: 0.6
+    color: 0.4           # imagen colorida
+  palabras_clave: []
+  luz_minima: 0.12       # descarta tomas casi negras
+  borroso_percentil: 12  # descarta el 12 % más borroso
+  usar_todas_las_fuentes: true
+  cobertura: 8           # divide el material en N tramos y toma lo mejor de cada uno (0 = solo lo mejor global)
+
+analisis:
+  muestras_por_seg: 4
+  umbral_escena: 27
+
+transcripcion:
+  modelo: small          # tiny | base | small | medium | large-v3 (más grande = más preciso y lento)
+  idioma: es
+  contexto: ""           # palabras que ayudan a Whisper (marcas, nombres)
+  prob_min: 0.35
+
+color:
+  auto: true
+  hdr_blanco: 0.62       # conversión HDR iPhone → SDR (probado)
+  niveles: true          # estira negros/blancos
+  balance_blancos: 0.5   # 0 = no tocar, 1 = neutralizar del todo
+  luma_objetivo: 0.47    # brillo medio al que se llevan TODAS las tomas (las iguala)
+  gamma_min: 0.8
+  gamma_max: 1.5
+  contraste: 1.05
+  saturacion: 1.10
+  vibrance: 0.12
+  temperatura: null      # ej. 6000 = más cálido
+  nitidez: 0.35          # CAS (0 = nada)
+  lut: null              # ruta a una LUT .cube creativa opcional
+  vineta: false
+
+encuadre:
+  modo: auto             # auto | recortar | desenfoque (rellena bordes con la misma imagen desenfocada)
+  enfoque_x: 0.5         # dónde centrar el recorte si la fuente es horizontal (0 = izq, 1 = der)
+  margen_zoom: 1.25      # resolución extra para que los zooms no pierdan calidad
+  empuje_lento: 0.04     # "ken burns": cada toma se acerca un 4 % (sensación de movimiento)
+
+transiciones:
+  rotacion: [corte, corte, zoom, corte, whip, corte]   # se reparten en ese orden
+  duracion: 0.22
+  sonido: true           # whoosh en transiciones animadas
+  # catálogo: corte | fundido | negro | flash | zoom | whip | slide_arriba | desliz_izq | circulo | pixel | difuminar
+
+efectos:
+  zoom_en_picos: true    # golpe de zoom cuando hay un sonido fuerte (énfasis)
+  zoom_escala: 1.12
+  pulso_cantidad: 0.035  # efecto pulso_ritmo: zoom en cada golpe
+  zoom_proporcion: 0.3   # como máximo 30 % de las tomas con zoom de golpe (si se abusa, pierde efecto)
+  flash_en_reveal: false
+  barra_progreso: false  # barra arriba que avanza (anticipa el final)
+  color_barra: "#FFFFFF"
+
+audio:
+  usar_original: true
+  ruido: 10              # reducción de ruido (dB, afftdn). 0 = apagado
+  paso_alto: 80          # quita retumbes
+  eq_voz: true           # presencia en 3 kHz, menos "barro" en 250 Hz
+  compresor: true
+  ganancia_sin_voz_db: 3 # sube sonidos ASMR (rasgar, abrir) cuando no se habla
+  asmr: false            # true = sin voz: más brillo, compresión fuerte para que se oiga cada crujido
+  loudness: -14          # LUFS integrados (lo más citado para TikTok/Reels/Shorts)
+  pico: -1.0             # dBTP
+
+musica:
+  archivo: null          # ruta a un mp3/wav; null = primera pista de la carpeta musica/ (o sin música)
+  volumen_con_voz_db: -20
+  volumen_sin_voz_db: -11
+  ducking: true          # baja la música automáticamente cuando se habla
+  ducking_asmr: false    # también baja cuando suenan los sonidos del video (ideal con asmr: true)
+  ducking_ratio: 4
+  entrada_seg: 0.0       # desde qué segundo de la canción empezar (ej. el drop)
+  fundido_salida: 1.0
+  # entrada_seg: auto     → la canción arranca de forma que su "drop" caiga al final de la primera toma
+  # drop_en_seg: 2.0      → (opcional) o en este segundo exacto del video
+  # alinear: exacto       → cada corte EXACTAMENTE en un golpe (automático si alguna toma tiene "golpes": N)
+  fundido_entrada: 0.25
+  cortes_en_beat: true   # mueve los cortes al golpe más cercano
+  medio_tiempo: true     # también vale cortar entre dos golpes (contratiempo)
+
+sfx:
+  activado: true
+  volumen_db: -12
+  pop_en_textos: true    # pop al aparecer textos con animación "pop"
+  tecleo: true           # clic suave por cada letra de los textos que se escriben
+  tecleo_db: -9          # relativo a volumen_db
+  whoosh_en_transiciones: true
+
+subtitulos:
+  auto: true             # con voz → Whisper palabra por palabra; sin voz → solo los textos del plan
+  max_palabras: 3
+  max_caracteres: 18
+  mayusculas: true
+  fuente: Inter-Black
+  tam: 82
+  color: "#FFFFFF"
+  resalte: "#FFE14D"     # palabra que se está diciendo
+  borde: 9
+  borde_color: "#000000"
+  sombra: true
+  y: 0.64                # posición vertical (0 arriba, 1 abajo). Zona segura TikTok ≈ 0.12–0.75
+  animacion: pop
+
+textos:                  # estilos de los textos en pantalla del plan (gancho, etiquetas, tarjetas, CTA…)
+  # Campos de un estilo: tam, fuente, color, fondo (#RRGGBBAA), x / y (posición del centro, 0-1),
+  # max_ancho, mayusculas, radio (esquinas), contorno, animacion (escribir | pop | ninguna),
+  # velocidad (letras por segundo al escribir), desc_fuente / desc_tam / desc_color (para "descripcion").
+  # Un texto del plan puede llevar "descripcion": se escribe debajo del título cuando este termina.
+  estilos:
+    gancho:   {tam: 84, fuente: InterDisplay-Black, color: "#111111", fondo: "#FFFFFF", y: 0.20, max_ancho: 0.86, animacion: escribir, velocidad: 30}
+    etiqueta: {tam: 64, color: "#FFFFFF", fondo: "#FF3B6B", y: 0.30, max_ancho: 0.8, animacion: pop}
+    tarjeta:  {tam: 60, fuente: InterDisplay-Bold, color: "#2B2B2B", fondo: "#FFFFFFEB", y: 0.165, max_ancho: 0.88,
+               radio: 0.5, animacion: escribir, velocidad: 34,
+               desc_fuente: "Bradley Hand Bold", desc_tam: 62, desc_color: "#D6457F"}
+    contador: {tam: 40, fuente: InterDisplay-Bold, color: "#FFFFFF", fondo: "#00000070", x: 0.86, y: 0.085,
+               max_ancho: 0.3, radio: 0.7, animacion: pop}
+    precio:   {tam: 96, color: "#111111", fondo: "#FFE14D", y: 0.42, mayusculas: true, max_ancho: 0.8, animacion: pop}
+    cta:      {tam: 58, fuente: InterDisplay-Bold, color: "#FFFFFF", fondo: "#000000A8", y: 0.80, max_ancho: 0.84, animacion: escribir}
+    simple:   {tam: 72, color: "#FFFFFF", fondo: null, y: 0.50, max_ancho: 0.86, animacion: pop}
+
+exportar:
+  crf: 17
+  maxrate: 20M           # alta calidad para que la recompresión de TikTok tenga margen
+  audio_kbps: 192
+  portada: true
+  portada_seg: 1.6       # de qué segundo sale la portada (cuando el gancho ya está escrito)
+
+polaroid:                # toma {"tipo": "polaroid", "de_toma": k, "golpes": 2, "texto": "…"}
+  ancho: 0.70
+  centro_y: 0.5
+  fuente: Bradley Hand Bold
+  caida: 0.16            # segundos que tarda la foto en caer
+  destello: 0.10         # duración del flash
+
+collage:                 # toma {"tipo": "collage", "de_tomas": [...], "fondo_de": k, "golpes": 8}
+  columnas: 4
+  subdivision: 2         # las fotos aparecen cada 1/2 golpe (4 = cada cuarto de golpe, más rápido)
+  y0: 0.215              # zona vertical que ocupa la cuadrícula (dentro de la zona segura)
+  y1: 0.72

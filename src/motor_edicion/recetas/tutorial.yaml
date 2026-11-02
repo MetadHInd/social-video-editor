@@ -1,0 +1,13 @@
+# RECETA: TUTORIAL / HOW-TO / RECETA DE COCINA / "cómo hacer X"
+# Fórmula: resultado final primero (0-2 s) → pasos numerados cortos → resultado otra vez + "guárdalo".
+# La voz manda: subtítulos grandes y cortes en silencios. Se premia el GUARDADO (contenido útil).
+duracion: {objetivo: 40, maximo: 75}
+ritmo: {toma_max: 3.5, frase_max: 6.0, acelerar_sin_voz: 1.5}   # partes sin explicar (esperas) van rápido
+gancho: {estrategia: teaser, duracion: 1.8, transicion: flash}
+seleccion:
+  pesos: {voz: 1.6, palabras_clave: 2.2, movimiento: 0.7, picos: 0.4}
+  palabras_clave: [paso, primero, segundo, luego, después, final, truco, importante, así, listo, resultado]
+transcripcion: {modelo: small}
+transiciones: {rotacion: [corte, corte, corte, desliz_izq]}
+efectos: {zoom_proporcion: 0.2, barra_progreso: true}
+subtitulos: {max_palabras: 3, y: 0.66}

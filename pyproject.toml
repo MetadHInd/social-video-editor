@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "motor_edicion"
+version = "0.1.0"
+description = "Motor de edición de video vertical para redes sociales (Python + FFmpeg)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "pillow",
+    "soundfile",
+    "scipy",
+    "librosa",
+    "opencv-python",
+    "scenedetect",
+    "faster-whisper",
+]
+
+[project.optional-dependencies]
+vision = ["sentence-transformers"]
+musica = ["yt-dlp"]
+dev = ["pytest"]
+
+[project.scripts]
+motor = "motor_edicion.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+motor_edicion = ["recetas/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]          # funciona aunque el paquete no esté instalado
+markers = ["integracion: necesita FFmpeg (genera medios sintéticos en una carpeta temporal)"]

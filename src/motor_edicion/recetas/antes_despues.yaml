@@ -1,0 +1,8 @@
+# RECETA: ANTES / DESPUÉS (transformación, limpieza, maquillaje, decoración, glow-up)
+# Fórmula: el "después" en 1 s → "antes" → proceso acelerado → revelación del después con flash/zoom.
+duracion: {objetivo: 20, maximo: 40}
+ritmo: {toma_max: 2.2, acelerar_sin_voz: 2.0}     # el proceso va muy rápido
+gancho: {estrategia: teaser, duracion: 1.2, transicion: flash}
+seleccion: {cobertura: 10}
+efectos: {flash_en_reveal: true, zoom_proporcion: 0.3}
+transiciones: {rotacion: [corte, corte, corte, zoom]}

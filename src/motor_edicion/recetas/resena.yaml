@@ -1,0 +1,11 @@
+# RECETA: RESEÑA / "¿VALE LA PENA?" / PRUEBA DE PRODUCTO
+# Fórmula: veredicto o pregunta polémica (0-2 s) → lo bueno → lo malo → veredicto final + pregunta al público.
+duracion: {objetivo: 35, maximo: 60}
+ritmo: {toma_max: 3.0, frase_max: 5.5, acelerar_sin_voz: 1.25}
+gancho: {estrategia: teaser, duracion: 1.8}
+seleccion:
+  pesos: {voz: 1.4, palabras_clave: 2.4, picos: 0.6}
+  palabras_clave: [vale, pena, bueno, malo, calidad, precio, barato, caro, recomiendo, nunca, mejor, peor,
+                   funciona, sirve, verdad, honesto, opinión]
+transiciones: {rotacion: [corte, corte, zoom, corte]}
+efectos: {zoom_proporcion: 0.35}

@@ -1,0 +1,13 @@
+# RECETA: VLOG / DÍA EN MI VIDA / VIAJE
+# Fórmula: momento más llamativo del día (0-2 s) → secuencia cronológica rápida → cierre emocional/gracioso.
+# Mucha música, cortes al ritmo, voz solo donde suma.
+duracion: {objetivo: 30, maximo: 60}
+ritmo: {toma_min: 0.6, toma_max: 2.0, acelerar_sin_voz: 1.3}
+gancho: {estrategia: teaser, duracion: 1.5, transicion: whip}
+seleccion:
+  pesos: {movimiento: 1.2, color: 0.8, voz: 0.8}
+  cobertura: 12
+musica: {volumen_sin_voz_db: -9, cortes_en_beat: true}
+transiciones: {rotacion: [corte, whip, corte, zoom, corte, slide_arriba]}
+efectos: {zoom_proporcion: 0.25}
+color: {saturacion: 1.15, vibrance: 0.18}
