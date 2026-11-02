@@ -16,3 +16,6 @@ sfx/
 *.m4a
 *.cube
 .DS_Store
+
+# agent worktrees / local tool state
+.claude/
