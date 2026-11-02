@@ -39,8 +39,9 @@ class VideoEncoder(Protocol):
 
     def compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
                 music: Path | None, sfx: Path | None, cfg: dict, W: int, H: int, total: float,
-                has_voice: bool, draft: bool, workdir: Path, out: Path) -> Path:
-        """Joins the segments with their transitions, overlays texts, mixes music/sfx (premaster)."""
+                has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None) -> Path:
+        """Joins the segments with their transitions, overlays texts, mixes music/sfx (premaster).
+        With stems_dir, also writes original.wav / music.wav / sfx.wav there in the same pass."""
 
     def master_audio(self, src: Path, out: Path, cfg: dict) -> dict:
         """Brings the audio to the target LUFS; returns {"before_lufs", "after_lufs", "true_peak_dbtp"}."""
@@ -75,8 +76,9 @@ class Transcriber(Protocol):
 
 class TextRenderer(Protocol):
     def render_layer(self, texts: list[dict], groups: list[dict], cfg: dict, W: int, H: int,
-                     total: float, folder: Path) -> tuple[Path | None, list[float]]:
-        """Draws texts/subtitles as still images + an ffconcat list → (list path, keystroke times)."""
+                     total: float, folder: Path, boxes: list | None = None) -> tuple[Path | None, list[float]]:
+        """Draws texts/subtitles as still images + an ffconcat list → (list path, keystroke times).
+        If `boxes` is a list it receives the placed boxes {"kind", "text", "x", "y", "w", "h", "start", "end"}."""
 
 
 class ImageComposer(Protocol):
@@ -111,6 +113,9 @@ class ProjectRepository(Protocol):
     def variant_folder(self, project: Project, suffix: str) -> Path: ...
     def last_version(self, project: Project) -> Path | None: ...
     def versions(self, project: Project) -> list[Path]: ...
+    def load_version(self, folder: str | Path, version: str | None = None) -> dict:
+        """A rendered version (read only): {"dir", "name", "video", "summary", "plan", "config", "stems"}."""
+
     def mark_failed(self, folder: Path, suffix: str) -> Path: ...
     def write_json(self, path: Path, data) -> None: ...
     def read_json(self, path: Path) -> dict | list | None: ...
@@ -118,6 +123,22 @@ class ProjectRepository(Protocol):
     def write_text(self, path: Path, text: str) -> None: ...
     def find_music(self, music_cfg: dict, project_dir: Path) -> Path | None: ...
     def music_dir(self) -> Path: ...
+
+
+class RenderInspector(Protocol):
+    """Measures a finished render (sve check)."""
+
+    def loudness(self, path: Path) -> dict:
+        """EBU R128: {"integrated", "true_peak", "lra", "t", "momentary", "short_term"} (series every 0.1 s)."""
+
+    def audio(self, path: Path, sr: int = 48000):
+        """The audio as a float32 numpy array, shape (samples, 2)."""
+
+    def video_events(self, path: Path, black_min: float, freeze_min: float) -> dict:
+        """{"black": [[start, end]], "freeze": [[start, end]]}"""
+
+    def snippet(self, path: Path, start: float, dur: float, out: Path) -> Path:
+        """A short wav of the audio for a human to listen to."""
 
 
 class CacheStore(Protocol):

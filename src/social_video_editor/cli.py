@@ -10,8 +10,9 @@
   sve report  <project> [--json]           (one-screen project report; reads only files on disk)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
+  sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
 
-Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica and
+Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar and
 --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
 """
 from __future__ import annotations
@@ -30,6 +31,7 @@ from .application.thumbs import contact_sheets
 from .application.view import load_plan, view_lines
 from .container import build_services
 from .domain.config import EXPORT_PROFILES
+from .domain.music import tempo_lines
 from .log import log
 
 PROFILE_CHOICES = [*EXPORT_PROFILES, "cuadrado"]
@@ -85,7 +87,16 @@ def cmd_recipes(svc, a):
 def cmd_music(svc, a):
     path, am = download_music(svc, a.query)
     print(f"Downloaded: {path.name} — {am['duration']:.0f} s, {am['tempo']} BPM, drop at {am['drop']:.1f} s")
+    print("\n".join(tempo_lines(am)))
     print(f"To use it: in project.yaml → settings → music → file: \"{path.parent.name}/{path.name}\"")
+
+
+def cmd_check(svc, a):
+    from .application.check import check_version
+    from .domain.check import report_lines
+
+    result, notes = check_version(svc, a.project, a.version, a.out)
+    print("\n".join(report_lines(result, notes)))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -129,6 +140,11 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")
     s.add_argument("query")
     s.set_defaults(f=cmd_music)
+    s = sub.add_parser("check", aliases=["verificar"], help="automatic review of a render (check.json + listen/)")
+    s.add_argument("project")
+    s.add_argument("--version", dest="version", help="version folder (default: latest vN)")
+    s.add_argument("--out", "--salida", dest="out", help="write check.json and snippets here instead")
+    s.set_defaults(f=cmd_check)
     return ap
 
 

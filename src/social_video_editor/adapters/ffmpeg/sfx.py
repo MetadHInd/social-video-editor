@@ -2,6 +2,8 @@
 
 Names: whoosh, pop, flash (FFmpeg synthesis), keystroke, shutter (numpy synthesis).
 Legacy Spanish files (tecla.wav, obturador.wav) are used if present.
+Typing clicks get per-keystroke variation when mixed (5 pitch variants of the sample, level ±2.5 dB,
+timing ±6 ms; seeded, so the same edit gives the same track) — also with your own keystroke.wav.
 """
 from __future__ import annotations
 
@@ -53,6 +55,43 @@ def _synthesize(name: str, path: Path) -> bool:
     return True
 
 
+# Sounds repeated many times in a row (one per typed letter) get per-hit variation so they do not
+# sound like a machine gun: a few pitch variants of the sample, level and timing jitter. Seeded:
+# the same edit always gives the same track.
+VARIED = {"keystroke": {"pitches": (0.93, 0.97, 1.0, 1.04, 1.08), "level_db": 2.5, "jitter_s": 0.006}}
+VARIATION_SEED = 1729
+
+
+def _resample(x, factor: float):
+    """Plays x `factor` times faster (higher pitch, shorter): linear interpolation, fine for clicks."""
+    import numpy as np
+
+    n = max(int(round(len(x) / factor)), 1)
+    pos = np.arange(n) * factor
+    idx = np.arange(len(x))
+    return np.stack([np.interp(pos, idx, x[:, c], right=0.0) for c in range(x.shape[1])], 1).astype("float32")
+
+
+class VariedSound:
+    """Variants of one sample + deterministic per-hit choice (never the same variant twice in a row)."""
+
+    def __init__(self, sample, spec: dict, rng):
+        self.variants = [_resample(sample, f) for f in spec["pitches"]]
+        self.spec, self.rng, self.last = spec, rng, -1
+
+    def hit(self, t: float, gain_db: float):
+        n = len(self.variants)
+        if self.last < 0:
+            k = int(self.rng.integers(n))
+        else:                                                      # any variant but the previous one
+            k = int(self.rng.integers(n - 1))
+            k += k >= self.last
+        self.last = k
+        lv = float(self.rng.uniform(-1, 1)) * self.spec["level_db"]
+        dt = float(self.rng.uniform(-1, 1)) * self.spec["jitter_s"]
+        return self.variants[k], t + dt, gain_db + lv
+
+
 class FfmpegSoundEffects:
     def __init__(self, folder: Callable[[], Path]):
         self._folder = folder
@@ -76,15 +115,21 @@ class FfmpegSoundEffects:
         import soundfile as sf
 
         track = np.zeros((int((total + 1) * SR), 2), dtype="float32")
-        loaded = {}
-        for name, t, gain_db in events:
+        loaded, varied = {}, {}
+        rng = np.random.default_rng(VARIATION_SEED)
+        for name, t, gain_db in sorted(events, key=lambda e: (e[1], e[0])):
             if name not in loaded:
                 x, r = sf.read(self.path(name), dtype="float32", always_2d=True)
                 if r != SR:
                     import librosa
                     x = librosa.resample(x.T, orig_sr=r, target_sr=SR).T
                 loaded[name] = x if x.shape[1] == 2 else np.repeat(x[:, :1], 2, 1)
-            x = loaded[name] * (10 ** (gain_db / 20))
+                if name in VARIED:
+                    varied[name] = VariedSound(loaded[name], VARIED[name], rng)
+            x = loaded[name]
+            if name in varied:
+                x, t, gain_db = varied[name].hit(t, gain_db)
+            x = x * (10 ** (gain_db / 20))
             i = int(max(t, 0) * SR)
             j = min(i + len(x), len(track))
             track[i:j] += x[: j - i]

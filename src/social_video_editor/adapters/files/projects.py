@@ -112,6 +112,39 @@ class YamlProjectRepository:
             return (int(digits), p.name) if digits else (-1, p.name)
         return sorted((p for p in project.dir.glob("v*") if p.is_dir() and p.name[1:2].isdigit()), key=key)
 
+    def load_version(self, folder: str | Path, version: str | None = None) -> dict:
+        """A rendered version, read only: {"dir", "name", "video", "summary", "plan", "config", "stems"}.
+
+        version=None → the latest main version. Legacy Spanish files (resumen.json, plan_usado.json,
+        config_usada.json) are translated; the config is completed with the base recipe defaults.
+        Missing files give empty dicts; "stems" maps original/music/sfx to the wavs that exist.
+        """
+        d = Path(folder)
+        if version:
+            vdir = d / version
+        else:
+            vs = sorted((p for p in d.glob("v*") if p.is_dir() and p.name[1:].isdigit()), key=lambda p: int(p.name[1:]))
+            vdir = vs[-1] if vs else d / "v1"
+        if not vdir.is_dir():
+            raise UserError(f"Version folder not found: {vdir}")
+
+        def read(name: str) -> dict:
+            for n in (name, legacy_es.FILES.get(name)):
+                if n and (vdir / n).exists():
+                    return read_json(vdir / n) or {}
+            return {}
+
+        summary = legacy_es.summary(read("summary.json"))
+        config = self.recipes.load("base", read("config_used.json"))
+        video = vdir / summary["video"] if summary.get("video") else None
+        if video is None or not video.exists():
+            mp4 = sorted(p for p in vdir.glob("*.mp4") if not p.name.startswith("_"))
+            video = mp4[0] if mp4 else None
+        stems = {k: vdir / "stems" / f"{k}.wav" for k in ("original", "music", "sfx")
+                 if (vdir / "stems" / f"{k}.wav").exists()}
+        return {"dir": vdir, "name": vdir.name, "video": video, "summary": summary,
+                "plan": legacy_es.plan(read("plan_used.json")), "config": config, "stems": stems}
+
     def mark_failed(self, folder: Path, suffix: str) -> Path:
         failed = folder.with_name(folder.name + suffix)
         folder.rename(failed)

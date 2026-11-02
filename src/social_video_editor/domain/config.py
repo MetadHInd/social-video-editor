@@ -29,10 +29,10 @@ EXPORT_PROFILES = {
 _LABELS = {
     "es": {"draft": "Borrador", "no_music": "SinMusica", "failed": "_fallida",
            "file_draft": "_borrador", "file_no_music": "_sin_musica", "cover": "_portada",
-           "profiles": {"square": "cuadrado"}},
+           "listen": "escuchar", "profiles": {"square": "cuadrado"}},
     "en": {"draft": "Draft", "no_music": "NoMusic", "failed": "_failed",
            "file_draft": "_draft", "file_no_music": "_no_music", "cover": "_cover",
-           "profiles": {}},
+           "listen": "listen", "profiles": {}},
 }
 
 

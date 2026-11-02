@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .adapters.ffmpeg.encoder import FfmpegEncoder
+from .adapters.ffmpeg.inspector import FfmpegRenderInspector
 from .adapters.ffmpeg.probe import FfprobeMediaProbe
 from .adapters.ffmpeg.sfx import FfmpegSoundEffects
 from .adapters.files.cache import JsonCacheStore
@@ -33,4 +34,5 @@ def build_services() -> Services:
         cache=JsonCacheStore(),
         downloader=YtDlpDownloader(),
         visual=None,            # VisualDetector: reserved for a future CLIP-based adapter
+        inspector=FfmpegRenderInspector(),
     )

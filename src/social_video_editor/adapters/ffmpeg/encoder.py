@@ -104,8 +104,11 @@ class FfmpegEncoder:
     # ── final video ──────────────────────────────────────────────────────────
     def compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
                 music: Path | None, sfx: Path | None, cfg: dict, W: int, H: int, total: float,
-                has_voice: bool, draft: bool, workdir: Path, out: Path) -> Path:
-        """Joins the segments, overlays the text layer and progress bar, mixes music + sfx → premaster."""
+                has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None) -> Path:
+        """Joins the segments, overlays the text layer and progress bar, mixes music + sfx → premaster.
+
+        stems_dir: also writes stems_dir/{original,music,sfx}.wav (pre-master levels) in the same pass.
+        """
         fps = int(cfg["output"]["fps"])
         inputs = []
         for s in segment_files:
@@ -135,13 +138,20 @@ class FfmpegEncoder:
                          f"{v}[bar]overlay=x='-w+w*t/{total:.3f}':y=0[vb]")
             v = "[vb]"
         parts.append(f"{v}format=yuv420p,setsar=1[vout]")
-        mix, am = filters.final_mix(a, total, cfg, idx_music, idx_sfx, has_voice)
+        stems = {} if stems_dir else None
+        mix, am = filters.final_mix(a, total, cfg, idx_music, idx_sfx, has_voice, stems)
         parts.append(mix)
         script = workdir / "_filter.txt"
         script.write_text(";\n".join(parts))
+        extra = []
+        if stems:
+            Path(stems_dir).mkdir(parents=True, exist_ok=True)
+            for name, label in stems.items():
+                extra += ["-map", label, "-t", f"{total:.4f}", "-c:a", "pcm_s16le", "-ar", "48000",
+                          Path(stems_dir) / f"{name}.wav"]
         run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", "[vout]", "-map", am,
              "-t", f"{total:.4f}", "-r", str(fps), *filters.video_output_options(cfg, draft),
-             "-c:a", "pcm_s16le", "-ar", "48000", out])
+             "-c:a", "pcm_s16le", "-ar", "48000", out, *extra])
         return out
 
     def measure_loudness(self, path: Path, cfg: dict) -> dict:
