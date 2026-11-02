@@ -1,6 +1,7 @@
 """Projects on disk: project.yaml (or legacy proyecto.yaml), plan.json, version folders, outputs."""
 from __future__ import annotations
 
+import itertools
 import shutil
 from pathlib import Path
 
@@ -104,6 +105,13 @@ class YamlProjectRepository:
                     key=lambda p: int(p.name[1:]))
         return vs[-1] if vs else None
 
+    def versions(self, project: Project) -> list[Path]:
+        """Every version folder (v1, v2, v2SinMusica, v3_failed…) sorted by number, then name."""
+        def key(p: Path):
+            digits = "".join(itertools.takewhile(str.isdigit, p.name[1:]))
+            return (int(digits), p.name) if digits else (-1, p.name)
+        return sorted((p for p in project.dir.glob("v*") if p.is_dir() and p.name[1:2].isdigit()), key=key)
+
     def mark_failed(self, folder: Path, suffix: str) -> Path:
         failed = folder.with_name(folder.name + suffix)
         folder.rename(failed)
@@ -112,6 +120,21 @@ class YamlProjectRepository:
     # ── outputs ──────────────────────────────────────────────────────────────
     def write_json(self, path: Path, data) -> None:
         write_json(path, data)
+
+    def read_json(self, path: Path):
+        """A JSON output (products.json, check.json…) or None if it is missing or unreadable."""
+        try:
+            return read_json(path) if Path(path).is_file() else None
+        except (OSError, ValueError):
+            return None
+
+    def load_summary(self, folder: Path) -> dict | None:
+        """summary.json of a version folder (legacy resumen.json is translated)."""
+        for name in ("summary.json", legacy_es.FILES["summary.json"]):
+            data = self.read_json(Path(folder) / name)
+            if isinstance(data, dict):
+                return legacy_es.summary(data)
+        return None
 
     def write_text(self, path: Path, text: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
