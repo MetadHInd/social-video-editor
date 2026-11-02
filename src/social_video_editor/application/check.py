@@ -79,8 +79,8 @@ class Checker:
         I, tp = ck.finite(L["integrated"]), ck.finite(L["true_peak"])
         self.metrics["audio"] = {"integrated_lufs": I, "target_lufs": target, "true_peak_dbtp": tp,
                                  "true_peak_max": tp_max, "lra": ck.finite(L["lra"]),
-                                 # what the mastering measured (loudnorm); BS.1770 (ebur128) above is the
-                                 # reference — they differ on very short / very dynamic videos
+                                 # what the mastering measured: the same ebur128 measurement (renders made
+                                 # before it used loudnorm, which differs on very short videos)
                                  "engine_lufs": ck.finite(self.summary.get("audio", {}).get("after_lufs"))}
         if I is None or abs(I - target) > th["loudness_tolerance_lu"]:
             self.errors.append(f"integrated loudness {I} LUFS, target {target} ± {th['loudness_tolerance_lu']} LU")

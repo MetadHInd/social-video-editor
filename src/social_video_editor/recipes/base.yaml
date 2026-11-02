@@ -101,6 +101,8 @@ audio:
   asmr: false            # true = without speech: brighter, strong compression so every crackle is heard
   loudness: -14          # integrated LUFS (the most cited value for TikTok/Reels/Shorts)
   true_peak: -1.0        # dBTP
+  master_max_gain_db: 24 # mastering never raises the audio more than this (warns if the target is not reached)
+  drawn_shot_db: -6      # polaroid / collage: the sound continues from the source this much quieter
 
 music:
   file: null             # path to an mp3/wav; null = first track of the music/ folder (or no music); none = no music
@@ -126,6 +128,7 @@ sfx:
   pop_on_texts: true     # pop when texts with the "pop" animation appear
   typing: true           # soft click for every letter of typed texts
   typing_db: -9          # relative to volume_db
+  typing_max_per_sec: 16 # at most this many click sounds per second (letters still appear at their own speed)
   whoosh_on_transitions: true
 
 subtitles:

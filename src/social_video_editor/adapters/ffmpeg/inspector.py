@@ -8,33 +8,14 @@ from pathlib import Path
 import numpy as np
 
 from ..system.tools import FFMPEG
+from .loudness import ebur128
 from .runner import run, stderr_of
-
-_FRAME = re.compile(r"t:\s*([\d.]+)\s+TARGET:.*?M:\s*(-?[\d.]+|-inf|nan)\s+S:\s*(-?[\d.]+|-inf|nan)")
-_NUM = r"(-?[\d.]+|-inf|nan)"
-
-
-def _f(s: str) -> float:
-    try:
-        return float(s)
-    except ValueError:
-        return float("-inf")
 
 
 class FfmpegRenderInspector:
     def loudness(self, path: Path) -> dict:
         """{"integrated", "true_peak", "lra", "t": […], "momentary": […], "short_term": […]} (every 0.1 s)."""
-        err = stderr_of(["-nostats", "-i", str(path), "-map", "0:a:0", "-af",
-                         "ebur128=peak=true:framelog=info", "-f", "null", "-"])
-        t, m, s = [], [], []
-        for mt in _FRAME.finditer(err):
-            t.append(float(mt.group(1)))
-            m.append(_f(mt.group(2)))
-            s.append(_f(mt.group(3)))
-        summary = err[err.rfind("Summary:"):]
-        get = lambda pat: _f(re.search(pat, summary).group(1)) if re.search(pat, summary) else float("-inf")  # noqa: E731
-        return {"integrated": get(rf"I:\s*{_NUM} LUFS"), "lra": get(rf"LRA:\s*{_NUM} LU"),
-                "true_peak": get(rf"Peak:\s*{_NUM} dBFS"), "t": t, "momentary": m, "short_term": s}
+        return ebur128(path, series=True)       # the same measurement the mastering uses
 
     def audio(self, path: Path, sr: int = 48000) -> np.ndarray:
         """First audio stream decoded to float32, shape (samples, 2): no downmix (it would add up the

@@ -1,8 +1,7 @@
 """VideoEncoder implemented with FFmpeg."""
 from __future__ import annotations
 
-import json
-import re
+import math
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
@@ -12,7 +11,8 @@ from ...log import log
 from ..system.hwaccel import decode_args, proxy_encoder_args, run_with_fallback
 from ..system.tools import FFMPEG
 from . import filters
-from .runner import run, stderr_of
+from .loudness import ebur128
+from .runner import run
 
 PROXY_SHORT_SIDE = 540
 
@@ -76,20 +76,56 @@ class FfmpegEncoder:
         tmp.rename(out)
         return out
 
-    def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path) -> Path:
-        """Encodes n raw RGB frames + silent audio, like the other shots."""
+    def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
+                      audio: dict | None = None) -> Path:
+        """Encodes n raw RGB frames (piped to FFmpeg) as a segment like the other shots.
+
+        audio=None → silence. Otherwise {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"}:
+        the source audio from `start` (source seconds) through the same per-shot chain as a video
+        shot (speed, cleanup, compression), `gain_db` lower and faded in/out over `fade` seconds.
+        """
+        dur = n / fps
         tmp = out.with_suffix(".tmp.mkv")
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
-               "-s", f"{W}x{H}", "-r", str(fps), "-i", "-", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-               "-map", "0:v", "-map", "1:a", "-frames:v", str(n), "-t", f"{n / fps:.4f}",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "12", "-pix_fmt", "yuv420p",
-               "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
+               "-s", f"{W}x{H}", "-r", str(fps), "-i", "-"]
+        info = (audio or {}).get("info") or {}
+        if audio and info.get("has_audio"):
+            speed = float(audio["shot"].get("speed", 1.0))
+            fade = min(float(audio.get("fade", 0.12)), dur / 3)
+            af = (filters.shot_audio_chain(audio["cfg"], audio["shot"], bool(audio.get("voice")), dur)
+                  + f",volume={float(audio.get('gain_db', -6)):.1f}dB,afade=t=in:d={fade:.3f},"
+                  f"afade=t=out:st={max(dur - fade, 0):.4f}:d={fade:.3f}")
+            cmd += ["-ss", f"{float(audio['start']):.3f}", "-t", f"{dur * speed + 0.05:.3f}", "-i", info["path"],
+                    "-map", "0:v", "-map", f"1:{info['audio_index']}", "-af", af]
+        else:
+            cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a"]
+        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", "12",
+                "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        for frame in frames:
-            p.stdin.write(frame)
-        p.stdin.close()
-        if p.wait() != 0:
-            raise RuntimeError(p.stderr.read().decode()[-800:])
+        ok = False
+        try:
+            try:
+                for frame in frames:
+                    p.stdin.write(frame)
+                p.stdin.close()
+            except BrokenPipeError:                  # FFmpeg died: its stderr says why (raised below)
+                pass
+            err = p.stderr.read()
+            if p.wait() != 0:
+                raise RuntimeError(f"FFmpeg failed encoding {out.name} (exit {p.returncode}): "
+                                   f"{err.decode(errors='replace')[-800:].strip()}")
+            ok = True
+        finally:
+            if not ok and p.poll() is None:          # e.g. the frame generator raised: stop FFmpeg
+                p.kill()
+            for f in (p.stdin, p.stderr):
+                try:
+                    f.close()
+                except OSError:                      # BrokenPipeError flushing what FFmpeg never read
+                    pass
+            p.wait()
+            if not ok:
+                tmp.unlink(missing_ok=True)
         tmp.rename(out)
         return out
 
@@ -154,49 +190,102 @@ class FfmpegEncoder:
              "-c:a", "pcm_s16le", "-ar", "48000", out, *extra])
         return out
 
-    def measure_loudness(self, path: Path, cfg: dict) -> dict:
-        a = cfg["audio"]
-        err = stderr_of(["-i", str(path), "-vn", "-af",
-                         f"loudnorm=I={a['loudness']}:TP={a['true_peak']}:LRA=11:print_format=json", "-f", "null", "-"])
-        block = re.findall(r"\{[^{}]*\"input_i\"[^{}]*\}", err, re.S)
-        return json.loads(block[-1]) if block else {}
+    def measure_loudness(self, path: Path, cfg: dict | None = None) -> dict:
+        """{"integrated" LUFS, "true_peak" dBTP, "lra" LU}: the same EBU R128 measurement as `sve check`."""
+        return ebur128(path)
+
+    def _limited(self, original: Path, gain: float, ceiling_db: float, out: Path) -> dict:
+        """gain + 4x-oversampled limiter (controls the true peak) → out; returns its measurement."""
+        run(["ffmpeg", "-i", original, "-af",
+             f"volume={gain:.2f}dB,aresample=192000,"
+             f"alimiter=limit={10 ** (ceiling_db / 20):.5f}:attack=1:release=60:level=0,aresample=48000",
+             "-c:a", "pcm_s24le", out])
+        return ebur128(out)
+
+    def _mux_aac(self, src: Path, audio: Path, cfg: dict, out: Path) -> dict:
+        run(["ffmpeg", "-i", src, "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
+             "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
+             "-movflags", "+faststart", out])
+        return ebur128(out)
+
+    def _converge(self, original: Path, gain: float, aim: float, ceiling: float, max_gain: float,
+                  work: Path) -> tuple[float, float]:
+        """Secant search of the gain whose limited output measures `aim` LUFS (±0.3) → (gain, measured).
+        The limiter "eats" loudness, so 1 dB of gain gives less than 1 dB once it limits."""
+        pts: list[tuple[float, float]] = []
+        for _ in range(8):
+            measured = self._limited(original, gain, ceiling, work)["integrated"]
+            pts.append((gain, measured))
+            if abs(measured - aim) < 0.3:
+                break
+            slope = 1.0
+            if len(pts) >= 2 and abs(pts[-1][0] - pts[-2][0]) > 1e-3:
+                slope = min(max((pts[-1][1] - pts[-2][1]) / (pts[-1][0] - pts[-2][0]), 0.15), 1.0)
+            new = min(gain + (aim - measured) / slope, max_gain)
+            if abs(new - gain) < 0.01:               # stuck at the gain cap
+                break
+            gain = new
+        best = min(pts, key=lambda p: abs(p[1] - aim))
+        if best[0] != pts[-1][0]:
+            self._limited(original, best[0], ceiling, work)
+        return best
 
     def master_audio(self, src: Path, out: Path, cfg: dict) -> dict:
-        """Brings the audio to −14 LUFS with at most −1 dBTP. The video stream is copied.
+        """Brings the audio to the target integrated loudness (−14 LUFS) with the true peak at most
+        audio.true_peak (−1 dBTP). The video stream is copied.
 
-        Gain + limiter in up to 5 passes: ASMR sounds (tearing, opening) have very high peaks and
-        a linear normalizer cannot raise the level without exceeding the peak.
+        Measured with EBU R128 (ebur128, the same measurement as `sve check`). Gain + 4x-oversampled
+        limiter, ALWAYS applied, the gain capped at audio.master_max_gain_db. Then the AAC file is
+        measured: if its true peak is above the target the limiter ceiling is lowered, if its loudness
+        drifted the aim is corrected, and the pass is repeated. Returns
+        {"before_lufs", "after_lufs", "true_peak_dbtp", "gain_db", "converged"[, "warning"]}.
         """
         a = cfg["audio"]
         target, peak = float(a["loudness"]), float(a["true_peak"])
-        m0 = self.measure_loudness(src, cfg)
-        if not m0:
-            log("Warning: could not measure loudness; copying without mastering.")
+        max_gain = float(a.get("master_max_gain_db", 24))
+        before = ebur128(src)["integrated"]
+        if not math.isfinite(before) or before <= -69:
+            log("Warning: the audio is silent or could not be measured; copying without mastering.")
             run(["ffmpeg", "-i", src, "-c", "copy", out])
-            return {}
-        limit = 10 ** ((peak - 1.2) / 20)           # margin for the true peak after AAC encoding
+            return {"before_lufs": None, "after_lufs": None, "true_peak_dbtp": None, "converged": False,
+                    "warning": "silent or unmeasurable audio: not mastered"}
         original = src.with_name(src.stem + "_audio.wav")
         work = src.with_name(src.stem + "_master.wav")
-        run(["ffmpeg", "-i", src, "-map", "0:a", "-c:a", "pcm_s24le", original])
-        gain, measured = 0.0, float(m0["input_i"])
-        for _ in range(5):   # the limiter "eats" loudness: correct the total gain on the original
-            if abs(measured - target) < 0.3:
-                break
-            gain += target - measured
-            run(["ffmpeg", "-i", original, "-af",
-                 f"volume={gain:.2f}dB,aresample=192000,"     # 4x oversampling: controls the true peak
-                 f"alimiter=limit={limit:.4f}:attack=1:release=60:level=0,aresample=48000",
-                 "-c:a", "pcm_s24le", work])
-            measured = float(self.measure_loudness(work, cfg).get("input_i", target))
-        run(["ffmpeg", "-i", src, "-i", work if work.exists() else original,
-             "-map", "0:v", "-map", "1:a", "-c:v", "copy",
-             "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
-             "-movflags", "+faststart", out])
-        original.unlink(missing_ok=True)
-        work.unlink(missing_ok=True)
-        final = self.measure_loudness(out, cfg)
-        return {"before_lufs": m0.get("input_i"), "after_lufs": final.get("input_i"),
-                "true_peak_dbtp": final.get("input_tp")}
+        try:
+            run(["ffmpeg", "-i", src, "-map", "0:a", "-c:a", "pcm_s24le", original])
+            ceiling, aim = peak - 1.2, target        # margin for the true peak after AAC encoding
+            gain = min(target - before, max_gain)
+            for _ in range(4):
+                gain, _measured = self._converge(original, gain, aim, ceiling, max_gain, work)
+                final = self._mux_aac(src, work, cfg, out)
+                tp_ok = final["true_peak"] <= peak
+                if not tp_ok:                        # AAC overshoot: more headroom
+                    ceiling -= final["true_peak"] - peak + 0.5
+                drift = target - final["integrated"]
+                if tp_ok and abs(drift) < 0.3:
+                    break
+                aim += max(min(drift, 3.0), -3.0)    # AAC changed the loudness: aim higher/lower
+            if final["true_peak"] > peak:            # guarantee: never deliver above the ceiling
+                ceiling -= final["true_peak"] - peak + 3.0
+                self._limited(original, gain, ceiling, work)
+                final = self._mux_aac(src, work, cfg, out)
+        finally:
+            original.unlink(missing_ok=True)
+            work.unlink(missing_ok=True)
+        res = {"before_lufs": round(before, 2), "after_lufs": round(final["integrated"], 2),
+               "true_peak_dbtp": round(final["true_peak"], 2), "gain_db": round(gain, 2)}
+        why = []
+        if abs(final["integrated"] - target) > 0.5:
+            why.append(f"{final['integrated']:.1f} LUFS instead of {target:g}"
+                       + (f" (gain capped at +{max_gain:g} dB)" if gain >= max_gain - 0.01 else
+                          " (very peaky audio: the true-peak limiter cannot raise it further)"))
+        if final["true_peak"] > peak:
+            why.append(f"true peak {final['true_peak']:+.1f} dBTP above {peak:+g}")
+        res["converged"] = not why
+        if why:
+            res["warning"] = "mastering did not converge: " + "; ".join(why)
+            log(f"Warning: {res['warning']}")
+        return res
 
     def cover(self, video: Path, t: float, out: Path) -> Path:
         run(["ffmpeg", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1", "-q:v", "2", out])

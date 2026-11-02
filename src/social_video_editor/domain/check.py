@@ -170,6 +170,34 @@ def typing_bursts(keystrokes: list[float], gap: float = 0.25) -> list[list]:
     return [[round(a, 3), round(b, 3), n] for a, b, n in out]
 
 
+def thin_keystrokes(keystrokes: list[float], max_per_sec: float, gap: float = 0.25) -> list[float]:
+    """The keystrokes that get a click SOUND: at most `max_per_sec` clicks per second in every typing
+    burst as `sve check` measures it (typing_bursts + burst_rate); the letters still appear at their
+    own speed. Deterministic: an evenly spaced subset (by index) of each too-dense burst."""
+    keys = sorted(keystrokes)
+    if not max_per_sec or max_per_sec <= 0:
+        return keys
+    for _ in range(8):           # thinning may split a burst at a long pause: re-check the pieces
+        out, dense = [], False
+        i = 0
+        while i < len(keys):     # the same bursts as typing_bursts (a pause > gap splits)
+            j = i
+            while j + 1 < len(keys) and keys[j + 1] - keys[j] <= gap:
+                j += 1
+            burst = keys[i:j + 1]
+            n, span = len(burst), burst[-1] - burst[0] - 0.001     # 1 ms: typing_bursts rounds to ms
+            if n > 2 and (span <= 0 or (n - 1) / span > max_per_sec):
+                dense = True
+                m = max(int(max(span, 0) * max_per_sec) + 1, 2)
+                burst = [burst[round(k * (n - 1) / (m - 1))] for k in range(m)]
+            out += burst
+            i = j + 1
+        keys = out
+        if not dense:
+            break
+    return keys
+
+
 def burst_rate(burst) -> float:
     a, b, n = burst
     return (n - 1) / (b - a) if n > 2 and b > a else 0.0

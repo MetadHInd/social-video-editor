@@ -31,8 +31,11 @@ class VideoEncoder(Protocol):
                     W: int, H: int, draft: bool, out: Path) -> Path:
         """Renders one video shot from the ORIGINAL source (color, framing, speed, effects, audio)."""
 
-    def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path) -> Path:
-        """Encodes raw RGB frames (+ silent audio) as a segment like the other shots."""
+    def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
+                      audio: dict | None = None) -> Path:
+        """Encodes raw RGB frames as a segment like the other shots. Audio: silent, or with `audio`
+        {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"} a piece of a source (from
+        `start`, source seconds) through the same per-shot audio chain, gain_db lower, faded in/out."""
 
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of a segment (at=None → the last frame)."""
@@ -44,9 +47,11 @@ class VideoEncoder(Protocol):
         With stems_dir, also writes original.wav / music.wav / sfx.wav there in the same pass."""
 
     def master_audio(self, src: Path, out: Path, cfg: dict) -> dict:
-        """Brings the audio to the target LUFS; returns {"before_lufs", "after_lufs", "true_peak_dbtp"}."""
+        """Brings the audio to the target LUFS / true peak; returns {"before_lufs", "after_lufs",
+        "true_peak_dbtp", "gain_db", "converged"[, "warning"]} (EBU R128, as measured by `sve check`)."""
 
-    def measure_loudness(self, path: Path, cfg: dict) -> dict: ...
+    def measure_loudness(self, path: Path, cfg: dict | None = None) -> dict:
+        """{"integrated" LUFS, "true_peak" dBTP, "lra" LU} (EBU R128)."""
 
     def cover(self, video: Path, t: float, out: Path) -> Path: ...
 

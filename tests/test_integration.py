@@ -153,7 +153,10 @@ def test_draft_render_end_to_end(workspace, monkeypatch):
 
     lufs = float(summary["audio"]["after_lufs"])
     assert lufs == pytest.approx(-14, abs=1.0)
-    assert float(FfmpegEncoder().measure_loudness(final, cfg_used)["input_i"]) == pytest.approx(-14, abs=1.0)
+    measured = FfmpegEncoder().measure_loudness(final, cfg_used)
+    assert measured["integrated"] == pytest.approx(lufs, abs=0.15)          # mastering == check measurement
+    assert measured["integrated"] == pytest.approx(-14, abs=0.5) and measured["true_peak"] <= -1.0
+    assert summary["audio"]["converged"] is True
 
     # sound effects generated in <workspace>/sfx (polaroid shutter, collage pops, typing, whoosh)
     assert {p.stem for p in (workspace / "sfx").glob("*.wav")} >= {"shutter", "pop", "keystroke", "whoosh"}
@@ -162,6 +165,17 @@ def test_draft_render_end_to_end(workspace, monkeypatch):
     # segments in the project cache; SDR source → no LUT needed
     assert list((d / "cache" / "segments").glob("polaroid_*.mkv"))
     assert list((d / "cache" / "segments").glob("collage_*.mkv"))
+    # drawn shots carry the source sound that continues after their shot (not silence) and keep
+    # their exact length (audio only)
+    from social_video_editor.adapters.ffmpeg.inspector import FfmpegRenderInspector
+    for kind, clip in (("polaroid", tl[1]), ("collage", tl[2])):
+        seg = next((d / "cache" / "segments").glob(f"{kind}_*.mkv"))
+        x = FfmpegRenderInspector().audio(seg)
+        assert np.sqrt(np.mean(x ** 2)) > 0.003, kind
+        assert len(x) / 48000 == pytest.approx(clip.dur, abs=1 / 30)
+    # typing click sounds at most sfx.typing_max_per_sec
+    from social_video_editor.domain.check import burst_rate
+    assert all(burst_rate(b) <= 16 for b in summary["typing"])
     assert not (workspace.parent / "user_cache").exists()
 
 

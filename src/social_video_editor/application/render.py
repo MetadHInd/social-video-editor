@@ -30,7 +30,7 @@ from ..domain.pieces import CollageShot, PolaroidShot, Sequence, VideoShot
 from ..domain.selection import has_voice, resolve_ranges
 from ..domain.text_layout import srt_text, subtitle_groups, text_animation
 from ..domain.timebase import mmss
-from ..domain.check import typing_bursts
+from ..domain.check import thin_keystrokes, typing_bursts
 from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
 from ..log import log
@@ -87,30 +87,51 @@ class ShotRenderer:
                                             self.W, self.H, self.draft, path)
 
     # ── drawn shots ──────────────────────────────────────────────────────────
-    def _drawn_path(self, shot, refs: list[int]) -> tuple[dict, Path]:
+    def _drawn_path(self, shot, refs: list[int], audio: dict | None = None) -> tuple[dict, Path]:
         d = self.tl[shot.index].as_dict()
         log(f"{self._header(shot)} {shot.kind} ({d['dur']:.2f} s) [{d.get('transition')}]")
+        sig_audio = audio and {k: audio[k] for k in ("start", "shot", "voice", "gain_db", "fade")}
         path = self._segment_path({
             "shot": {k: v for k, v in d.items() if k not in ("out_start", "out_end", "index", "overlap")},
             "refs": [str(self.segments[k]) for k in refs], "W": self.W, "H": self.H,
-            "cfg": {k: self.cfg.get(k) for k in ("polaroid", "collage")}, "v": SEGMENT_VERSION},
+            "cfg": {k: self.cfg.get(k) for k in ("polaroid", "collage")}, "v": SEGMENT_VERSION,
+            "audio": sig_audio and {**sig_audio, "src": audio["info"]["path"], "cfg": self.cfg.get("audio")}},
             prefix=f"{shot.kind}_", n=14)
         return d, path
 
+    def _continuation_audio(self, ref: int, dur: float) -> dict | None:
+        """Audio for a drawn shot: the source sound that continues after shot `ref` ends, through the
+        same per-shot chain, audio.drawn_shot_db quieter (default −6 dB) with short fades — so the
+        sound does not drop to silence under a polaroid / collage. None → silent (no source audio)."""
+        window = self.tl[ref].piece.source_window()
+        if window is None:
+            return None
+        source, _, end, speed = window
+        info = self.infos[source]
+        if not info.get("has_audio") or float(info.get("duration", 0)) - end < 0.1:
+            return None
+        ref_data = self.tl[ref].data
+        return {"info": info, "start": round(end, 3),
+                "shot": {"speed": speed, "volume_db": ref_data.get("volume_db", 0), "mute": ref_data.get("mute")},
+                "voice": has_voice(self.analyses[source], end, end + dur * speed), "cfg": self.cfg,
+                "gain_db": float(self.cfg["audio"].get("drawn_shot_db", -6)), "fade": 0.12}
+
     def visit_polaroid(self, shot: PolaroidShot) -> Path:
-        d, path = self._drawn_path(shot, [shot.from_shot])
+        audio = self._continuation_audio(shot.from_shot, self.tl[shot.index].dur)
+        d, path = self._drawn_path(shot, [shot.from_shot], audio)
         if path.exists():
             return path
         png = self.svc.encoder.extract_frame(self.segments[shot.from_shot], path.with_suffix(".last.png"))
         try:
             frames = self.svc.composer.polaroid_frames(png, d, self.W, self.H, self.fps, self.cfg)
             return self.svc.encoder.encode_frames(frames, int(round(d["dur"] * self.fps)), self.W, self.H,
-                                                  self.fps, path)
+                                                  self.fps, path, audio)
         finally:
             png.unlink(missing_ok=True)
 
     def visit_collage(self, shot: CollageShot) -> Path:
-        d, path = self._drawn_path(shot, shot.from_shots + [shot.background_from])
+        audio = self._continuation_audio(shot.background_from, self.tl[shot.index].dur)
+        d, path = self._drawn_path(shot, shot.from_shots + [shot.background_from], audio)
         if path.exists():
             return path
         pngs = []
@@ -125,7 +146,7 @@ class ShotRenderer:
             times = shot.appearance_times(d["dur"], int(self.cfg.get("collage", {}).get("subdivision", 2)))
             frames = self.svc.composer.collage_frames(pngs[:-1], bg, d, times, self.W, self.H, self.fps, self.cfg)
             return self.svc.encoder.encode_frames(frames, int(round(d["dur"] * self.fps)), self.W, self.H,
-                                                  self.fps, path)
+                                                  self.fps, path, audio)
         finally:
             for p in pngs:
                 p.unlink(missing_ok=True)
@@ -205,6 +226,8 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     groups = subtitle_groups(analyses, tl, cfg) if cfg["subtitles"].get("auto", True) else []
     boxes: list[dict] = []
     layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
+    # same typing speed on screen, but at most sfx.typing_max_per_sec click SOUNDS per second
+    keystrokes = thin_keystrokes(keystrokes, float(cfg["sfx"].get("typing_max_per_sec", 16)))
     events = sound_events(tl, texts, keystrokes, cfg)
     sfx = svc.sfx.mix_track(events, total, vdir / "_sfx.wav") if events else None
 

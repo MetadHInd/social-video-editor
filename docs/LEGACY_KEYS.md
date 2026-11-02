@@ -276,6 +276,8 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `compresor` | `compressor` |
 | `ganancia_sin_voz_db` | `gain_without_voice_db` |
 | `pico` | `true_peak` |
+| `ganancia_max_master_db` | `master_max_gain_db` |
+| `dibujadas_db` | `drawn_shot_db` |
 
 ### Keys of `config.music`
 
@@ -318,6 +320,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `pop_en_textos` | `pop_on_texts` |
 | `tecleo` | `typing` |
 | `tecleo_db` | `typing_db` |
+| `tecleo_max_por_seg` | `typing_max_per_sec` |
 | `whoosh_en_transiciones` | `whoosh_on_transitions` |
 
 ### Keys of `config.subtitles`

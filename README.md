@@ -3,7 +3,7 @@
 A Python + FFmpeg engine that turns raw phone clips into finished **vertical social videos**
 (TikTok, Reels, Shorts). It analyzes your footage, proposes an editable plan, and renders it:
 a hook in the first second, cuts that land on the music's beat, typed text cards with color emoji,
-polaroid and collage pieces, ASMR-friendly audio, −14 LUFS mastering and correct handling of
+polaroid and collage pieces, ASMR-friendly audio, loudness mastering (targets −14 LUFS) and correct handling of
 iPhone HDR footage.
 
 Everything the engine decides is written to a plain `plan.json` that you (or an AI agent) can edit
@@ -31,7 +31,9 @@ and render again. Originals are never modified.
 - **Audio** — denoise, high-pass, voice EQ, compression, extra gain for non-speech (ASMR) moments,
   an optional ASMR mode, music ducking under the voice (or under the ASMR sounds), sound effects
   (whoosh, pop, flash, keystroke, shutter — synthesized if you don't provide your own) and
-  mastering to −14 LUFS / −1 dBTP (measured gain + oversampled limiter, repeated until on target).
+  mastering that targets −14 LUFS integrated / −1 dBTP (EBU R128 measurement, capped gain +
+  oversampled true-peak limiter, true peak re-verified after AAC; a warning in `summary.json` if it
+  cannot get there); `sve check` verifies the result with the same measurement.
 - **Color** — iPhone HLG HDR → SDR (BT.709) via a generated 3D LUT, automatic levels, white
   balance and brightness matching across shots, optional creative `.cube` LUT and vignette.
 - **Export** — 1080×1920 H.264 High / yuv420p / BT.709 + AAC 48 kHz, CRF 17 with a 20 Mbps cap,
