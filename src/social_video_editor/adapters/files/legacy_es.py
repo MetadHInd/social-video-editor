@@ -97,12 +97,24 @@ TEXT_STYLE_KEYS = {"tam": "size", "fuente": "font", "fondo": "background", "mayu
 # unchanged: color, x, y, desc_color
 TEXT_STYLE = Ctx(keys=TEXT_STYLE_KEYS, values={"animation": ANIMATIONS})
 
+VISION = Ctx(
+    keys={"activado": "enabled", "modelo": "model", "modelo_texto": "text_model", "dispositivo": "device",
+          "positivos": "positive", "negativos": "negative", "pesos": "weights", "puntaje_min": "min_score", "puntaje_extender": "extend_score",
+          "continuidad": "continuity", "duracion_min": "min_duration", "duracion_max": "max_duration",
+          "mismo_producto": "same_product", "ventana": "window", "max_productos": "max_products",
+          "estrellas": "stars", "vocabulario": "vocabulary", "plan_productos": "product_plan",
+          "busqueda_producto": "product_search"},
+    # unchanged: fps
+    children={"weights": Ctx(keys={"indicaciones": "prompts", "objeto": "objectness", "novedad": "novelty",
+                                   "nitidez": "sharpness"})},
+)
+
 CONFIG = Ctx(
     keys={"idioma": "language", "salida": "output", "duracion": "duration", "ritmo": "pacing",
           "gancho": "hook", "seleccion": "selection", "analisis": "analysis",
           "transcripcion": "transcription", "encuadre": "framing", "transiciones": "transitions",
           "efectos": "effects", "musica": "music", "subtitulos": "subtitles", "textos": "texts",
-          "exportar": "export", "verificacion": "check"},
+          "exportar": "export", "verificacion": "check", "visión": "vision"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
@@ -166,6 +178,7 @@ CONFIG = Ctx(
                            "seguro_abajo": "safe_bottom", "seguro_derecha": "safe_right",
                            "columna_botones": "right_rail", "tolerancia_duracion": "duration_tolerance",
                            "escuchar_max": "listen_max", "escuchar_seg": "listen_sec"}),
+        "vision": VISION,
     },
 )
 
@@ -174,7 +187,7 @@ CONFIG = Ctx(
 EFFECT = Ctx(keys={"tipo": "type", "escala": "scale", "cantidad": "amount", "amplitud": "amplitude",
                    "seg": "seconds"},
              values={"type": EFFECT_TYPES})
-SEARCH = Ctx(keys={"en": "range", "criterio": "criterion"}, values={"criterion": CRITERIA})
+SEARCH = Ctx(keys={"en": "range", "criterio": "criterion", "texto": "text"}, values={"criterion": CRITERIA})
 SHOT = Ctx(
     keys={"fuente": "source", "ini": "start", "fin": "end", "velocidad": "speed", "rol": "role",
           "transicion": "transition", "efectos": "effects", "golpes": "beats", "continua": "continuous",

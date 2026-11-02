@@ -36,6 +36,7 @@ from ..domain.transitions import get_transition
 from ..log import log
 from .analyze import prepare_sources
 from .music import prepare_music
+from .products import visual_search
 from .services import Services
 
 SEGMENT_VERSION = 5
@@ -168,7 +169,7 @@ def prepare_edit(svc: Services, project: Project, plan: dict, cfg: dict, no_musi
     Returns (plan, infos, analyses, music, timeline); plan and cfg are modified in place.
     """
     infos, analyses = prepare_sources(svc, project, cfg)
-    resolve_ranges(plan, analyses)
+    resolve_ranges(plan, analyses, visual_search(svc, project, infos, analyses, plan, cfg))
     for s in plan["shots"]:           # resolved: plan_used.json keeps the final times
         if "search" in s:
             s["_searched"] = s.pop("search")

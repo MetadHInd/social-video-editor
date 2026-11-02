@@ -153,6 +153,20 @@ class MusicDownloader(Protocol):
 
 
 class VisualDetector(Protocol):
-    """Placeholder for a future visual model (e.g. CLIP): score how well frames match a prompt."""
+    """Image–text model (e.g. CLIP): video frames and texts embedded in ONE space (unit vectors).
 
-    def score(self, frames: list, prompt: str) -> list[float]: ...
+    `settings` is the `vision` section of the configuration (model, text_model, device, fps…).
+    The similarity math lives in domain.products.
+    """
+
+    def ready(self, settings: dict, download: bool = False) -> str | None:
+        """None when the model can be used; otherwise why not (not installed, not downloaded…).
+        download=True may download the model the first time."""
+
+    def model_name(self, settings: dict) -> str: ...
+
+    def frame_embeddings(self, video: str, cache_dir: Path, key: str, settings: dict) -> tuple:
+        """(times [n], embeddings [n, d]) of frames sampled `fps` times per second (cached per source)."""
+
+    def text_embeddings(self, texts: list[str], settings: dict):
+        """Embeddings [len(texts), d] of texts in any supported language."""

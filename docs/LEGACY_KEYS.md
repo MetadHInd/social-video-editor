@@ -75,6 +75,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `recetas` | `recipes` |
 | `musica` | `music` |
 | `verificar` | `check` |
+| `productos` | `products` |
 | `davinci` | `(removed)` |
 | `--borrador` | `--draft` |
 | `--perfil` | `--profile` |
@@ -112,6 +113,7 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `textos` | `texts` |
 | `exportar` | `export` |
 | `verificacion` | `check` |
+| `visión` | `vision` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -421,6 +423,39 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `escuchar_max` | `listen_max` |
 | `escuchar_seg` | `listen_sec` |
 
+### Keys of `config.vision` (new section: local CLIP model)
+
+| Spanish | English |
+|---|---|
+| `activado` | `enabled` |
+| `modelo` | `model` |
+| `modelo_texto` | `text_model` |
+| `dispositivo` | `device` |
+| `positivos` | `positive` |
+| `negativos` | `negative` |
+| `pesos` | `weights` |
+| `puntaje_min` | `min_score` |
+| `puntaje_extender` | `extend_score` |
+| `continuidad` | `continuity` |
+| `duracion_min` | `min_duration` |
+| `duracion_max` | `max_duration` |
+| `mismo_producto` | `same_product` |
+| `ventana` | `window` |
+| `max_productos` | `max_products` |
+| `estrellas` | `stars` |
+| `vocabulario` | `vocabulary` |
+| `plan_productos` | `product_plan` |
+| `busqueda_producto` | `product_search` |
+
+### Keys of `config.vision.weights`
+
+| Spanish | English |
+|---|---|
+| `indicaciones` | `prompts` |
+| `objeto` | `objectness` |
+| `novedad` | `novelty` |
+| `nitidez` | `sharpness` |
+
 ## Project file (`proyecto.yaml` → `project.yaml`)
 
 ### Keys of `project`
@@ -535,6 +570,10 @@ Removed (dropped on load) in `plan.shots`: `_apariciones`
 |---|---|
 | `en` | `range` |
 | `criterio` | `criterion` |
+| `texto` | `text` |
+
+`plan.shots.search.range` may also be written `in` (e.g. `{"text": "phone case", "in": [40, 60]}`);
+without a range the whole source is searched. A `text` search needs the vision model (`vision`).
 
 ### Values of `plan.shots.search.criterion`
 
@@ -718,6 +757,7 @@ Values of `summary.shot_details.transition`: same as `config.hook.transition`.
 | (new) `framing.focus_y` | vertical crop position, inherited by shots like `focus_x` |
 | (new) `music.bpm`, `music.tempo_factor` | force the tempo / multiply the detected one (0.5, 2) |
 | (new) `check` | thresholds of `sve check` (Spanish command alias `verificar`) |
+| (new) `vision` | local CLIP model: `sve products`, `search.text`, one shot per product in unboxing plans |
 
 ## Version folders
 

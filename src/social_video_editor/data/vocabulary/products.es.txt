@@ -1,0 +1,82 @@
+# Vocabulario de productos pequeños y accesorios (etiquetas zero-shot con CLIP).
+# Una etiqueta por línea; la línea N corresponde a la línea N de products.en.txt.
+bolso
+cartera
+mochila
+bolsa de tela
+riñonera
+billetera
+monedero
+aretes
+collar
+pulsera
+anillo
+reloj
+broche para el pelo
+diadema
+coletero
+gafas de sol
+gorra
+sombrero
+bufanda
+guantes
+medias
+pantuflas
+zapatos
+camiseta
+suéter
+pijama
+audífonos
+audífonos inalámbricos
+parlante
+cargador
+cable usb
+funda de celular
+correa de celular
+soporte de celular
+llavero
+dije
+power bank
+mouse
+teclado
+lámpara
+vela
+espejo
+peine
+cepillo de pelo
+maquillaje
+labial
+brillo labial
+esmalte de uñas
+uñas postizas
+paleta de sombras
+brocha de maquillaje
+perfume
+crema
+protector solar
+neceser
+estuche
+cosmetiquera
+bolígrafos
+lápices de colores
+marcadores
+cuaderno
+libreta
+agenda
+stickers
+tijeras
+cinta adhesiva
+botella
+termo
+taza
+vaso con pajita
+lonchera
+peluche
+muñeca
+juguete
+figura coleccionable
+cojín
+manta
+organizador
+caja
+flores artificiales

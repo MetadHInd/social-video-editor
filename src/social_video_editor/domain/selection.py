@@ -258,15 +258,49 @@ def build_plan(analyses: list[dict], cfg: dict, report: Callable[[str], None] | 
     }
 
 
-def best_window(an: dict, rng: list[float], dur: float, criterion: str = "product") -> tuple[float, float]:
+def best_start(t: np.ndarray, s: np.ndarray, a: float, b: float, dur: float) -> float:
+    """Start of the steadiest high-scoring window of `dur` seconds inside [a, b].
+
+    Each window is valued as mean(score) − 0.5·std(score) over the samples it contains.
+    """
+    best, best_start_ = -1e9, a
+    for t0 in t:
+        if t0 < a:
+            continue
+        if t0 + dur > b:
+            break
+        sel = (t >= t0) & (t <= t0 + dur)
+        v = s[sel].mean() - 0.5 * s[sel].std()
+        if v > best:
+            best, best_start_ = v, t0
+    return float(best_start_)
+
+
+def best_window(an: dict, rng: list[float], dur: float, criterion: str = "product",
+                visual: dict | None = None) -> tuple[float, float]:
     """Inside [a, b] of a source, the most suitable window of `dur` seconds.
 
     product = sharp, colorful and still image (showing an object)
     action  = motion and sound (opening, tearing, unpacking)
+    visual  = optional {"t": [...], "score": [...]}: a score per instant from a vision model
+              (e.g. CLIP product score or similarity to a text); when given it replaces the
+              heuristic score (sharpness is still added, so blurry frames lose).
     """
     a, b = max(0.0, rng[0]), min(an["duration"], rng[1])
     if b - a <= dur:
         return round(a, 2), round(b, 2)
+    if visual is not None and len(visual.get("t", [])) >= 3:
+        vt, vs = np.asarray(visual["t"], float), np.asarray(visual["score"], float)
+        inside = (vt >= a) & (vt <= b)
+        if inside.sum() >= 3:
+            t, s = vt[inside], vs[inside]
+            s = (s - s.mean()) / max(s.std(), 1e-6)
+            m = an.get("samples", [])
+            if len(m) >= 2:
+                sharp = np.interp(t, [x["t"] for x in m], np.log1p([x["sharpness"] for x in m]))
+                s = s + 0.5 * (sharp - sharp.mean()) / max(sharp.std(), 1e-6)
+            start = best_start(t, s, a, b, dur)
+            return round(start, 2), round(start + dur, 2)
     m = [x for x in an["samples"] if a <= x["t"] <= b]
     if len(m) < 3:
         return round(a, 2), round(a + dur, 2)
@@ -284,22 +318,30 @@ def best_window(an: dict, rng: list[float], dur: float, criterion: str = "produc
             s = s + np.clip((db[_audio_index(t, an["audio"])] - an["audio"]["median_db"]) / 18, 0, 1)
     else:
         s = 1.2 * sharp + 0.8 * col - 1.0 * mot
-    best, best_start = -1e9, a
-    for t0 in t:
-        if t0 + dur > b:
-            break
-        sel = (t >= t0) & (t <= t0 + dur)
-        v = s[sel].mean() - 0.5 * s[sel].std()
-        if v > best:
-            best, best_start = v, t0
-    return round(float(best_start), 2), round(float(best_start + dur), 2)
+    start = best_start(t, s, a, b, dur)
+    return round(start, 2), round(start + dur, 2)
 
 
-def resolve_ranges(plan: dict, analyses: list[dict]) -> dict:
-    """Fills start/end of the shots that ask to "search" (recomputed on every render)."""
+def search_range(search: dict, an: dict) -> list[float]:
+    """The [a, b] range of a "search" (key "range", or "in"; the whole source when missing)."""
+    rng = search.get("range", search.get("in"))
+    return [float(rng[0]), float(rng[1])] if rng else [0.0, float(an["duration"])]
+
+
+def resolve_ranges(plan: dict, analyses: list[dict],
+                   visual: Callable[[int, dict], dict | None] | None = None) -> dict:
+    """Fills start/end of the shots that ask to "search" (recomputed on every render).
+
+    search = {"range": [a, b], "dur": 1.8, "criterion": "product" | "action"}
+           | {"text": "phone case", "range": [a, b]}       (best match of a description; needs vision)
+    `visual(source, search)` may return a vision score series for that search (see best_window).
+    """
     for s in plan["shots"]:
         b = s.get("search")
         if b:
-            s["start"], s["end"] = best_window(analyses[s["source"]], b["range"], float(b.get("dur", 1.8)),
-                                               b.get("criterion", "product"))
+            an = analyses[s["source"]]
+            criterion = b.get("criterion", "product")
+            series = visual(s["source"], b) if visual and (b.get("text") or criterion == "product") else None
+            s["start"], s["end"] = best_window(an, search_range(b, an), float(b.get("dur", 1.8)), criterion,
+                                               series)
     return plan

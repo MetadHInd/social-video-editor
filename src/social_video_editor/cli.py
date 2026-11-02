@@ -11,9 +11,10 @@
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
+  sve products <project>                   (products recognized by the vision model → cache/products.json)
 
-Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar and
---borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
+Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
+productos and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from .adapters.files.legacy_es import profile_name
 from .application.analyze import prepare_sources
 from .application.music import download_music
 from .application.plan import make_plan
+from .application.products import find_products, product_lines
 from .application.project import new_project, recipe_lines
 from .application.render import render
 from .application.report import build_report, report_json, report_lines
@@ -99,6 +101,10 @@ def cmd_check(svc, a):
     print("\n".join(report_lines(result, notes)))
 
 
+def cmd_products(svc, a):
+    print("\n".join(product_lines(find_products(svc, _project(svc, a.project)))))
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="sve", description="Vertical video editing engine for social media")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -145,6 +151,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--version", dest="version", help="version folder (default: latest vN)")
     s.add_argument("--out", "--salida", dest="out", help="write check.json and snippets here instead")
     s.set_defaults(f=cmd_check)
+    s = sub.add_parser("products", aliases=["productos"], help="products recognized by the vision model")
+    s.add_argument("project")
+    s.set_defaults(f=cmd_products)
     return ap
 
 

@@ -1,6 +1,7 @@
 """Composition root: wires every port to its adapter."""
 from __future__ import annotations
 
+from .adapters.clip.detector import ClipVisualDetector
 from .adapters.ffmpeg.encoder import FfmpegEncoder
 from .adapters.ffmpeg.inspector import FfmpegRenderInspector
 from .adapters.ffmpeg.probe import FfprobeMediaProbe
@@ -33,6 +34,6 @@ def build_services() -> Services:
         projects=YamlProjectRepository(recipes),
         cache=JsonCacheStore(),
         downloader=YtDlpDownloader(),
-        visual=None,            # VisualDetector: reserved for a future CLIP-based adapter
+        visual=ClipVisualDetector(),     # lazy: loads sentence-transformers only when vision is used
         inspector=FfmpegRenderInspector(),
     )
