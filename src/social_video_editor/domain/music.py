@@ -8,7 +8,9 @@ does math. Music analysis dict:
 Tempo disambiguation: beat trackers often lock onto half or double the real tempo (a click track
 at 120 BPM read as 60). The candidate periods T/2, T and 2T are compared by the strength of the
 onset-envelope autocorrelation at that lag ("pulse clarity"); 70–150 BPM is preferred unless a
-candidate outside that range is clearly stronger. Recipe overrides: music.bpm (force) and
+candidate outside that range is clearly stronger. When T wins and agrees with the tracker's fitted
+period, the grid is the least-squares fit of the tracker's beats (as before: renders stay
+reproducible); otherwise a regular grid is fitted to the onset envelope (comb_grid). Recipe overrides: music.bpm (force) and
 music.tempo_factor (0.5 / 2), applied with retime().
 """
 from __future__ import annotations
@@ -17,7 +19,8 @@ import math
 
 import numpy as np
 
-ANALYSIS_VERSION = 2                 # cached analyses with another version are recomputed
+ANALYSIS_VERSION = 3                 # cached analyses with another version are recomputed
+SAME_PERIOD = 0.015                  # the tracker's fitted period agrees with the pulse analysis (±1.5 %)
 PREFERRED_BPM = (70.0, 150.0)
 OUT_OF_RANGE_WEIGHT = 0.65           # a tempo outside the range must be ≈1.5× stronger to win…
 LAG_TOLERANCE = 0.06                 # …searched ±6 % around each candidate period
@@ -76,16 +79,17 @@ def choose_tempo(envelope, fps: float, base_period: float,
             continue
         s, refined = pulse_strength(ac, lag)
         bpm = 60.0 * fps / refined
-        cands.append({"bpm": bpm, "period": refined / fps, "strength": s,
+        cands.append({"bpm": bpm, "period": refined / fps, "strength": s, "multiple": mult,
                       "score": max(s, 0.0) * tempo_weight(bpm, preferred)})
     if not cands:
         return {"bpm": 60.0 / base_period, "period": base_period, "confidence": 0.0, "strength": 0.0,
-                "alternatives": []}
+                "multiple": 1.0, "alternatives": []}
     cands.sort(key=lambda c: c["score"], reverse=True)
     best = cands[0]
     second = cands[1]["score"] if len(cands) > 1 else 0.0
     confidence = 1 - second / best["score"] if best["score"] > 0 else 0.0
     return {"bpm": best["bpm"], "period": best["period"], "strength": round(best["strength"], 3),
+            "multiple": best["multiple"],
             "confidence": round(float(np.clip(confidence, 0, 1)), 2),
             "alternatives": [{"bpm": round(c["bpm"], 2), "strength": round(c["strength"], 3)} for c in cands[1:]]}
 
@@ -182,9 +186,13 @@ def analyze_music(duration: float, beat_times, rms, rms_times, onset_env=None, o
         drop = find_drop(bt, grid, T, rms, rms_times, duration)
         return {"duration": duration, "tempo": round(60 / T, 2), "interval": T, "beats": grid, "drop": drop,
                 "confidence": None, "alternatives": [], "v": ANALYSIS_VERSION}
-    base = fit_beat_grid(bt, duration)[0] if len(bt) >= 4 else global_period(onset_env, onset_fps)
+    fitted = fit_beat_grid(bt, duration) if len(bt) >= 4 else None
+    base = fitted[0] if fitted else global_period(onset_env, onset_fps)
     choice = choose_tempo(onset_env, onset_fps, base)
-    T, grid = comb_grid(onset_env, onset_fps, choice["period"], duration)
+    if fitted and choice["multiple"] == 1.0 and abs(choice["period"] / fitted[0] - 1) <= SAME_PERIOD:
+        T, grid = fitted        # the tracker was right: exactly the earlier grid (reproducible renders)
+    else:                       # half / double tempo, or a tracker period off the real pulse
+        T, grid = comb_grid(onset_env, onset_fps, choice["period"], duration)
     drop = find_drop(bt, grid, T, rms, rms_times, duration)
     return {"duration": duration, "tempo": round(60 / T, 2), "interval": T, "beats": grid, "drop": drop,
             "confidence": choice["confidence"], "alternatives": choice["alternatives"], "v": ANALYSIS_VERSION}

@@ -36,8 +36,8 @@ class LibrosaAudioAnalyzer:
 
         y, sr = librosa.load(str(path), sr=22050, mono=True)
         dur = len(y) / sr
-        env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=ONSET_HOP)
-        _, bt = librosa.beat.beat_track(onset_envelope=env, sr=sr, hop_length=ONSET_HOP, units="time")
+        _, bt = librosa.beat.beat_track(y=y, sr=sr, units="time")     # unchanged: same grid as before
+        env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=ONSET_HOP)   # for the T/2 · T · 2T choice
         rms = librosa.feature.rms(y=y, hop_length=512)[0]
         rms_t = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=512)
         return analyze_music(dur, bt, rms, rms_t, onset_env=env, onset_fps=sr / ONSET_HOP)
