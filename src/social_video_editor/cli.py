@@ -9,8 +9,9 @@
   sve view    <project>                    (plan and timeline summary)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
+  sve products <project>                   (products recognized by the vision model → cache/products.json)
 
-Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, recetas, musica and
+Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, recetas, musica, productos and
 --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ from .adapters.files.legacy_es import profile_name
 from .application.analyze import prepare_sources
 from .application.music import download_music
 from .application.plan import make_plan
+from .application.products import find_products, product_lines
 from .application.project import new_project, recipe_lines
 from .application.render import render
 from .application.thumbs import contact_sheets
@@ -80,6 +82,10 @@ def cmd_music(svc, a):
     print(f"To use it: in project.yaml → settings → music → file: \"{path.parent.name}/{path.name}\"")
 
 
+def cmd_products(svc, a):
+    print("\n".join(product_lines(find_products(svc, _project(svc, a.project)))))
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="sve", description="Vertical video editing engine for social media")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -117,6 +123,9 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")
     s.add_argument("query")
     s.set_defaults(f=cmd_music)
+    s = sub.add_parser("products", aliases=["productos"], help="products recognized by the vision model")
+    s.add_argument("project")
+    s.set_defaults(f=cmd_products)
     return ap
 
 

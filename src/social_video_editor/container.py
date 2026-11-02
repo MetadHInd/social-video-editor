@@ -4,6 +4,7 @@ from __future__ import annotations
 from .adapters.ffmpeg.encoder import FfmpegEncoder
 from .adapters.ffmpeg.probe import FfprobeMediaProbe
 from .adapters.ffmpeg.sfx import FfmpegSoundEffects
+from .adapters.clip.detector import ClipVisualDetector
 from .adapters.files.cache import JsonCacheStore
 from .adapters.files.projects import YamlProjectRepository
 from .adapters.files.recipes import YamlRecipeRepository
@@ -32,5 +33,5 @@ def build_services() -> Services:
         projects=YamlProjectRepository(recipes),
         cache=JsonCacheStore(),
         downloader=YtDlpDownloader(),
-        visual=None,            # VisualDetector: reserved for a future CLIP-based adapter
+        visual=ClipVisualDetector(),     # lazy: loads sentence-transformers only when vision is used
     )

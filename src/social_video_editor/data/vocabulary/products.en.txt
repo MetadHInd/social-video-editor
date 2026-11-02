@@ -1,0 +1,82 @@
+# Vocabulary of small products and accessories (zero-shot labels with CLIP).
+# One label per line; line N matches line N of products.es.txt.
+handbag
+purse
+backpack
+tote bag
+belt bag
+wallet
+coin purse
+earrings
+necklace
+bracelet
+ring
+watch
+hair clip
+headband
+scrunchie
+sunglasses
+cap
+hat
+scarf
+gloves
+socks
+slippers
+shoes
+t-shirt
+sweater
+pajamas
+headphones
+wireless earbuds
+speaker
+charger
+usb cable
+phone case
+phone strap
+phone holder
+keychain
+charm
+power bank
+mouse
+keyboard
+lamp
+candle
+mirror
+comb
+hairbrush
+makeup
+lipstick
+lip gloss
+nail polish
+press-on nails
+eyeshadow palette
+makeup brush
+perfume
+cream
+sunscreen
+toiletry bag
+pencil case
+makeup bag
+pens
+colored pencils
+markers
+notebook
+notepad
+planner
+stickers
+scissors
+tape
+bottle
+thermos
+mug
+tumbler with straw
+lunch box
+plush toy
+doll
+toy
+collectible figure
+cushion
+blanket
+organizer
+box
+artificial flowers

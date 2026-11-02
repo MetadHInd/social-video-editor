@@ -177,3 +177,32 @@ collage:                 # shot {"type": "collage", "from_shots": [...], "backgr
   subdivision: 2         # photos appear every 1/2 beat (4 = every quarter beat, faster)
   y0: 0.215              # vertical zone of the grid (inside the safe zone)
   y1: 0.72
+
+vision:                  # local CLIP model: recognizes products by itself (optional extra: pip install 'social-video-editor[vision]')
+  enabled: auto          # auto = used when installed and already downloaded | true = may download it (≈1.2 GB, once) | false
+  model: sentence-transformers/clip-ViT-B-32                         # images
+  text_model: sentence-transformers/clip-ViT-B-32-multilingual-v1    # texts in Spanish, English and 50+ languages
+  device: cpu            # cpu | mps (Apple GPU, opt-in) | cuda
+  fps: 2                 # frames per second embedded (from the proxy; cached in cache/<id>_clip.npy)
+  positive:              # what a product shot looks like…
+    es: ["un producto sostenido en la mano, primer plano", "a product held in a hand, close-up",
+         "un accesorio pequeño mostrado a la cámara", "a small accessory shown to the camera"]
+    en: ["a product held in a hand, close-up", "a small accessory shown to the camera"]
+  negative:              # …and what it does not
+    es: ["bolsa de envío de plástico gris", "a gray plastic shipping bag", "manos abriendo un paquete",
+         "hands opening a package", "imagen borrosa", "a blurry photo"]
+    en: ["a gray plastic shipping bag", "hands opening a package", "a blurry photo"]
+  weights: {prompts: 0.5, objectness: 1.0, novelty: 1.0, sharpness: 0.5}   # parts of the product score (domain/products.py)
+  min_score: 0.35        # standardized product score where a product starts (higher = fewer, surer products)
+  extend_score: -0.25    # score the frames around it need to belong to the same product
+  continuity: 0.78       # similarity between consecutive frames below which a new product starts
+  min_duration: 1.0      # seconds a product must be visible
+  max_duration: 25.0     # a product segment never grows longer
+  same_product: 0.82     # two stretches this similar (and < 20 s apart) are the same product: merged
+  window: 2.0            # seconds of the best moment of each product
+  max_products: 15
+  stars: 3               # the most confidently recognized products get a fast→slow ramp + polaroid
+  vocabulary: null       # null = packaged list of ~80 small products (es/en); or your own list of names
+  product_plan: false    # plan = one shot per detected product (the unboxing recipe turns it on)
+  product_search: false  # true = "search" with criterion "product" uses the vision model (changes the windows
+                         # of existing plans, so it is opt-in); "search" by "text" always uses it

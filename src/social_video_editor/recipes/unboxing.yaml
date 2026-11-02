@@ -40,3 +40,6 @@ effects:
 
 transitions:
   rotation: [cut, cut, zoom, cut, whip, cut, cut, slide_up]
+
+vision:
+  product_plan: true     # with the vision model: one shot per detected product, cards with their names
