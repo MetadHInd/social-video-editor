@@ -9,6 +9,9 @@ Steps:
   2. Segments are joined with their transitions; text layer, music and sound effects are added.
   3. Audio is mastered to −14 LUFS; video, cover, .srt, plan_used/config_used/summary.json are
      written to a new version folder (vN, or a variant such as v3SinMusica / v3NoMusic).
+     The same FFmpeg pass also writes vN/stems/{original,music,sfx}.wav (pre-master levels; the
+     summary's audio.master_gain_db brings them to the final level) and the summary records where
+     every text box was drawn (text_boxes) and the typing bursts, for `sve check`.
 """
 from __future__ import annotations
 
@@ -27,6 +30,7 @@ from ..domain.pieces import CollageShot, PolaroidShot, Sequence, VideoShot
 from ..domain.selection import has_voice, resolve_ranges
 from ..domain.text_layout import srt_text, subtitle_groups, text_animation
 from ..domain.timebase import mmss
+from ..domain.check import typing_bursts
 from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
 from ..log import log
@@ -150,6 +154,14 @@ def sound_events(timeline: Timeline, texts: list[dict], keystrokes: list[float],
     return events
 
 
+def _master_gain(lufs: dict) -> float | None:
+    """Gain the mastering applied (≈ after − before LUFS): brings the pre-master stems to the final level."""
+    try:
+        return round(float(lufs["after_lufs"]) - float(lufs["before_lufs"]), 2)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def prepare_edit(svc: Services, project: Project, plan: dict, cfg: dict, no_music: bool = False):
     """What render does before encoding: resolve "search" windows, music + beat alignment, timeline.
 
@@ -190,7 +202,8 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     name = output_name(project.name, lang, draft, profile, no_music)
     texts = absolute_texts(plan, tl)
     groups = subtitle_groups(analyses, tl, cfg) if cfg["subtitles"].get("auto", True) else []
-    layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer")
+    boxes: list[dict] = []
+    layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
     events = sound_events(tl, texts, keystrokes, cfg)
     sfx = svc.sfx.mix_track(events, total, vdir / "_sfx.wav") if events else None
 
@@ -200,7 +213,8 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     final = vdir / f"{name}.mp4"
     try:
         svc.encoder.compose([{"dur": c.dur, "overlap": c.overlap, "transition": c.piece.transition} for c in tl],
-                            segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster)
+                            segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster,
+                            stems_dir=vdir / "stems")
         lufs = svc.encoder.master_audio(premaster, final, cfg)
     except Exception:
         failed = svc.projects.mark_failed(vdir, labels(lang)["failed"])
@@ -219,12 +233,16 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     summary = {
         "video": final.name, "duration_sec": round(total, 2), "shots": len(tl), "resolution": f"{W}x{H}",
         "music": None if not music else {"file": music.name, "start_sec": cfg["music"].get("_start")},
-        "audio": lufs, "auto_subtitles": len(groups), "texts": len(texts), "sound_effects": len(events),
+        "audio": {**lufs, "master_gain_db": _master_gain(lufs)}, "auto_subtitles": len(groups),
+        "texts": len(texts), "sound_effects": len(events),
         "render_time_sec": round(time.time() - t0, 1),
         "shot_details": [{"n": c.index + 1, **c.piece.summary(),
                           "in_video": f"{mmss(c.out_start)}–{mmss(c.out_end)}",
                           "cut_sec": round(tl.cut(c.index), 3),
                           "role": c.data.get("role"), "transition": c.data.get("transition")} for c in tl],
+        "stems": {k: f"stems/{k}.wav" for k in ("original", "music", "sfx") if (vdir / "stems" / f"{k}.wav").exists()},
+        "text_boxes": boxes,
+        "typing": typing_bursts(keystrokes),
     }
     svc.projects.write_json(vdir / "summary.json", summary)
     log(f"Done → {final}  ({total:.1f} s, {lufs.get('after_lufs', '?')} LUFS, "

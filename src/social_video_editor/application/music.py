@@ -4,19 +4,27 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..domain.models import Project
-from ..domain.music import auto_start, beats_in_video
+from ..domain.music import ANALYSIS_VERSION, auto_start, beats_in_video, retime, tempo_lines
 from ..domain.timeline import align_to_beats, compute_timeline, snap_cuts_to_beats
 from ..log import log
 from .services import Services
 
 
-def music_analysis(svc: Services, path: Path, cache_dir: Path) -> dict:
+def music_analysis(svc: Services, path: Path, cache_dir: Path, save: bool = True) -> dict:
+    """Cached analysis of a song (recomputed if the cache is older than the tempo engine).
+    save=False never writes the cache (read-only uses such as `sve check`)."""
     key = path.stem.replace(" ", "_")
     am = svc.cache.load(cache_dir, "music", key, newer_than=path)
-    if am is None:
+    if am is None or am.get("v") != ANALYSIS_VERSION:
         am = svc.audio.music(path)
-        svc.cache.save(cache_dir, "music", key, am)
+        if save:
+            svc.cache.save(cache_dir, "music", key, am)
     return am
+
+
+def effective_analysis(am: dict, music_cfg: dict) -> dict:
+    """The analysis with the recipe overrides music.bpm / music.tempo_factor applied."""
+    return retime(am, music_cfg.get("bpm"), music_cfg.get("tempo_factor"))
 
 
 def prepare_music(svc: Services, project: Project, plan: dict, cfg: dict, infos: list[dict],
@@ -31,7 +39,7 @@ def prepare_music(svc: Services, project: Project, plan: dict, cfg: dict, infos:
         log("No music (put a track in music/ or set settings.music.file)")
         return None
     m = cfg["music"]
-    am = music_analysis(svc, music, project.cache)
+    am = effective_analysis(music_analysis(svc, music, project.cache), m)
     T = am.get("interval", 0.5)
     if m.get("start_at", 0) == "auto":
         drop_at = m.get("drop_at")
@@ -54,6 +62,8 @@ def prepare_music(svc: Services, project: Project, plan: dict, cfg: dict, infos:
     log(f"Music: {music.name} — {am.get('tempo')} BPM, starts at {start:.2f} s "
         f"(song drop at {am.get('drop', 0):.2f} s) — {mode}"
         + (" — NOT mixed (--no-music)" if no_music else ""))
+    for line in tempo_lines(am):
+        log(line)
     return None if no_music else music
 
 

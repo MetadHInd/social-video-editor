@@ -169,8 +169,13 @@ def build_card(text: dict, style: dict, W: int, H: int, default_font: str, idx: 
 
 class PillowTextRenderer:
     def render_layer(self, texts: list[dict], groups: list[dict], cfg: dict, W: int, H: int, total: float,
-                     folder: Path) -> tuple[Path | None, list[float]]:
-        """Generates the images and the ffconcat list → (list path, time of every keystroke)."""
+                     folder: Path, boxes: list | None = None) -> tuple[Path | None, list[float]]:
+        """Generates the images and the ffconcat list → (list path, time of every keystroke).
+
+        boxes: if a list is given, it receives where every text / subtitle group was drawn:
+        {"kind": "text" | "subtitle", "text", "x", "y", "w", "h" (pixels, visible pixels only, the
+        union over its whole life, pop animation included), "start", "end"}.
+        """
         folder.mkdir(parents=True, exist_ok=True)
         for old in folder.glob("*.png"):
             old.unlink()
@@ -179,9 +184,10 @@ class PillowTextRenderer:
                "stroke": max(int(cfg["subtitles"]["stroke"] * scale), 2)}
         styles = cfg["texts"]["styles"]
         default_font = cfg["subtitles"].get("font", "Inter-Black")
-        elements, painters = [], {}
+        elements, painters, names = [], {}, {}
         for gi, g in enumerate(groups):
             words = [w["word"] for w in g["words"]]
+            names[f"s{gi}"] = ("subtitle", " ".join(words))
             for k, w in enumerate(g["words"]):
                 start = g["start"] if k == 0 else w["start"]
                 end = g["words"][k + 1]["start"] if k + 1 < len(g["words"]) else g["end"]
@@ -196,13 +202,16 @@ class PillowTextRenderer:
             card, image = build_card(tx, resolve_style(tx, styles, scale), W, H, default_font, ti)
             elements.append(card)
             painters[card.key] = image
+            names[card.key] = ("text", tx.get("text", ""))
         if not elements:
             return None, []
 
         layer = Layer(elements)
-        stills, scaled, listing = {}, {}, []
+        stills, scaled, listing, placed = {}, {}, [], {}
         for a, b, active in layer.frames(total):
             key = tuple((state, sc, e.x, e.y) for e, state, sc in active)
+            if boxes is not None:
+                _track_boxes(placed, active, painters, scaled, a, b, W, H)
             if key not in stills:
                 canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
                 for e, state, sc in active:
@@ -226,4 +235,36 @@ class PillowTextRenderer:
             lines += [f"file '{path.name}'", f"duration {d:.5f}"]
         lines.append(f"file '{listing[-1][0].name}'")
         lst.write_text("\n".join(lines) + "\n")
+        if boxes is not None:
+            for k, (x0, y0, x1, y1, a, b) in placed.items():
+                kind, text = names.get(k, ("text", ""))
+                boxes.append({"kind": kind, "text": text, "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
+                              "start": round(a, 3), "end": round(b, 3)})
+            boxes.sort(key=lambda bx: (bx["start"], bx["kind"]))
         return lst, layer.keystrokes()
+
+
+def _scaled(im: Image.Image, sc: float) -> Image.Image:
+    return im if sc == 1.0 else im.resize((max(int(im.width * sc), 1), max(int(im.height * sc), 1)))
+
+
+def _track_boxes(placed: dict, active, painters: dict, scaled: dict, a: float, b: float, W: int, H: int) -> None:
+    """Union of the visible-pixel rectangles of each text (subtitle words grouped) over time."""
+    for e, state, sc in active:
+        im = painters[e.key](state)
+        bb_key = ("bbox", id(im), sc)
+        if bb_key not in scaled:
+            sim = _scaled(im, sc)
+            scaled[bb_key] = (sim.size, sim.getbbox())
+        (w, h), bb = scaled[bb_key]
+        if bb is None:
+            continue
+        x0 = max(int(min(max(e.x - w / 2, 0), W - w)), 0)
+        y0 = max(int(min(max(e.y - h / 2, 0), H - h)), 0)
+        r = (x0 + bb[0], y0 + bb[1], min(x0 + bb[2], W), min(y0 + bb[3], H))
+        k = e.key.split("_")[0] if e.key.startswith("s") else e.key
+        if k in placed:
+            p = placed[k]
+            placed[k] = (min(p[0], r[0]), min(p[1], r[1]), max(p[2], r[2]), max(p[3], r[3]), min(p[4], a), max(p[5], b))
+        else:
+            placed[k] = (*r, a, b)

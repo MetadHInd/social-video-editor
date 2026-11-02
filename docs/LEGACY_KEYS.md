@@ -74,6 +74,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `ver` | `view` |
 | `recetas` | `recipes` |
 | `musica` | `music` |
+| `verificar` | `check` |
 | `davinci` | `(removed)` |
 | `--borrador` | `--draft` |
 | `--perfil` | `--profile` |
@@ -85,6 +86,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--desde` | `--start` |
 | `--hasta` | `--end` |
 | `--cada` | `--every` |
+| `--salida` | `--out` |
 
 ## Recipes and project settings
 
@@ -109,6 +111,7 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `subtitulos` | `subtitles` |
 | `textos` | `texts` |
 | `exportar` | `export` |
+| `verificacion` | `check` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -287,6 +290,8 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `drop_en_seg` | `drop_at` |
 | `alinear` | `align` |
 | `_entrada` | `_start` |
+| `bpm` | `bpm` |
+| `factor_tempo` | `tempo_factor` |
 
 ### Values of `config.music.file`
 
@@ -390,6 +395,31 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | Spanish | English |
 |---|---|
 | `columnas` | `columns` |
+
+### Keys of `config.check`
+
+| Spanish | English |
+|---|---|
+| `tolerancia_volumen_lu` | `loudness_tolerance_lu` |
+| `silencio_db` | `silence_db` |
+| `silencio_seg` | `silence_sec` |
+| `salto_corte_lu` | `cut_jump_lu` |
+| `sfx_max_vs_mezcla_lu` | `sfx_max_vs_mix_lu` |
+| `musica_max_vs_original_lu` | `music_max_vs_original_lu` |
+| `tecleo_max_por_seg` | `typing_max_per_sec` |
+| `tecleo_max_vs_mezcla_lu` | `typing_max_vs_mix_lu` |
+| `aspereza` | `harsh_ratio` |
+| `aspereza_ventana` | `harsh_window_ratio` |
+| `negro_min_seg` | `black_min_sec` |
+| `congelado_min_seg` | `freeze_min_sec` |
+| `tolerancia_beat_seg` | `beat_tolerance_sec` |
+| `seguro_arriba` | `safe_top` |
+| `seguro_abajo` | `safe_bottom` |
+| `seguro_derecha` | `safe_right` |
+| `columna_botones` | `right_rail` |
+| `tolerancia_duracion` | `duration_tolerance` |
+| `escuchar_max` | `listen_max` |
+| `escuchar_seg` | `listen_sec` |
 
 ## Project file (`proyecto.yaml` → `project.yaml`)
 
@@ -686,6 +716,8 @@ Values of `summary.shot_details.transition`: same as `config.hook.transition`.
 | `transcripcion.idioma` → `transcription.language` | `null` (default) follows the new top-level `language` |
 | (new) `language` | `es` (default) or `en`: Whisper language, version folder/file names, default keywords |
 | (new) `framing.focus_y` | vertical crop position, inherited by shots like `focus_x` |
+| (new) `music.bpm`, `music.tempo_factor` | force the tempo / multiply the detected one (0.5, 2) |
+| (new) `check` | thresholds of `sve check` (Spanish command alias `verificar`) |
 
 ## Version folders
 
@@ -697,3 +729,4 @@ Values of `summary.shot_details.transition`: same as `config.hook.transition`.
 | profile | `v3Youtube`, `v3Cuadrado` | `v3Youtube`, `v3Square` |
 | files | `name_borrador_sin_musica.mp4`, `name_portada.jpg` | `name_draft_no_music.mp4`, `name_cover.jpg` |
 | failed render | `v3_fallida` | `v3_failed` |
+| `sve check` snippets | `v3/escuchar/` | `v3/listen/` |

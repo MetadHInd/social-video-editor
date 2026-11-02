@@ -117,6 +117,8 @@ music:
   fade_in: 0.25
   cuts_on_beat: true     # moves the cuts to the nearest beat
   half_beats: true       # cutting between two beats (off-beat) is also fine
+  bpm: null             # force the tempo (e.g. 120) when the detected one is wrong (sve music shows alternatives)
+  tempo_factor: null    # 2 = double the detected tempo, 0.5 = half (detectors often pick half/double)
 
 sfx:
   enabled: true
@@ -164,6 +166,28 @@ export:
   audio_kbps: 192
   cover: true            # also export a cover image (<name>_portada.jpg / <name>_cover.jpg)
   cover_at: 1.6          # second the cover is taken from (when the hook is already typed)
+
+check:                   # sve check <project>: automatic review of a render (thresholds)
+  loudness_tolerance_lu: 1.0     # integrated loudness within ± this of audio.loudness (else error)
+  silence_db: -50                # quieter than this (dBFS) …
+  silence_sec: 0.5               # … for longer than this = silence
+  cut_jump_lu: 8                 # loudness jump across a cut
+  sfx_max_vs_mix_lu: -6          # sound effects at most mix − 6 LU
+  music_max_vs_original_lu: 0    # audio.asmr: the music no louder than the original sound
+  typing_max_per_sec: 20         # typing clicks per second
+  typing_max_vs_mix_lu: -6       # typing clicks at most mix − 6 LU
+  harsh_ratio: 0.35              # share of the energy in 2–5 kHz (whole video)
+  harsh_window_ratio: 0.55       # … or in any 1 s window
+  black_min_sec: 0.1             # black frames (fade_black transitions excluded)
+  freeze_min_sec: 1.0            # frozen picture (polaroid, collage and freeze effects excluded)
+  beat_tolerance_sec: 0.05       # median distance of the cuts to the beat
+  safe_top: 0.06                 # text boxes inside [safe_top, safe_bottom] of the height
+  safe_bottom: 0.78
+  safe_right: 0.08               # and off the right 8 % (TikTok buttons) …
+  right_rail: [0.35, 0.85]       # … in this part of the height
+  duration_tolerance: 0.25       # ± 25 % of duration.target
+  listen_max: 6                  # ≤ 3 s snippets of the worst moments (listen/ or escuchar/)
+  listen_sec: 3.0
 
 polaroid:                # shot {"type": "polaroid", "from_shot": k, "beats": 2, "text": "…"}
   width: 0.70

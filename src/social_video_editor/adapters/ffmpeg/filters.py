@@ -220,9 +220,19 @@ def shot_audio_chain(cfg: dict, shot: dict, voice: bool, dur_out: float) -> str:
 
 
 def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx_idx: int | None,
-              has_voice: bool) -> tuple[str, str]:
-    """Mix filter: shot audio + music (with ducking) + sound-effect track."""
-    m, parts, mix = cfg["music"], [], [voice_in]
+              has_voice: bool, stems: dict | None = None) -> tuple[str, str]:
+    """Mix filter: shot audio + music (with ducking) + sound-effect track.
+
+    stems: if a dict is given, every part is also split off (asplit, same pass) and the dict is
+    filled with {"original" | "music" | "sfx": output label} for the caller to map to stem files.
+    "original" = the shots' own audio after processing, "music" = after volume/fades/ducking.
+    """
+    m, parts = cfg["music"], []
+    if stems is not None:
+        parts.append(f"{voice_in}asplit=2[orig_mix][st_original]")
+        voice_in = "[orig_mix]"
+        stems["original"] = "[st_original]"
+    mix = [voice_in]
     if music_idx is not None:
         vol = m["volume_without_voice_db"] if (m.get("ducking", True) or not has_voice) else m["volume_with_voice_db"]
         chain = (f"[{music_idx}:a]aresample=48000,aformat=channel_layouts=stereo,"
@@ -240,8 +250,16 @@ def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx
         else:
             parts.append(chain + "[mus]")
             mix.append("[mus]")
+        if stems is not None:
+            parts.append("[mus]asplit=2[mus_mix][st_music]")
+            mix[mix.index("[mus]")] = "[mus_mix]"
+            stems["music"] = "[st_music]"
     if sfx_idx is not None:
-        parts.append(f"[{sfx_idx}:a]aresample=48000,aformat=channel_layouts=stereo[sfx]")
+        if stems is not None:
+            parts.append(f"[{sfx_idx}:a]aresample=48000,aformat=channel_layouts=stereo,asplit=2[sfx][st_sfx]")
+            stems["sfx"] = "[st_sfx]"
+        else:
+            parts.append(f"[{sfx_idx}:a]aresample=48000,aformat=channel_layouts=stereo[sfx]")
         mix.append("[sfx]")
     if len(mix) == 1:
         parts.append(f"{voice_in}anull[amix]")

@@ -8,6 +8,7 @@ import numpy as np
 from ...domain.music import analyze_music
 
 LEVEL_STEP = 0.1        # seconds between audio level measurements
+ONSET_HOP = 256         # onset envelope hop at 22.05 kHz (≈11.6 ms: precise beat grid)
 
 
 class LibrosaAudioAnalyzer:
@@ -30,12 +31,13 @@ class LibrosaAudioAnalyzer:
                 "median_db": round(float(np.median(db)), 1)}
 
     def music(self, path: Path) -> dict:
-        """Tempo, regular beat grid and drop of a song (see domain.music)."""
+        """Tempo (T/2 · T · 2T disambiguated), regular beat grid and drop of a song (see domain.music)."""
         import librosa
 
         y, sr = librosa.load(str(path), sr=22050, mono=True)
         dur = len(y) / sr
-        _, bt = librosa.beat.beat_track(y=y, sr=sr, units="time")
+        env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=ONSET_HOP)
+        _, bt = librosa.beat.beat_track(onset_envelope=env, sr=sr, hop_length=ONSET_HOP, units="time")
         rms = librosa.feature.rms(y=y, hop_length=512)[0]
         rms_t = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=512)
-        return analyze_music(dur, bt, rms, rms_t)
+        return analyze_music(dur, bt, rms, rms_t, onset_env=env, onset_fps=sr / ONSET_HOP)
