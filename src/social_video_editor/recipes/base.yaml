@@ -1,0 +1,179 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# BASE RECIPE — defaults for EVERY video. Each type recipe (unboxing.yaml,
+# tutorial.yaml…) and each project.yaml ("settings" section) only overrides
+# what it needs (deep merge).
+# A value written as {es: …, en: …} is picked by `language`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+language: es             # es | en — Whisper language, version folder names (v3SinMusica / v3NoMusic), default keywords
+
+output:
+  width: 1080            # 9:16 vertical; vertical video increases comments and shares (Xiao et al., 2024)
+  height: 1920
+  fps: 30                # export profiles (tiktok | reels | shorts | youtube | square): sve render --profile
+
+duration:
+  target: 30             # seconds. <15 s competes on completion rate; 30 s+ on total watch time
+  max: 60
+
+pacing:
+  shot_min: 0.8          # no shot is shorter (it becomes unreadable)
+  shot_max: 3.2          # visual change every ~2-3 s (pattern interrupt)
+  phrase_max: 5.0        # with speech, a shot may grow until the phrase ends
+  min_gap: 0.6           # two shots from the same source never overlap
+  speed_without_voice: 1.0   # 1.2 = shots without speech at 120 % speed
+
+hook:
+  strategy: teaser       # teaser = show the best moment first (1-2 s), then tell the story | start = begin at the beginning
+  duration: 1.6
+  text: null             # big on-screen text during the first seconds (recommended). E.g. "Was it worth it? 😳"
+  transition: flash      # how the hook hands over to the story
+
+selection:               # how every moment of the footage is scored
+  weights:
+    motion: 1.0          # action on screen (moderate; too much is penalized as blur)
+    audio: 0.7           # louder than usual
+    peaks: 0.8           # sudden sounds: tearing, opening, laughs, "wow!"
+    voice: 1.0           # someone is speaking
+    keywords: 2.0        # a word from the list below is said
+    sharpness: 0.6
+    color: 0.4           # colorful image
+  keywords: {es: [], en: []}
+  min_brightness: 0.12   # drops almost black shots
+  blur_percentile: 12    # drops the blurriest 12 %
+  use_all_sources: true
+  coverage: 8            # splits the footage in N parts and takes the best of each (0 = only the global best)
+
+analysis:
+  samples_per_sec: 4
+  scene_threshold: 27
+
+transcription:
+  model: small           # tiny | base | small | medium | large-v3 (bigger = more accurate and slower)
+  language: null         # null = same as `language`
+  context: ""            # words that help Whisper (brands, names)
+  min_probability: 0.35
+
+color:
+  auto: true
+  hdr_white: 0.62        # iPhone HDR → SDR conversion (tested)
+  levels: true           # stretches blacks/whites
+  white_balance: 0.5     # 0 = untouched, 1 = fully neutral
+  target_luma: 0.47      # mean brightness ALL shots are brought to (matches them)
+  gamma_min: 0.8
+  gamma_max: 1.5
+  contrast: 1.05
+  saturation: 1.10
+  vibrance: 0.12
+  temperature: null      # e.g. 6000 = warmer
+  sharpen: 0.35          # CAS (0 = none)
+  lut: null              # path to an optional creative .cube LUT
+  vignette: false
+
+framing:
+  mode: auto             # auto | crop | blur (fills the borders with the same image blurred)
+  focus_x: 0.5           # where to center the crop of a wider source (0 = left, 1 = right)
+  focus_y: 0.5           # where to center the crop of a taller source (0 = top, 1 = bottom)
+  zoom_margin: 1.25      # extra resolution so zooms keep their quality
+  slow_push: 0.04        # "ken burns": every shot zooms 4 % (sense of motion)
+
+transitions:
+  rotation: [cut, cut, zoom, cut, whip, cut]   # used in this order
+  duration: 0.22
+  # catalog: cut | fade | fade_black | flash | zoom | whip | slide_up | slide_left | circle | pixel | blur | radial | curtain
+
+effects:
+  zoom_on_peaks: true    # zoom punch on a loud sound (emphasis)
+  zoom_scale: 1.12
+  pulse_amount: 0.035    # beat_pulse effect: zoom on every beat
+  zoom_ratio: 0.3        # at most 30 % of the shots get a zoom punch (overused, it loses its effect)
+  flash_on_reveal: false
+  progress_bar: false    # bar at the top that advances (anticipates the end)
+  progress_bar_color: "#FFFFFF"
+
+audio:
+  use_original: true
+  denoise: 10            # noise reduction (dB, afftdn). 0 = off
+  highpass: 80           # removes rumble
+  voice_eq: true         # presence at 3 kHz, less "mud" at 250 Hz
+  compressor: true
+  gain_without_voice_db: 3   # raises ASMR sounds (tearing, opening) when nobody speaks
+  asmr: false            # true = without speech: brighter, strong compression so every crackle is heard
+  loudness: -14          # integrated LUFS (the most cited value for TikTok/Reels/Shorts)
+  true_peak: -1.0        # dBTP
+
+music:
+  file: null             # path to an mp3/wav; null = first track of the music/ folder (or no music); none = no music
+  volume_with_voice_db: -20
+  volume_without_voice_db: -11
+  ducking: true          # lowers the music automatically when someone speaks
+  ducking_asmr: false    # also lowers it under the video sounds (ideal with asmr: true)
+  ducking_ratio: 4
+  start_at: 0.0          # second of the song to start from (e.g. the drop)
+  fade_out: 1.0
+  # start_at: auto       → the song starts so that its "drop" lands at the end of the first shot
+  # drop_at: 2.0         → (optional) or at this exact second of the video
+  # align: exact         → every cut EXACTLY on a beat (automatic if a shot has "beats": N)
+  fade_in: 0.25
+  cuts_on_beat: true     # moves the cuts to the nearest beat
+  half_beats: true       # cutting between two beats (off-beat) is also fine
+
+sfx:
+  enabled: true
+  volume_db: -12
+  pop_on_texts: true     # pop when texts with the "pop" animation appear
+  typing: true           # soft click for every letter of typed texts
+  typing_db: -9          # relative to volume_db
+  whoosh_on_transitions: true
+
+subtitles:
+  auto: true             # with speech → Whisper word by word; without speech → only the plan texts
+  max_words: 3
+  max_chars: 18
+  uppercase: true
+  font: Inter-Black
+  size: 82
+  color: "#FFFFFF"
+  highlight: "#FFE14D"   # word being said
+  stroke: 9
+  stroke_color: "#000000"
+  shadow: true
+  y: 0.64                # vertical position (0 top, 1 bottom). TikTok safe zone ≈ 0.12–0.75
+  animation: pop
+
+texts:                   # styles of the plan's on-screen texts (hook, labels, cards, CTA…)
+  # Style fields: size, font, color, background (#RRGGBBAA), x / y (center position, 0-1),
+  # max_width, uppercase, radius (corners), outline, animation (typewriter | pop | none),
+  # speed (letters per second when typing), desc_font / desc_size / desc_color (for "description").
+  # A plan text may carry a "description": it is typed below the title once the title is done.
+  styles:
+    hook:    {size: 84, font: InterDisplay-Black, color: "#111111", background: "#FFFFFF", y: 0.20, max_width: 0.86, animation: typewriter, speed: 30}
+    label:   {size: 64, color: "#FFFFFF", background: "#FF3B6B", y: 0.30, max_width: 0.8, animation: pop}
+    card:    {size: 60, font: InterDisplay-Bold, color: "#2B2B2B", background: "#FFFFFFEB", y: 0.165, max_width: 0.88,
+              radius: 0.5, animation: typewriter, speed: 34,
+              desc_font: "Bradley Hand Bold", desc_size: 62, desc_color: "#D6457F"}
+    counter: {size: 40, font: InterDisplay-Bold, color: "#FFFFFF", background: "#00000070", x: 0.86, y: 0.085,
+              max_width: 0.3, radius: 0.7, animation: pop}
+    price:   {size: 96, color: "#111111", background: "#FFE14D", y: 0.42, uppercase: true, max_width: 0.8, animation: pop}
+    cta:     {size: 58, font: InterDisplay-Bold, color: "#FFFFFF", background: "#000000A8", y: 0.80, max_width: 0.84, animation: typewriter}
+    simple:  {size: 72, color: "#FFFFFF", background: null, y: 0.50, max_width: 0.86, animation: pop}
+
+export:
+  crf: 17
+  maxrate: 20M           # high quality so TikTok's re-encoding has headroom
+  audio_kbps: 192
+  cover: true            # also export a cover image (<name>_portada.jpg / <name>_cover.jpg)
+  cover_at: 1.6          # second the cover is taken from (when the hook is already typed)
+
+polaroid:                # shot {"type": "polaroid", "from_shot": k, "beats": 2, "text": "…"}
+  width: 0.70
+  center_y: 0.5
+  font: Bradley Hand Bold
+  drop_time: 0.16        # seconds the photo takes to land
+  flash: 0.10            # flash duration
+
+collage:                 # shot {"type": "collage", "from_shots": [...], "background_from": k, "beats": 8}
+  columns: 4
+  subdivision: 2         # photos appear every 1/2 beat (4 = every quarter beat, faster)
+  y0: 0.215              # vertical zone of the grid (inside the safe zone)
+  y1: 0.72

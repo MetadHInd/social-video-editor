@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "motor_edicion"
-version = "0.1.0"
-description = "Motor de edición de video vertical para redes sociales (Python + FFmpeg)"
+name = "social-video-editor"
+version = "0.2.0"
+description = "Vertical video editing engine for social media (Python + FFmpeg)"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
@@ -21,19 +21,20 @@ dependencies = [
 
 [project.optional-dependencies]
 vision = ["sentence-transformers"]
-musica = ["yt-dlp"]
+music = ["yt-dlp"]
 dev = ["pytest"]
 
 [project.scripts]
-motor = "motor_edicion.cli:main"
+sve = "social_video_editor.cli:main"
+social-video-editor = "social_video_editor.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-motor_edicion = ["recetas/*.yaml"]
+social_video_editor = ["recipes/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]          # funciona aunque el paquete no esté instalado
-markers = ["integracion: necesita FFmpeg (genera medios sintéticos en una carpeta temporal)"]
+pythonpath = ["src"]          # works even when the package is not installed
+markers = ["integration: needs FFmpeg (generates synthetic media in a temporary folder)"]

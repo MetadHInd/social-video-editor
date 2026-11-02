@@ -1,0 +1,8 @@
+# RECIPE: BEFORE / AFTER (transformation, cleaning, make-up, decoration, glow-up)
+# Formula: the "after" in 1 s → "before" → sped-up process → reveal of the after with flash/zoom.
+duration: {target: 20, max: 40}
+pacing: {shot_max: 2.2, speed_without_voice: 2.0}     # the process goes very fast
+hook: {strategy: teaser, duration: 1.2, transition: flash}
+selection: {coverage: 10}
+effects: {flash_on_reveal: true, zoom_ratio: 0.3}
+transitions: {rotation: [cut, cut, cut, zoom]}

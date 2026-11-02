@@ -1,0 +1,13 @@
+# RECIPE: VLOG / DAY IN MY LIFE / TRAVEL
+# Formula: most striking moment of the day (0-2 s) → fast chronological sequence → emotional/funny ending.
+# Lots of music, cuts on the beat, voice only where it adds something.
+duration: {target: 30, max: 60}
+pacing: {shot_min: 0.6, shot_max: 2.0, speed_without_voice: 1.3}
+hook: {strategy: teaser, duration: 1.5, transition: whip}
+selection:
+  weights: {motion: 1.2, color: 0.8, voice: 0.8}
+  coverage: 12
+music: {volume_without_voice_db: -9, cuts_on_beat: true}
+transitions: {rotation: [cut, whip, cut, zoom, cut, slide_up]}
+effects: {zoom_ratio: 0.25}
+color: {saturation: 1.15, vibrance: 0.18}

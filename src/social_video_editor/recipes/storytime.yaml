@@ -1,0 +1,14 @@
+# RECIPE: STORYTIME / OPINION TALKING TO CAMERA
+# Formula: the strongest line of the story (0-3 s) → story without silences → twist → open ending.
+# Subtitles lead; almost no effects so nothing distracts from the voice.
+duration: {target: 45, max: 90}
+pacing: {shot_max: 6.0, phrase_max: 8.0, min_gap: 0.2}
+hook: {strategy: teaser, duration: 2.5, transition: cut}
+selection:
+  weights: {voice: 2.0, keywords: 1.5, motion: 0.3, color: 0.1}
+  coverage: 0
+framing: {slow_push: 0.06}
+transitions: {rotation: [cut]}
+effects: {zoom_on_peaks: false}
+subtitles: {size: 88, max_words: 2}
+sfx: {enabled: false}

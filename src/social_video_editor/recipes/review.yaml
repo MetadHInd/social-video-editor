@@ -1,0 +1,14 @@
+# RECIPE: REVIEW / "IS IT WORTH IT?" / PRODUCT TEST
+# Formula: verdict or polemic question (0-2 s) → the good → the bad → final verdict + question to the audience.
+duration: {target: 35, max: 60}
+pacing: {shot_max: 3.0, phrase_max: 5.5, speed_without_voice: 1.25}
+hook: {strategy: teaser, duration: 1.8}
+selection:
+  weights: {voice: 1.4, keywords: 2.4, peaks: 0.6}
+  keywords:
+    es: [vale, pena, bueno, malo, calidad, precio, barato, caro, recomiendo, nunca, mejor, peor,
+         funciona, sirve, verdad, honesto, opinión]
+    en: [worth, good, bad, quality, price, cheap, expensive, recommend, never, best, worst,
+         works, useful, truth, honest, opinion, verdict]
+transitions: {rotation: [cut, cut, zoom, cut]}
+effects: {zoom_ratio: 0.35}

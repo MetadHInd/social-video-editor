@@ -1,0 +1,15 @@
+# RECIPE: TUTORIAL / HOW-TO / COOKING RECIPE / "how to do X"
+# Formula: final result first (0-2 s) → short numbered steps → result again + "save it".
+# The voice leads: big subtitles and cuts in pauses. Rewards SAVES (useful content).
+duration: {target: 40, max: 75}
+pacing: {shot_max: 3.5, phrase_max: 6.0, speed_without_voice: 1.5}   # parts without explanation (waiting) go fast
+hook: {strategy: teaser, duration: 1.8, transition: flash}
+selection:
+  weights: {voice: 1.6, keywords: 2.2, motion: 0.7, peaks: 0.4}
+  keywords:
+    es: [paso, primero, segundo, luego, después, final, truco, importante, así, listo, resultado]
+    en: [step, first, second, then, next, after, finally, tip, trick, important, done, result]
+transcription: {model: small}
+transitions: {rotation: [cut, cut, cut, slide_left]}
+effects: {zoom_ratio: 0.2, progress_bar: true}
+subtitles: {max_words: 3, y: 0.66}

@@ -1,0 +1,42 @@
+# RECIPE: UNBOXING / HAUL (Temu, Shein, AliExpress, Amazon…)
+# Formula: hook with the result (0-2 s) → opening with ASMR sounds → reveal with zoom
+#          → reaction / price → ending that loops back to the start.
+# Only what differs from base.yaml.
+
+duration:
+  target: 30
+
+pacing:
+  shot_max: 2.8
+  speed_without_voice: 1.15  # opening packages goes a bit faster
+
+hook:
+  strategy: teaser
+  duration: 1.8
+  transition: flash
+
+selection:
+  weights:
+    peaks: 1.1               # tearing bags / opening boxes = the typical unboxing sound
+    color: 0.6               # colorful products on screen
+  keywords:
+    es: [wow, guau, mira, miren, qué, lindo, linda, bonito, bonita, hermoso, hermosa, temu,
+         precio, pesos, dólares, llegó, llegaron, abrir, abramos, increíble, amo, encanta,
+         dios, jaja, perfecto, calidad, barato, regalo, vale, pena]
+    en: [wow, look, cute, pretty, beautiful, gorgeous, temu, price, dollars, arrived, open, opening,
+         amazing, love, obsessed, omg, haha, perfect, quality, cheap, gift, worth, finally]
+
+transcription:
+  context:
+    es: "Unboxing de un pedido de Temu. Abriendo paquetes y mostrando productos."
+    en: "Unboxing an online order. Opening packages and showing products."
+
+audio:
+  gain_without_voice_db: 5   # the sound of opening packages is part of the appeal (ASMR)
+
+effects:
+  zoom_on_peaks: true
+  flash_on_reveal: true
+
+transitions:
+  rotation: [cut, cut, zoom, cut, whip, cut, cut, slide_up]
