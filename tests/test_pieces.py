@@ -90,6 +90,18 @@ def test_drawn_shot_from_another_drawn_shot_is_resolved():
     order = Sequence.from_plan(plan).render_order()
     assert order == [0, 2, 1, 3]
     assert order.index(2) < order.index(1) < order.index(3)
+    assert Sequence.from_plan(plan).render_waves() == [[0], [2], [1], [3]]
+
+
+def test_render_waves_group_shots_by_dependency_depth():
+    seq = Sequence.from_plan(_plan())
+    waves = seq.render_waves()
+    assert waves == [[0, 1, 2, 4], [3, 5]]                                 # every video shot, then the drawn ones
+    assert [i for w in waves for i in w] == seq.render_order()
+    for k, wave in enumerate(waves):                                        # a wave only needs earlier waves
+        earlier = {i for w in waves[:k] for i in w}
+        assert all(seq.shots()[i].dependencies() <= earlier for i in wave)
+    assert Sequence.from_plan({"shots": []}).render_waves() == []
 
 
 @pytest.mark.parametrize("shots,message", [
@@ -103,6 +115,8 @@ def test_drawn_shot_from_another_drawn_shot_is_resolved():
 def test_bad_references_are_clear_errors(shots, message):
     with pytest.raises(PlanError, match=message):
         Sequence.from_plan({"shots": shots}).render_order()
+    with pytest.raises(PlanError, match=message):
+        Sequence.from_plan({"shots": shots}).render_waves()
 
 
 def test_unknown_shot_type():
