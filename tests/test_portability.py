@@ -567,6 +567,27 @@ def test_stderr_drain_prevents_the_two_pipe_deadlock():
         p.stderr.close()
 
 
+def test_encode_frames_kills_an_ffmpeg_that_errored_and_stalled(tmp_path, monkeypatch):
+    """FFmpeg 8.1 sometimes stays alive, reading nothing, after a fatal error: encode_frames kills it
+    once it printed an error and made no progress for FRAMES_STALL_SEC, and raises that error."""
+    import subprocess
+    import sys
+    import time
+
+    from social_video_editor.adapters.ffmpeg import encoder as enc
+
+    stalled = [sys.executable, "-c", "import sys, time; sys.stderr.write('fatal: encoder broke'); "
+                                     "sys.stderr.flush(); time.sleep(600)"]
+    monkeypatch.setattr(enc, "popen", lambda cmd, **kw: subprocess.Popen(stalled, **kw))
+    monkeypatch.setattr(enc, "FRAMES_STALL_SEC", 1.0)
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="fatal: encoder broke"):
+        enc.FfmpegEncoder().encode_frames((bytes(1 << 20) for _ in range(50)), 50, 512, 512, 10,
+                                          tmp_path / "seg.mkv")
+    assert time.monotonic() - t0 < 30
+    assert list(tmp_path.glob("seg*")) == []
+
+
 def test_hlg_lut_generated_once_under_concurrent_calls(tmp_path, monkeypatch):
     import threading
 

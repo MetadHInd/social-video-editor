@@ -40,6 +40,10 @@ def _unescape_option(s: str) -> str:
 def test_windows_path_becomes_forward_slashes_with_the_drive_colon_escaped():
     assert filter_path(r"C:\Users\x y\a'b.cube", windows=True) == r"'C\:/Users/x y/a\'\''b.cube'"
     assert concat_path(r"C:\Users\x y\a'b.mkv", windows=True) == r"'C:/Users/x y/a'\''b.mkv'"
+    # the path that failed on a Windows runner ("No option name near '\Users\…'") with the old quoting
+    ci = (r"C:\Users\runneradmin\AppData\Local\Temp\pytest-of-runneradmin\pytest-0\test_sdr_chain_converts_hlg0"
+          r"\user_cache\social_video_editor\luts\hlg_to_sdr709_33_62.cube")
+    assert filter_path(ci, windows=True) == "'C\\:" + ci[2:].replace("\\", "/") + "'"
 
 
 ODD_PATHS = ["/home/u/x y'z,[1];:/l'ut.cube", "/tmp/a\\b/c.cube", "/tmp/q''q/semi;colon:=x.cube",

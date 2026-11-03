@@ -283,8 +283,9 @@ def test_encode_frames_reports_ffmpeg_errors_without_hanging(tmp_path):
     broken pipe ends the loop, the error carries FFmpeg's own message, no temporary file is left."""
     W, H, n = 33, 32, 400
     out = tmp_path / "seg.mkv"
-    with pytest.raises(RuntimeError, match=r"seg\.mkv \(exit \d+\): .*encoder"):     # FFmpeg's own words
+    with pytest.raises(RuntimeError, match=r"seg\.mkv \(exit \d+\): ") as e:
         FfmpegEncoder().encode_frames((bytes(W * H * 3) for _ in range(n)), n, W, H, 10, out)
+    assert "libx264" in str(e.value)                                     # FFmpeg's own words
     assert list(tmp_path.glob("seg*")) == []
 
 

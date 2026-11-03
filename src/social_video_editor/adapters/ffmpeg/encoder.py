@@ -67,6 +67,7 @@ def should_chunk(n_segments: int, total: float, cfg: dict) -> bool:
 
 
 _WINDOWS = os.name == "nt"
+FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and stalled this long is killed
 
 
 def _tmp_for(out: Path) -> Path:
@@ -194,6 +195,18 @@ class FfmpegEncoder:
         # stderr drained in a thread while frames are written: a full stderr pipe (4 KiB on Windows)
         # would block FFmpeg while this loop blocks on a full stdin pipe
         drain = StderrDrain(p.stderr)
+        progress, finished = [time.monotonic()], threading.Event()
+
+        def watchdog():
+            """FFmpeg 8.1 can stay alive forever, reading nothing, after a fatal error (seen ~2% of the
+            time when the encoder fails to open): an error printed + no progress for FRAMES_STALL_SEC
+            → kill it, so the error below is raised instead of hanging the render."""
+            while not finished.wait(0.5):
+                if drain.has_output() and time.monotonic() - progress[0] > FRAMES_STALL_SEC and p.poll() is None:
+                    p.kill()
+                    return
+
+        threading.Thread(target=watchdog, name="ffmpeg-watchdog", daemon=True).start()
         ok = broken = False
         try:
             for frame in frames:                     # the generator's own errors propagate (FFmpeg killed below)
@@ -202,15 +215,18 @@ class FfmpegEncoder:
                 except OSError:     # FFmpeg died (BrokenPipeError; EINVAL on Windows): its stderr says why
                     broken = True
                     break
+                progress[0] = time.monotonic()
             try:
                 p.stdin.close()
             except OSError:
                 broken = True
+            progress[0] = time.monotonic()
             if p.wait() != 0 or broken:
                 raise RuntimeError(f"FFmpeg failed encoding {out.name} (exit {p.returncode}): "
                                    f"{drain.text()[-800:].strip()}")
             ok = True
         finally:
+            finished.set()
             if not ok and p.poll() is None:          # e.g. the frame generator raised: stop FFmpeg
                 p.kill()
             try:

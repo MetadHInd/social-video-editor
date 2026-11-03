@@ -72,6 +72,10 @@ class StderrDrain:
         except (OSError, ValueError):       # pipe closed under us (the child was killed)
             pass
 
+    def has_output(self) -> bool:
+        """The child wrote something to stderr (with -loglevel error: an error)."""
+        return self._size > 0
+
     def text(self, timeout: float | None = 10.0) -> str:
         """What the child wrote (decoded as UTF-8), once it closed stderr or after `timeout` seconds."""
         self._thread.join(timeout)
