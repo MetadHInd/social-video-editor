@@ -7,11 +7,11 @@ else the file's modification time). They have no duration and no audio.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from ...domain.photos import capture_time, displayed_size, is_image_name
 from ..system.tools import FFPROBE
+from .runner import TEXT, call
 
 TAG_ORIENTATION, TAG_DATETIME, TAG_DATETIME_ORIGINAL, IFD_EXIF = 274, 306, 36867, 0x8769
 HEIF_EXTENSIONS = (".heic", ".heif")
@@ -92,8 +92,9 @@ def frame_rate(stream: dict) -> float:
 
 class FfprobeMediaProbe:
     def _run(self, path) -> dict:
-        r = subprocess.run([FFPROBE, "-v", "error", "-print_format", "json", "-show_format", "-show_streams",
-                            str(path)], capture_output=True, text=True, check=True)
+        # ffprobe's JSON is UTF-8 (tags, file names): never the locale's encoding (cp1252 on Windows)
+        r = call([FFPROBE, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
+                 capture_output=True, check=True, **TEXT)
         return json.loads(r.stdout)
 
     def probe(self, path: str | Path) -> dict:

@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
-import subprocess
+import sys
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +29,7 @@ from ...domain.automix import equal_power
 from ...log import log
 from ..system.tools import FFMPEG
 from .loudness import ebur128
+from .runner import TEXT, call
 
 SR = 48000
 FEATURES_VERSION = 1
@@ -51,14 +54,18 @@ K_SOS = np.array([[1.53512485958697, -2.69169618940638, 1.19839281085285, 1.0, -
 
 
 def rubberband_path() -> str | None:
-    return shutil.which("rubberband") or next((p for p in ("/opt/homebrew/bin/rubberband",
-                                                           "/usr/local/bin/rubberband") if Path(p).exists()), None)
+    """The Rubber Band CLI: on the PATH (shutil.which also finds rubberband.exe on Windows), else the
+    Homebrew / /usr/local locations a macOS GUI launch may leave off the PATH."""
+    found = shutil.which("rubberband")
+    if found or sys.platform == "win32":
+        return found
+    return next((p for p in ("/opt/homebrew/bin/rubberband", "/usr/local/bin/rubberband") if Path(p).exists()), None)
 
 
 def _decode(path: Path, sr: int = SR, channels: int = 2) -> np.ndarray:
     """The whole file as float32 (samples, channels)."""
-    r = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path), "-vn",
-                        "-ac", str(channels), "-ar", str(sr), "-f", "f32le", "-"], capture_output=True)
+    r = call([FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path), "-vn",
+              "-ac", str(channels), "-ar", str(sr), "-f", "f32le", "-"], capture_output=True)
     if r.returncode != 0:
         raise RuntimeError(f"Could not decode {Path(path).name}: {r.stderr.decode(errors='replace')[-400:]}")
     return np.frombuffer(r.stdout, np.float32).reshape(-1, channels).copy()
@@ -136,12 +143,12 @@ def features(path: Path, analysis: dict, cache_dir: Path) -> dict:
     f = Path(cache_dir) / f"features_{key}.json"
     if f.exists():
         try:
-            return json.loads(f.read_text())
+            return json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pass
     data = compute_features(path, beats)
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(data))
+    f.write_text(json.dumps(data), encoding="utf-8", newline="\n")
     return data
 
 
@@ -217,13 +224,13 @@ def stretch(x: np.ndarray, pre: int, n_out: int, work: Path) -> np.ndarray:
     sf.write(src, x, SR, subtype="FLOAT")
     rb = rubberband_path()
     if rb:
-        tmap.write_text(f"0 0\n{pre} {pre}\n{len(x)} {pre + n_out}\n")
+        tmap.write_text(f"0 0\n{pre} {pre}\n{len(x)} {pre + n_out}\n", encoding="utf-8", newline="\n")
         cmd = [rb, "-3", "-q", "--centre-focus", "-t", f"{(pre + n_out) / len(x):.9f}", "-M", str(tmap),
                str(src), str(dst)]
     else:                                             # no Rubber Band: FFmpeg atempo on the whole piece
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
                "-af", f"atempo={len(x) / (pre + n_out):.6f}", "-c:a", "pcm_f32le", str(dst)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = call(cmd, capture_output=True, **TEXT)
     if r.returncode != 0:
         raise RuntimeError(f"time-stretch failed: {r.stderr[-400:]}")
     y, _ = sf.read(dst, dtype="float32", always_2d=True)
@@ -348,7 +355,7 @@ def render(paths: list[Path], plan: dict, out: Path) -> Path:
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(out.stem + ".tmp.wav")
+    tmp = out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}.tmp.wav")   # unique per writer
     trs = plan["transitions"]
     carry: np.ndarray | None = None
     carry_ref: float | None = None              # loudness of the outgoing song before its tail
