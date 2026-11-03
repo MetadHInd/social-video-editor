@@ -4,8 +4,9 @@ Steps:
   1. Every shot is rendered on its own (cache/segments/, keyed by a fingerprint: unchanged shots are
      not rendered again). Video shots come from the ORIGINAL source (HDR→SDR, framing, color, zoom,
      speed, clean audio); drawn shots (polaroid, collage) from the segments they depend on, so the
-     render order follows the dependencies (Sequence.render_order) and dispatch is polymorphic
-     (ShotRenderer is a PieceVisitor).
+     render order follows the dependencies (Sequence.render_waves) and dispatch is polymorphic
+     (ShotRenderer is a PieceVisitor). Up to render.jobs ($SVE_JOBS) video / photo shots of a wave are
+     encoded at the same time; the result does not depend on the number of jobs.
   2. Segments are joined with their transitions; text layer, music and sound effects are added.
   3. Audio is mastered to −14 LUFS; video, cover, .srt, plan_used/config_used/summary.json are
      written to a new version folder (vN, or a variant such as v3SinMusica / v3NoMusic).
@@ -19,7 +20,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import threading
 import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -47,22 +52,80 @@ SEGMENT_VERSION = 5
 STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
 SHOT_SIGNATURE_KEYS = ("source", "start", "end", "speed", "effects", "zoom", "focus_x", "focus_y", "volume_db",
                        "mute", "freeze", "color", "_beats")
+# Shots that may be encoded in worker threads: each one is an FFmpeg process plus thread-safe work
+# (OpenCV, numpy, Pillow on its own image). Drawn shots stay on the calling thread: they draw text
+# with shared Pillow FreeType font objects, which are not thread-safe.
+POOLED_SHOTS = (VideoShot, PhotoShot)
 
 
 class ShotRenderer:
-    """Renders each shot to a segment file (a PieceVisitor: one method per kind of shot)."""
+    """Renders each shot to a segment file (a PieceVisitor: one method per kind of shot).
+
+    jobs > 1: the video / photo shots of each dependency wave are encoded by that many worker threads
+    (each runs its own FFmpeg process); drawn shots are rendered on the calling thread. jobs = 1 renders
+    every shot on the calling thread in Sequence.render_order(), exactly like a serial render.
+    """
 
     def __init__(self, svc: Services, cfg: dict, infos: list[dict], analyses: list[dict], timeline: Timeline,
-                 W: int, H: int, draft: bool, cache: Path):
+                 W: int, H: int, draft: bool, cache: Path, jobs: int = 1):
         self.svc, self.cfg, self.infos, self.analyses, self.tl = svc, cfg, infos, analyses, timeline
         self.W, self.H, self.draft, self.cache = W, H, draft, cache
         self.fps = int(cfg["output"]["fps"])
+        self.jobs = max(1, int(jobs))
         self.segments: list[Path | None] = [None] * len(timeline)
+        self._claims: dict[Path, threading.Lock] = {}
+        self._claims_guard = threading.Lock()
+        self._stop = threading.Event()                # set when a pooled shot fails: the pending ones are skipped
 
-    def render(self, order: list[int]) -> list[Path]:
-        for i in order:
-            self.segments[i] = self.tl[i].piece.accept(self)
+    def render(self, waves: list[list[int]]) -> list[Path]:
+        """Renders the shots wave by wave (Sequence.render_waves: a wave only needs earlier waves).
+
+        In a pool, the first shot that fails cancels the shots not started yet; the running ones are
+        waited for and that first exception is re-raised as is."""
+        for wave in waves:
+            pool = [i for i in wave if isinstance(self.tl[i].piece, POOLED_SHOTS)] if self.jobs > 1 else []
+            if len(pool) < 2:
+                pool = []
+            else:
+                self._render_pool(pool)
+            pooled = set(pool)
+            for i in wave:
+                if i not in pooled:
+                    self.segments[i] = self.tl[i].piece.accept(self)
         return self.segments
+
+    def _render_pool(self, pool: list[int]) -> None:
+        workers = min(self.jobs, len(pool))
+        log(f"  rendering {len(pool)} shots, {workers} at a time")
+        self._stop.clear()
+        ex = ThreadPoolExecutor(workers, thread_name_prefix="sve-shot")
+        try:
+            futures = {ex.submit(self._pooled, i): i for i in pool}                 # started in story order
+            for fut in as_completed(futures):
+                self.segments[futures[fut]] = fut.result()                          # raises the shot's error
+        finally:
+            self._stop.set()           # also on Ctrl-C: a worker that is free now starts nothing new
+            ex.shutdown(wait=True, cancel_futures=True)
+
+    def _pooled(self, i: int) -> Path | None:
+        """One shot in a worker thread. After a failure, shots a worker picks up before the pool is shut
+        down are skipped (cancel_futures only cancels the ones no worker has taken yet)."""
+        if self._stop.is_set():
+            return None
+        try:
+            return self.tl[i].piece.accept(self)
+        except BaseException:
+            self._stop.set()
+            raise
+
+    @contextmanager
+    def _claim(self, path: Path) -> Iterator[None]:
+        """Only one thread at a time renders a given segment file: two identical shots (same signature,
+        same path) must not encode the same temporary file at once; the second one finds it cached."""
+        with self._claims_guard:
+            lock = self._claims.setdefault(path, threading.Lock())
+        with lock:
+            yield
 
     def _header(self, shot) -> str:
         return f"  shot {shot.index + 1}/{len(self.tl)}:"
@@ -82,12 +145,13 @@ class ShotRenderer:
             "src": info["path"], "W": self.W, "H": self.H,
             "cfg": {k: self.cfg.get(k) for k in ("color", "framing", "audio", "effects")},
             "draft": self.draft, "v": SEGMENT_VERSION})
-        if self.svc.cache.has(path):
-            return path
-        times = np.linspace(d["start"] + 0.05, max(d["end"] - 0.05, d["start"] + 0.06), 6)
-        stats = color_math.measure(self.svc.video.read_frames(info["proxy"], times))
-        return self.svc.encoder.encode_shot(d, info, self.cfg, stats, has_voice(an, d["start"], d["end"]),
-                                            self.W, self.H, self.draft, path)
+        with self._claim(path):
+            if self.svc.cache.has(path):
+                return path
+            times = np.linspace(d["start"] + 0.05, max(d["end"] - 0.05, d["start"] + 0.06), 6)
+            stats = color_math.measure(self.svc.video.read_frames(info["proxy"], times))
+            return self.svc.encoder.encode_shot(d, info, self.cfg, stats, has_voice(an, d["start"], d["end"]),
+                                                self.W, self.H, self.draft, path)
 
     # ── drawn shots ──────────────────────────────────────────────────────────
     def _drawn_path(self, shot, refs: list[int], audio: dict | None = None) -> tuple[dict, Path]:
@@ -124,7 +188,7 @@ class ShotRenderer:
         d, path = self._drawn_path(shot, [shot.from_shot], audio)
         if self.svc.cache.has(path):
             return path
-        png = self.svc.encoder.extract_frame(self.segments[shot.from_shot], path.with_suffix(".last.png"))
+        png = self.svc.encoder.extract_frame(self.segments[shot.from_shot], _temp_png(path, "last"))
         try:
             frames = self.svc.composer.polaroid_frames(png, d, self.W, self.H, self.fps, self.cfg)
             return self.svc.encoder.encode_frames(frames, int(round(d["dur"] * self.fps)), self.W, self.H,
@@ -141,10 +205,9 @@ class ShotRenderer:
         try:
             for j, k in enumerate(shot.from_shots):         # the frame at 55 % of each shot
                 seg = self.segments[k]
-                pngs.append(self.svc.encoder.extract_frame(seg, path.with_name(f"{path.stem}_{j}.png"),
+                pngs.append(self.svc.encoder.extract_frame(seg, _temp_png(path, str(j)),
                                                            at=self.svc.probe.duration(seg) * 0.55))
-            bg = self.svc.encoder.extract_frame(self.segments[shot.background_from],
-                                                path.with_name(f"{path.stem}_bg.png"))
+            bg = self.svc.encoder.extract_frame(self.segments[shot.background_from], _temp_png(path, "bg"))
             pngs.append(bg)
             times = shot.appearance_times(d["dur"], int(self.cfg.get("collage", {}).get("subdivision", 2)))
             frames = self.svc.composer.collage_frames(pngs[:-1], bg, d, times, self.W, self.H, self.fps, self.cfg)
@@ -175,9 +238,16 @@ class ShotRenderer:
                     "framing": self.cfg.get("framing"), "auto_tone": auto_tone_setting(self.cfg, d),
                     "crf": photo_crf(self.cfg)},
             "v": SEGMENT_VERSION}, prefix="photo_")
-        if self.svc.cache.has(path):
-            return path
-        return self.svc.photos.encode_photo(image, d, self.cfg, self.W, self.H, self.fps, path)
+        with self._claim(path):
+            if self.svc.cache.has(path):
+                return path
+            return self.svc.photos.encode_photo(image, d, self.cfg, self.W, self.H, self.fps, path)
+
+
+def _temp_png(segment: Path, tag: str) -> Path:
+    """A frame extracted for a drawn shot, next to its segment; the thread id keeps two renders of the
+    same drawn shot (identical signature) from writing the same file."""
+    return segment.with_name(f"{segment.stem}_{tag}_{threading.get_ident()}.png")
 
 
 def sound_events(timeline: Timeline, texts: list[dict], keystrokes: list[float], cfg: dict) -> list:
@@ -250,11 +320,12 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         W, H = W // 2 // 2 * 2, H // 2 // 2 * 2
     plan, infos, analyses, music, tl = prepare_edit(svc, project, copy.deepcopy(plan), cfg, no_music)
     mix_timeline = cfg["music"].pop("_automix_timeline", None)      # playlist: written to vN/automix.json
-    order = tl.sequence.render_order()               # validates shot references before encoding anything
+    waves = tl.sequence.render_waves()               # validates shot references before encoding anything
+    jobs = svc.encoder.parallel_jobs(cfg)            # also validates render.jobs / $SVE_JOBS
     total = tl.total
     log(f"Timeline: {len(tl)} shots, {total:.1f} s, {W}×{H}{' (draft)' if draft else ''}")
 
-    segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache).render(order)
+    segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs).render(waves)
 
     # Main version = new number (v4). Variants = number of the latest main version + suffix
     # (v4SinMusica / v4NoMusic, v4Borrador / v4Draft, v4Youtube…), so you can see where they come from.
