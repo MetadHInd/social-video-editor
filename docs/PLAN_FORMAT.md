@@ -484,9 +484,22 @@ the second half.
 | `end_fade` | 3.0 | The last song fades out over this many seconds where its outro starts. |
 | `min_play` | 20 | Seconds every song plays outside its transitions (when it is long enough). |
 | `phrase_bars` | 8 | Out-points on multiples of this many bars. |
+| `short_loud_db` | 3.0 | Short (not beat-matched) crossfade: the outgoing tail and the incoming head must stay within this many dB of their song's body level. |
+| `short_search` | 30 | Seconds searched for that: back from the outro for the out-point, into the intro for the in-point (0 = off). |
 
-A short (not beat-matched) crossfade gets a smooth make-up gain (at most +6 dB, tapered to 0 dB at
-both ends, peaks still limited) wherever its level falls below the quieter of the two songs around it.
+A short crossfade cannot hide a quiet stretch, so its points are picked on each song's level
+envelope: the outgoing song leaves at its last loud phrase end (then bar end) before its energy
+drops, and the incoming one enters on its first downbeat whose head is loud (a quieter intro is
+skipped). When no loud point exists within `short_search`, the loudest one is taken if it is
+clearly (1.5 dB) louder than the usual point. Beat-matched transitions keep the usual points.
+
+The short crossfade then gets a smooth make-up gain wherever its loudness falls below the quieter of
+the two songs around it. It follows the K-weighted loudness curve (BS.1770 momentary loudness, in
+the same 1 s windows `sve check` uses) measured on the rendered overlap and on 1 s of each song
+around it. The gain is measured again after the limiter and corrected, up to 4 passes. It aims
+0.5 dB under the quieter neighbour and gives some back where the mix gets louder than both. It
+stays between 0 and +6 dB, changes by at most 12 dB per second (no pumping) and is 0 dB 1 s before
+and 1 s after the overlap. Peaks are still limited (true peak under −1 dBTP).
 
 A playlist render also writes `vN/automix.json`: `{"duration", "songs": [{"index", "name", "start",
 "end", "region": [a, b], "tempo", "energy", "gain_db"}], "boundaries", "overlaps", "beats",
