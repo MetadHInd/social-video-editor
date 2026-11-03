@@ -80,7 +80,10 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
 - **Python ≥ 3.11**
 - **FFmpeg 7 or newer** (with `ffprobe`) on the `PATH` — the engine passes filter graphs with the
   `-/filter_complex <file>` syntax introduced in FFmpeg 7. On macOS: `brew install ffmpeg`; on
-  Debian 13 / Ubuntu 25.04 or newer: `apt install ffmpeg`.
+  Debian 13 / Ubuntu 25.04 or newer: `apt install ffmpeg`. FFmpeg 7.0 – 8.0 can deadlock when a
+  shot's source is decoded with many threads, so on those versions shots decode with 2 threads
+  (8.1 and newer use FFmpeg's default); `SVE_DECODER_THREADS=N` sets the count (`auto` = FFmpeg's
+  default).
 - **Fonts** are looked up by file name (no extension): on macOS in `~/Library/Fonts`,
   `/Library/Fonts`, `/System/Library/Fonts/Supplemental` and `/System/Library/Fonts`; on Linux in
   `~/.local/share/fonts`, `~/.fonts`, `/usr/local/share/fonts` and `/usr/share/fonts`, sub-folders
