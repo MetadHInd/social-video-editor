@@ -4,12 +4,11 @@ Shots passed here are timeline dicts: the plan shot plus "index", "dur", "overla
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from ...domain import color_math
 from ...domain.effects import effects_of
 from ...domain.transitions import get_transition
 from ...log import log
+from .escape import filter_path
 from .luts import hlg_lut_path
 
 # transition name → xfade transition (None = hard cut). https://trac.ffmpeg.org/wiki/Xfade
@@ -38,7 +37,7 @@ def sdr_chain(info: dict, white: float = 0.62) -> str:
         return (
             "format=yuv420p10le,"
             "scale=in_color_matrix=bt2020:in_range=tv,format=gbrp16le,"
-            f"lut3d=file='{lut}':interp=tetrahedral,"
+            f"lut3d=file={filter_path(lut)}:interp=tetrahedral,"
             "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
             "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"
         )
@@ -55,7 +54,7 @@ def creative_chain(p: dict) -> str:
     if "temperature" in p:
         f.append(f"colortemperature=temperature={p['temperature']}:mix=0.35")
     if "lut" in p:
-        f.append(f"lut3d=file='{Path(p['lut']).expanduser()}'")
+        f.append(f"lut3d=file={filter_path(p['lut'])}")          # ~ expanded, any folder name
     if "sharpen" in p:
         f.append(f"cas=strength={p['sharpen']:.2f}")
     if p.get("vignette"):
