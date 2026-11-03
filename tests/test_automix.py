@@ -50,16 +50,61 @@ def click_song(path: Path, bpm: float, body: float = 40.0, lead: float = 1.5, ta
     return path
 
 
+def sectioned_song(path: Path, bpm: float, sections: list, pad_hz: float = 220.0, lead: float = 1.0) -> Path:
+    """Click track (kick on every downbeat, click on every beat, soft pad) whose level follows
+    `sections`: [(seconds, gain_db or "fade")], after `lead` s of silence and before 1 s of silence."""
+    import soundfile as sf
+
+    total = lead + sum(sec for sec, _ in sections) + 1.0
+    n = int(total * SR)
+    t = np.arange(n) / SR
+    y = np.zeros(n)
+    T, k = 60.0 / bpm, 0
+    while lead + k * T < total - 1.0:
+        i = int((lead + k * T) * SR)
+        m = min(int(0.12 * SR), n - i)
+        tt = np.arange(m) / SR
+        if k % 4 == 0:
+            y[i:i + m] += 0.9 * np.sin(2 * np.pi * 55 * tt) * np.exp(-tt * 25)
+        y[i:i + m] += 0.35 * np.sin(2 * np.pi * 1800 * tt) * np.exp(-tt * 60)
+        k += 1
+    y += 0.08 * np.sin(2 * np.pi * pad_hz * t) + 0.04 * np.sin(2 * np.pi * 1.5 * pad_hz * t)
+    env, c = np.zeros(n), lead
+    for sec, g in sections:
+        m = (t >= c) & (t < c + sec)
+        env[m] = np.linspace(1, 0.02, m.sum()) ** 2 if g == "fade" else 10 ** (g / 20)
+        c += sec
+    sf.write(path, np.stack([0.5 * y * env] * 2, 1), SR)
+    return path
+
+
+def grid_analysis(bpm: float, sections: list, lead: float = 1.0) -> dict:
+    """The exact beat grid of a sectioned_song (no beat tracker involved)."""
+    dur = lead + sum(sec for sec, _ in sections) + 1.0
+    T = 60.0 / bpm
+    return {"tempo": bpm, "interval": T, "beats": list(np.arange(lead, dur - 1.0, T)), "duration": dur}
+
+
 def fake_song(name: str, bpm: float, dur: float = 120.0, first_beat: float = 0.5, phase: int = 0,
               outro: float | None = None, loud_from: float = 0.5, onset_rate: float = 3.0,
-              body_db: float = -20.0) -> dict:
-    """A planner song without audio (regular grid, given level profile)."""
+              body_db: float = -20.0, levels: list | None = None) -> dict:
+    """A planner song without audio (regular grid, given level profile). levels: optional level
+    envelope as [(until_second, dB)] pieces (0.1 s hop)."""
     T = 60.0 / bpm
     beats = list(np.arange(first_beat, dur, T))
-    return {"name": name, "duration": dur, "tempo": bpm, "interval": T, "beats": beats, "phase": phase,
-            "lufs": -12.0, "onset_rate": onset_rate,
-            "profile": {"start": 0.5, "end": dur - 0.5, "loud_start": loud_from,
-                        "outro_start": outro if outro is not None else dur - 8.0, "body_db": body_db}}
+    s = {"name": name, "duration": dur, "tempo": bpm, "interval": T, "beats": beats, "phase": phase,
+         "lufs": -12.0, "onset_rate": onset_rate,
+         "profile": {"start": 0.5, "end": dur - 0.5, "loud_start": loud_from,
+                     "outro_start": outro if outro is not None else dur - 8.0, "body_db": body_db}}
+    if levels:
+        t = np.arange(0, dur, 0.1)
+        db = np.full(len(t), -90.0)
+        lo = 0.0
+        for until, v in levels:
+            db[(t >= lo) & (t < until)] = v
+            lo = until
+        s.update(hop=0.1, rms_db=[float(v) for v in db])
+    return s
 
 
 # ── pure logic ───────────────────────────────────────────────────────────────
@@ -149,12 +194,51 @@ def test_plan_mix_matched_and_unmatched_transitions():
     assert len(tl["songs"]) == 3 and all(0 <= s["energy"] <= 1 for s in tl["songs"])
 
 
+def test_short_crossfade_points_skip_quiet_outro_and_intro():
+    """Tempos too far apart (short crossfade): the outgoing song leaves at its last loud phrase end,
+    before its energy drops, and the incoming one enters on its first loud downbeat."""
+    out_s = fake_song("a", 128, dur=60, first_beat=1.0, outro=56.0, body_db=-20.0,
+                      levels=[(1.0, -90), (42.0, -20.0), (51.0, -28.8), (60.0, -40.0)])
+    in_s = fake_song("b", 92, dur=60, first_beat=1.0, loud_from=1.0, body_db=-20.0,
+                     levels=[(1.0, -90), (7.0, -25.8), (55.0, -20.0), (60.0, -40.0)])
+    cfg = automix.settings({})
+    plan = automix.plan_mix([out_s, in_s], cfg)
+    tr = plan["transitions"][0]
+    assert not tr["matched"]
+    phrase = 32 * 60 / 128
+    assert tr["out_src"] <= 42.0 + 1e-6                                  # before the drop at 42 s …
+    assert (tr["out_src"] - 1.0) / phrase == pytest.approx(round((tr["out_src"] - 1.0) / phrase), abs=1e-6)
+    assert tr["out_src"] - tr["length"] >= 20.0                         # … on a phrase end, not far back
+    assert tr["in_src"] >= 7.0 - 4 * 60 / 92 / 2                       # the quiet intro is skipped
+    assert automix.section_level(in_s, tr["in_src"], tr["in_src"] + tr["length"], 2.6) >= -23.0
+    # without the envelope (or with short_search 0) the old points stay
+    bare = automix.plan_mix([{k: v for k, v in s.items() if k not in ("rms_db", "hop")} for s in (out_s, in_s)], cfg)
+    assert bare["transitions"][0]["out_src"] == pytest.approx(46.0)
+    assert bare["transitions"][0]["in_src"] == pytest.approx(1.0)
+    fixed = automix.plan_mix([out_s, in_s], automix.settings({"automix": {"short_search": 0}}))
+    assert fixed["transitions"][0]["out_src"] == pytest.approx(46.0)
+    assert fixed["transitions"][0]["in_src"] == pytest.approx(1.0)
+
+
+def test_beat_matched_points_ignore_the_level_envelope():
+    """The loud-point search only applies to short crossfades: beat-matched plans do not change."""
+    lv = [(0.5, -90), (100.0, -20.0), (110.0, -27.0), (120.0, -40.0)]
+    intro = [(0.5, -90), (8.0, -25.0), (120.0, -20.0)]
+    with_env = [fake_song("a", 120, outro=112.0, levels=lv), fake_song("b", 124, levels=intro),
+                fake_song("c", 126, levels=intro)]
+    bare = [{k: v for k, v in s.items() if k not in ("rms_db", "hop")} for s in with_env]
+    p1, p2 = automix.plan_mix(with_env, automix.settings({})), automix.plan_mix(bare, automix.settings({}))
+    assert all(t["matched"] for t in p1["transitions"])
+    assert p1["transitions"] == p2["transitions"] and p1["songs"] == p2["songs"]
+
+
 def test_settings_defaults_and_overrides():
     s = automix.settings({})
     assert s["enabled"] and s["max_overlap"] == 12.0 and s["tempo_tolerance"] == 0.08 and s["target_lufs"] == -16.0
     s = automix.settings({"automix": {"max_overlap": 8, "target_lufs": -18}})
     assert s["max_overlap"] == 8.0 and s["target_lufs"] == -18.0
     assert automix.settings({"automix": False})["enabled"] is False
+    assert s["short_loud_db"] == 3.0 and s["short_search"] == 30.0
 
 
 # ── rendering ────────────────────────────────────────────────────────────────
@@ -240,3 +324,68 @@ def test_short_crossfade_make_up_gain_fills_the_dip():
     assert np.abs(fixed).max() <= 10 ** (-1.5 / 20) + 1e-6               # peaks still under the ceiling
     flat = (0.1 * rng.standard_normal((n, 2))).astype(np.float32)        # no dip → no gain
     assert np.all(splice_makeup(flat, level_db(flat), level_db(flat), sr) == 1.0)
+
+
+QUIET_OUT = (128, [(41, 0.0), (9, -8.8), (6, "fade")], 220.0)     # loud body, a quieter ending, fade
+QUIET_IN = (92, [(6, -5.8), (40, 0.0), (6, "fade")], 247.0)       # quieter intro, loud body, fade
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("out_db, in_db, overrides", [
+    (-8.8, -5.8, {}),                      # the field case: dipped 2.66 dB before
+    (-8.5, -5.5, {"short_search": 0}),     # same points as before: the make-up gain alone (2.40 dB before)
+])
+def test_short_crossfade_between_quiet_ending_and_quiet_intro_stays_flat(tmp_path, out_db, in_db, overrides):
+    """Regression: two songs of very different tempos (short crossfade) where the outgoing one gets
+    quieter (but not quiet enough to count as its fade) and the incoming one starts with a quieter
+    intro (not quiet enough to be skipped). Measured as `sve check` measures it (ebur128 momentary
+    loudness, _splice_dip): no dip over 1.5 dB, true peak under −1 dBTP."""
+    import soundfile as sf
+    from social_video_editor.adapters.ffmpeg.encoder import FfmpegEncoder
+    from social_video_editor.adapters.ffmpeg.loudness import ebur128
+    from social_video_editor.application.check import _splice_dip, _true_peak_db
+
+    enc, cfg = FfmpegEncoder(), automix.settings({"automix": overrides})
+    paths, songs = [], []
+    for name, (bpm, secs, pad) in (("out.wav", QUIET_OUT), ("in.wav", QUIET_IN)):
+        secs = [(sec, out_db if name == "out.wav" else in_db) if g not in (0.0, "fade") else (sec, g)
+                for sec, g in secs]
+        p = sectioned_song(tmp_path / name, bpm, secs, pad)
+        am = grid_analysis(bpm, secs)
+        paths.append(p)
+        songs.append(automix.song(name, am, enc.music_features(p, am, tmp_path / "cache"), cfg))
+    plan = automix.plan_mix(songs, cfg)
+    (sp,) = automix.splices(plan)
+    assert not sp["matched"]
+    wav = enc.render_automix(paths, plan, tmp_path / "cache")
+    L = ebur128(wav, series=True)
+    dip = _splice_dip(np.asarray(L["t"]), np.asarray(L["momentary"]), sp["start"], sp["end"])
+    assert dip is not None and dip <= 1.5
+    x, sr = sf.read(wav)
+    assert _true_peak_db(x[int((sp["start"] - 1.5) * sr): int((sp["end"] + 1.5) * sr)]) <= -1.0
+    assert len(x) / sr == pytest.approx(plan["duration"], abs=0.01)
+    assert silences(x[: int((plan["duration"] - 3.5) * sr)].mean(axis=1), sr, -50.0, 0.3) == []
+
+
+def test_make_up_gain_follows_the_measured_curve_without_pumping():
+    from social_video_editor.adapters.ffmpeg.automix_render import (MAKEUP_MAX_DB, MAKEUP_SLEW_DB, dip_levels,
+                                                                    level_db, momentary, soft_limit,
+                                                                    splice_makeup)
+
+    sr = 48000
+    rng = np.random.default_rng(3)
+    side = (0.1 * rng.standard_normal((5 * sr, 2))).astype(np.float32)
+    n = int(5.5 * sr)                                    # 1 s + a 3.5 s overlap + 1 s
+    t = np.arange(n) / sr
+    shape = np.interp(t, [0, 0.8, 1.6, 3.6, 4.4, 5.5], [0, 0, -5, -5, 0, 0])   # a 5 dB hole
+    seg = (0.1 * rng.standard_normal((n, 2)) * (10 ** (shape / 20))[:, None]).astype(np.float32)
+    ref = level_db(side)
+    g = splice_makeup(seg, ref, ref, sr, side[-sr:], side[:sr])
+    fixed = soft_limit(seg * g[:, None])
+    lv = dip_levels(momentary(np.concatenate([side[-sr:], fixed, side[:sr]]), sr))[10:10 + int((5.5 - 1) * 10)]
+    assert ref - lv.min() <= 1.0                                     # the hole is filled …
+    assert lv.max() <= ref + 0.5                                     # … without a bump above the songs
+    g_db = 20 * np.log10(g)
+    assert g_db.max() <= MAKEUP_MAX_DB + 1e-6 and g_db.min() >= -1e-6
+    assert g_db[0] == pytest.approx(0, abs=1e-6) and g_db[-1] == pytest.approx(0, abs=1e-6)
+    assert np.abs(np.diff(g_db)).max() * sr <= MAKEUP_SLEW_DB * 1.05  # slow: no pumping

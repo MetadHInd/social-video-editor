@@ -13,16 +13,21 @@ here. Per song this module decides:
     double tempo) the outgoing tail is time-stretched to the incoming tempo over the overlap
     (8, 4, 2 or 1 bars, at most `max_overlap` seconds) and the incoming first downbeat lands on an
     outgoing downbeat, so the beats line up; otherwise a short (`short_overlap`) crossfade at a
-    phrase end. Both use an equal-power crossfade with a "bass swap": the incoming song starts
-    high-passed (cutoff opening from `crossover_hz` to full over the overlap) and the outgoing one
-    loses its lows during the second half.
+    phrase end. A short crossfade cannot hide a quiet stretch, so its out-point is moved back to the
+    last phrase end before the outgoing song's energy drops, and the incoming song enters at its
+    first loud downbeat (a quiet intro is skipped, up to `short_search` seconds), both judged on the
+    0.1 s level envelope against the song's body level (`short_loud_db`). Both use an equal-power
+    crossfade with a "bass swap": the incoming song starts high-passed (cutoff opening from
+    `crossover_hz` to full over the overlap) and the outgoing one loses its lows during the second half.
   - a gain bringing every song to the same integrated loudness (`target_lufs`).
 
 `mix_timeline` describes the result for the picture: every song's span in the mix, the song
 boundaries (middle of each overlap, on a beat), merged beats / downbeats, tempo and an energy score.
 
 Song dict (built by `song`): {"name", "duration", "tempo", "interval", "beats", "phase",
-"lufs", "onset_rate", "profile": {"start", "end", "loud_start", "outro_start", "body_db"}}.
+"lufs", "onset_rate", "profile": {"start", "end", "loud_start", "outro_start", "body_db"},
+"hop", "rms_db"} (the last two: the level envelope; optional, without it the points are chosen on
+the profile alone).
 """
 from __future__ import annotations
 
@@ -30,7 +35,7 @@ import math
 
 import numpy as np
 
-AUTOMIX_VERSION = 1
+AUTOMIX_VERSION = 2                 # 2: loud out / in points for the short crossfades
 BEATS_PER_BAR = 4
 SR = 48000
 
@@ -48,6 +53,8 @@ DEFAULTS = {
     "end_fade": 3.0,          # the last song fades out over this many seconds where its outro starts
     "min_play": 20.0,         # every song plays at least this long outside the transitions (when possible)
     "phrase_bars": 8,         # out-points on multiples of this many bars
+    "short_loud_db": 3.0,     # short crossfade: tail / head within this many dB of the song's body level
+    "short_search": 30.0,     # … searched back from the outro / forward into the intro up to this many s
 }
 
 
@@ -122,7 +129,42 @@ def song(name: str, analysis: dict, features: dict, cfg: dict | None = None) -> 
     return {"name": name, "duration": float(features.get("duration") or analysis.get("duration") or prof["end"]),
             "tempo": tempo if len(beats) >= 2 else 0.0, "interval": interval, "beats": beats,
             "phase": downbeat_phase(features.get("accents") or []), "lufs": features.get("lufs"),
-            "onset_rate": float(features.get("onset_rate") or 0.0), "profile": prof}
+            "onset_rate": float(features.get("onset_rate") or 0.0), "profile": prof,
+            "hop": float(features["hop"]), "rms_db": list(features["rms_db"])}
+
+
+def section_level(s: dict, a: float, b: float, win: float = 2.0) -> float | None:
+    """Level (dBFS) of the quietest `win`-second stretch of [a, b] (energy means of the song's 0.1 s
+    level envelope, every half window); None without an envelope or outside the song."""
+    db, hop = s.get("rms_db"), s.get("hop")
+    if not db or not hop:
+        return None
+    p = 10 ** (np.asarray(db, float) / 10)
+    win = min(win, max(b - a, hop))
+    levels = []
+    for x in np.arange(a, max(b - win, a) + 1e-9, win / 2):
+        i0, i1 = max(int(round(x / hop)), 0), min(int(round((x + win) / hop)), len(p))
+        if i1 > i0:
+            levels.append(10 * np.log10(p[i0:i1].mean() + 1e-12))
+    return float(min(levels)) if levels else None
+
+
+def _loudest(s: dict, cands: list[float], length: float, offset: float, default: float,
+             loud_db: float) -> float:
+    """The first candidate whose section [c + offset, c + offset + length] stays within `loud_db` of
+    the song's body level; failing that the loudest one, if it beats `default` by at least 1.5 dB."""
+    thr = s["profile"]["body_db"] - loud_db
+    win = max(2.0, BEATS_PER_BAR * s["interval"]) if s["tempo"] else 2.0     # at least a bar: no kick gaps
+    levels = [(c, section_level(s, c + offset, c + offset + length, win)) for c in cands]
+    levels = [(c, v) for c, v in levels if v is not None]
+    if not levels:
+        return default
+    for c, v in levels:
+        if v >= thr - 1e-9:
+            return c
+    here = section_level(s, default + offset, default + offset + length, win)
+    best_c, best_v = max(levels, key=lambda cv: cv[1])          # max keeps the first (preferred) of ties
+    return best_c if here is None or best_v >= here + 1.5 else default
 
 
 # ── beat grid of a song ──────────────────────────────────────────────────────
@@ -166,6 +208,22 @@ def in_point(s: dict, first: bool = False) -> float:
     return round(after[0], 4) if after else p["loud_start"]
 
 
+def loud_in_point(s: dict, default: float, head: float, loud_db: float = 3.0,
+                  search: float = 30.0) -> float:
+    """In-point for a short (not beat-matched) crossfade: the first downbeat from `default` on (at
+    most `search` s into the song) whose `head` seconds stay loud, so the crossfade does not fall into
+    a quiet intro; `default` when it already is loud or nothing better is found."""
+    p = s["profile"]
+    hi = max(min(p["start"] + search, (p["start"] + p["outro_start"]) / 2 - head), default)   # never half the song
+    if s["tempo"]:
+        cands = downbeats(s, default - 1e-6, hi)
+    else:
+        cands = [float(x) for x in np.arange(default, hi + 1e-9, 0.5)]
+    if not cands or abs(cands[0] - default) > 1e-6:
+        cands = [default] + cands
+    return round(_loudest(s, cands, head, 0.0, default, loud_db), 4)
+
+
 def tempo_match(bpm_out: float, bpm_in: float, tolerance: float) -> dict:
     """Can the two songs be beat-matched? Compares the incoming tempo ×1, ×2 and ×½ with the outgoing.
 
@@ -188,21 +246,39 @@ def equal_power(x) -> tuple[np.ndarray, np.ndarray]:
     return np.cos(np.pi / 2 * x), np.sin(np.pi / 2 * x)
 
 
-def out_point(s: dict, earliest: float, overlap_src: float, bars: int = 8) -> float:
+def out_point(s: dict, earliest: float, overlap_src: float, bars: int = 8, loud_db: float | None = None,
+              search: float = 30.0) -> float:
     """Source second where the outgoing song is gone: a phrase end before the outro gets quiet.
 
     earliest: the overlap may not start before this (in-point + head + minimum play).
     Falls back to bar ends, beats and finally the quiet point itself.
+    loud_db (short crossfades): the tail [out − overlap_src, out] must stay within loud_db of the
+    body level, so the last loud phrase end before the energy drops is taken (phrase ends first,
+    then bar ends, at most `search` s back); failing that the loudest tail, if clearly louder.
     """
     p = s["profile"]
     limit = min(p["outro_start"], p["end"]) + 0.05
     lo = earliest + overlap_src
+    default = None
     if s["tempo"]:
         for period in (BEATS_PER_BAR * bars, BEATS_PER_BAR, 1):
             c = _grid(s, period, lo, limit)
             if c:
-                return round(c[-1], 4)
-    return round(max(min(p["outro_start"], p["end"]), lo), 4)
+                default = round(c[-1], 4)
+                break
+    if default is None:
+        default = round(max(min(p["outro_start"], p["end"]), lo), 4)
+    if loud_db is None:
+        return default
+    far = max(lo, default - search)
+    if s["tempo"]:
+        cands = [c for period in (BEATS_PER_BAR * bars, BEATS_PER_BAR)
+                 for c in reversed(_grid(s, period, far, default + 1e-6))]
+    else:
+        cands = [float(x) for x in np.arange(default, far - 1e-9, -0.5)]
+    if not cands:
+        return default
+    return round(_loudest(s, cands, overlap_src, -overlap_src, default, loud_db), 4)
 
 
 def _transition_shape(out_s: dict, in_s: dict, cfg: dict) -> dict:
@@ -248,6 +324,11 @@ def plan_mix(songs: list[dict], cfg: dict | None = None) -> dict:
     n = len(songs)
     ins = [in_point(s, first=(i == 0)) if cfg["enabled"] else s["profile"]["start"] for i, s in enumerate(songs)]
     shapes = [_transition_shape(songs[i], songs[i + 1], cfg) for i in range(n - 1)]
+    if cfg["enabled"]:                              # short crossfade: the incoming head must be loud
+        for i, sh in enumerate(shapes):
+            if not sh["matched"]:
+                ins[i + 1] = loud_in_point(songs[i + 1], ins[i + 1], sh["overlap_mix"], cfg["short_loud_db"],
+                                           cfg["short_search"])
     out_songs, transitions = [], []
     place, head = 0.0, 0.0
     for i, s in enumerate(songs):
@@ -260,7 +341,8 @@ def plan_mix(songs: list[dict], cfg: dict | None = None) -> dict:
             min_play = min(cfg["min_play"], max(avail - sh["overlap_src"], 0) / 2)
             earliest = ins[i] + head + min_play
             if cfg["enabled"]:
-                out = out_point(s, earliest, sh["overlap_src"], int(cfg["phrase_bars"]))
+                out = out_point(s, earliest, sh["overlap_src"], int(cfg["phrase_bars"]),
+                                None if sh["matched"] else cfg["short_loud_db"], cfg["short_search"])
             else:
                 out = round(max(p["end"], earliest + sh["overlap_src"]), 4)
             src = min(sh["overlap_src"], max(out - ins[i] - head, 0.5))
