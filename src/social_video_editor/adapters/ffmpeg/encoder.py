@@ -30,6 +30,7 @@ CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers
 DEADLOCK_VERSIONS = ((7, 0), (8, 1))     # [first affected, first fixed)
 SAFE_DECODER_THREADS = "2"
 DECODER_THREADS_ENV = "SVE_DECODER_THREADS"
+JOBS_ENV = "SVE_JOBS"           # shots rendered at once; overrides render.jobs (see parallel_jobs)
 # trial passes of master_audio (gain + limiter → AAC → measure). Very peaky audio needs a 5th pass with
 # FFmpeg 7.x, whose AAC encoder overshoots the true peak more than newer versions.
 MASTER_PASSES = 6
@@ -525,3 +526,24 @@ class FfmpegEncoder:
     def cover(self, video: Path, t: float, out: Path) -> Path:
         run(["ffmpeg", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1", "-q:v", "2", out])
         return out
+
+    # ── parallel shot rendering ──────────────────────────────────────────────
+    def parallel_jobs(self, cfg: dict) -> int:
+        """Shots to encode at once: $SVE_JOBS, else render.jobs (auto = from the CPUs this process may use)."""
+        from ...domain.config import resolve_jobs      # imported here: keeps this addition self-contained
+
+        return resolve_jobs((cfg.get("render") or {}).get("jobs"), os.environ.get(JOBS_ENV),
+                            self.usable_cpus())
+
+    @staticmethod
+    def usable_cpus() -> int:
+        """CPUs this process may run on: os.process_cpu_count() (Python 3.13+, honors affinity and
+        PYTHON_CPU_COUNT), else the scheduler affinity (Linux), else os.cpu_count()."""
+        if hasattr(os, "process_cpu_count"):
+            return os.process_cpu_count() or 1
+        if hasattr(os, "sched_getaffinity"):
+            try:
+                return len(os.sched_getaffinity(0)) or 1
+            except OSError:
+                pass
+        return os.cpu_count() or 1

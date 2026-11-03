@@ -118,3 +118,38 @@ def output_name(name: str, language: str, draft: bool = False, profile: str | No
     lb = labels(language)
     return (name + (lb["file_draft"] if draft else "") + (f"_{profile_label(language, profile)}" if profile else "")
             + (lb["file_no_music"] if no_music else ""))
+
+
+# Parallel shot rendering (settings render.jobs, environment SVE_JOBS): how many video / photo shots
+# are encoded at the same time. Each FFmpeg shot encode is already multi-threaded (x264), so a few jobs
+# are enough to fill the idle time of the single-threaded parts (decoding, filters, the audio chain).
+MAX_JOBS = 16
+
+
+def auto_jobs(cpus: int) -> int:
+    """render.jobs: auto → half the CPUs, between 1 and 4 (more jobs mostly add memory, not speed)."""
+    return max(1, min(4, int(cpus) // 2))
+
+
+def resolve_jobs(setting, env: str | None, cpus: int) -> int:
+    """Number of shots to render at once.
+
+    `env` ($SVE_JOBS, when set and not blank) wins over `setting` (render.jobs). "auto" / None →
+    auto_jobs(cpus); a whole number ≥ 1 is used as is, capped at MAX_JOBS. Anything else is a UserError
+    (a typo should not silently turn into a serial or an all-cores render)."""
+    raw, source = setting, "render.jobs"
+    if env is not None and str(env).strip():
+        raw, source = str(env).strip(), "SVE_JOBS"
+    if raw is None or (isinstance(raw, str) and raw.strip().lower() == "auto"):
+        return auto_jobs(cpus)
+    if isinstance(raw, bool):
+        n = None
+    elif isinstance(raw, int):
+        n = raw
+    elif isinstance(raw, str) and raw.strip().isdigit():
+        n = int(raw.strip())
+    else:
+        n = None
+    if n is None or n < 1:
+        raise UserError(f"{source} must be 'auto' or a whole number of shots (1-{MAX_JOBS}); got {raw!r}")
+    return min(n, MAX_JOBS)
