@@ -9,6 +9,7 @@ When spandrel, torch or the model are missing, the fallback (Lanczos) is used. N
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 from pathlib import Path
 
@@ -73,11 +74,11 @@ class RealEsrganUpscaler:
 
     # ── availability ─────────────────────────────────────────────────────────
     def ready(self, settings: dict) -> str | None:
-        """None when Real-ESRGAN can be used; otherwise why not."""
-        try:
-            import spandrel  # noqa: F401
-            import torch  # noqa: F401
-        except ImportError:
+        """None when Real-ESRGAN can be used; otherwise why not.
+
+        Only checks that spandrel and torch are installed, without importing them: importing torch takes
+        seconds, and this runs for every `sve enhance` / `sve report` (and at test collection)."""
+        if any(importlib.util.find_spec(m) is None for m in ("spandrel", "torch")):
             return 'spandrel/torch are not installed (pip install -e ".[enhance]")'
         if find_model(settings) is None:
             return f"model not found: {model_candidates(settings)[-1]}"
@@ -138,7 +139,13 @@ class RealEsrganUpscaler:
         img = load_oriented(src)
         method = "lanczos"
         if upscale:
-            img = Image.fromarray(self.upscale_array(np.asarray(img, np.uint8), settings))
+            try:
+                img = Image.fromarray(self.upscale_array(np.asarray(img, np.uint8), settings))
+            except ImportError as e:        # installed but broken (e.g. a torch build for another platform)
+                if not self._warned:
+                    log(f"Real-ESRGAN not used (spandrel/torch failed to load: {e}); enlarging with Lanczos.")
+                    self._warned = True
+                return self.fallback.enhance(src, out, short_side, upscale, settings)
             method = "realesrgan"
         save_jpeg(resize_short(img, int(short_side)), out)
         return method
