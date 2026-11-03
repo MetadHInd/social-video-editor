@@ -12,7 +12,8 @@ from pathlib import Path
 from ...domain.effects import freeze_seconds
 from ...domain.models import UserError
 from ...log import log
-from ..system.hwaccel import decode_args, proxy_encoder_args, run_with_fallback
+from ..system.hwaccel import (decode_args, device_args, draft_encoder_args, final_decoder, proxy_encoder_args,
+                              run_with_fallback, with_upload)
 from ..system.tools import FFMPEG, ffmpeg_version
 from . import automix_render, filters
 from .loudness import ebur128
@@ -111,7 +112,8 @@ class FfmpegEncoder:
         vf = f"scale={w}:{h}:flags=bicubic,{filters.sdr_chain(info, hdr_white)},fps=30"
         tmp = _tmp_for(out)
         try:
-            run_with_fallback(lambda hw: ["ffmpeg", *decode_args(hw), "-i", info["path"], "-map", "0:v:0", "-vf", vf,
+            run_with_fallback(lambda hw: ["ffmpeg", *device_args(hw), *decode_args(hw), "-i", info["path"],
+                                          "-map", "0:v:0", "-vf", with_upload(vf, hw),
                                           *proxy_encoder_args(hw, "3M"), "-an", tmp], run)
             return _publish(tmp, out)
         finally:
@@ -145,18 +147,20 @@ class FfmpegEncoder:
         threads = segment_decoder_threads(ffmpeg_version(), os.environ.get(DECODER_THREADS_ENV))
         threads_args = ["-threads", threads] if threads else []
 
-        def build(hw: bool) -> list:
-            cmd = ["ffmpeg", *decode_args(hw), *threads_args,
+        def build(hw) -> list:
+            # drafts: the hardware backend decodes and encodes; final quality: libx264, VideoToolbox decode only
+            dec, enc = (hw, hw) if draft else (final_decoder(hw), None)
+            cmd = ["ffmpeg", *device_args(dec), *decode_args(dec), *threads_args,
                    "-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}", "-i", info["path"]]
             if info["has_audio"]:
                 audio_map = f"0:{info['audio_index']}"
             else:
                 cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
                 audio_map = "1:a"
-            return cmd + ["-map", "0:v:0", "-map", audio_map, "-vf", vf, "-af", af, "-t", f"{shot['dur']:.4f}",
-                          "-c:v", "libx264", "-preset", "ultrafast" if draft else "fast",
-                          "-crf", "22" if draft else "12", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
-                          "-ar", "48000", tmp]
+            venc = draft_encoder_args(enc) or ["-c:v", "libx264", "-preset", "ultrafast" if draft else "fast",
+                                               "-crf", "22" if draft else "12", "-pix_fmt", "yuv420p"]
+            return cmd + ["-map", "0:v:0", "-map", audio_map, "-vf", with_upload(vf, enc), "-af", af,
+                          "-t", f"{shot['dur']:.4f}", *venc, "-c:a", "pcm_s16le", "-ar", "48000", tmp]
 
         try:
             run_with_fallback(build, run)
