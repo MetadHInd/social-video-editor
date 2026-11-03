@@ -1,5 +1,7 @@
 # social-video-editor (`sve`)
 
+[![tests](https://github.com/MetadHInd/social-video-editor/actions/workflows/tests.yml/badge.svg)](https://github.com/MetadHInd/social-video-editor/actions/workflows/tests.yml)
+
 A Python + FFmpeg engine that turns raw phone clips into finished **vertical social videos**
 (TikTok, Reels, Shorts). It analyzes your footage, proposes an editable plan, and renders it:
 a hook in the first second, cuts that land on the music's beat, typed text cards with color emoji,
@@ -73,7 +75,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .              # the engine and the `sve` command
 pip install -e ".[music]"     # + yt-dlp, for `sve music`
 pip install -e ".[vision]"    # + sentence-transformers: local CLIP product recognition (optional)
-pip install -e ".[dev]"       # + pytest
+pip install -e ".[dev]"       # + pytest and ruff
 ```
 
 The same CLI is available as `sve`, `social-video-editor` and `python -m social_video_editor`.
@@ -324,6 +326,7 @@ top of that base, so all of them inherit English unless the recipe itself or a p
 ```bash
 python -m pytest -q                       # everything (integration tests need FFmpeg)
 python -m pytest -q -m "not integration"  # fast unit tests only
+ruff check .                              # lint (rules in pyproject.toml)
 ```
 
 Integration tests generate synthetic media in a temporary folder; nothing is written outside it.
