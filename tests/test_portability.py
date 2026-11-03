@@ -1,6 +1,7 @@
-"""Linux portability: font lookup in nested font folders, missing emoji font."""
+"""Linux portability: font lookup in nested font folders, missing emoji font, recipe descriptions."""
 from __future__ import annotations
 
+from social_video_editor.adapters.files.recipes import header_description
 from social_video_editor.adapters.pillow import rich_text as rt
 from social_video_editor.adapters.system import fonts
 
@@ -47,4 +48,20 @@ def test_without_any_font_text_and_emoji_still_render(tmp_path, monkeypatch):
         assert im.size == (40, 40) and im.getbbox() is None
     finally:
         _clear_caches()
+
+
+def test_recipe_description_skips_decorative_comment_lines():
+    text = "# ─────────────\n#\n#   ==== \n# BASE RECIPE: defaults\n# more\n\nlanguage: es\n"
+    assert header_description(text) == "BASE RECIPE: defaults"
+    assert header_description("# RECIPE: MINE\nduration: {target: 9}\n") == "RECIPE: MINE"
+    assert header_description("# ────\nlanguage: es\n# RECIPE: too late\n") == ""      # only the header
+    assert header_description("") == ""
+
+
+def test_packaged_recipe_descriptions_are_meaningful(recipes):
+    for name in recipes.available():
+        desc = recipes.description(name)
+        assert desc and any(ch.isalpha() for ch in desc), name
+        assert "─" not in desc and not desc.startswith("#"), name
+    assert recipes.description("base").startswith("BASE RECIPE")
 
