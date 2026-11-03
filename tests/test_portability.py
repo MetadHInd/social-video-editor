@@ -1,4 +1,5 @@
-"""Linux portability: font lookup in nested font folders, missing emoji font, recipe descriptions."""
+"""Linux portability: font lookup in nested font folders, missing emoji font, recipe descriptions,
+decoder threads of shot segments (FFmpeg 7.1)."""
 from __future__ import annotations
 
 from social_video_editor.adapters.files.recipes import header_description
@@ -65,3 +66,27 @@ def test_packaged_recipe_descriptions_are_meaningful(recipes):
         assert "─" not in desc and not desc.startswith("#"), name
     assert recipes.description("base").startswith("BASE RECIPE")
 
+
+def test_shot_segments_cap_the_decoder_threads(tmp_path, monkeypatch, cfg):
+    """FFmpeg 7.1 can deadlock when a frame-threaded decoder (default: cores + 1 threads) holds 5+ frames
+    while the shot's audio chain buffers (afftdn) and pads (apad): the shot input gets a fixed count."""
+    from social_video_editor.adapters.ffmpeg import encoder as enc_mod
+
+    for name in ("prescale", "sdr_chain", "correction_chain", "motion", "flash_filters"):
+        monkeypatch.setattr(enc_mod.filters, name, lambda *a, **k: "")
+    built = []
+
+    def capture(build, run):
+        built.append([str(x) for x in build(False)])
+        raise RuntimeError("stop: command captured")
+
+    monkeypatch.setattr(enc_mod, "run_with_fallback", capture)
+    shot = {"start": 0.5, "end": 2.5, "dur": 2.0, "index": 0}
+    info = {"path": "clip.mp4", "has_audio": True, "audio_index": 1}
+    try:
+        enc_mod.FfmpegEncoder().encode_shot(shot, info, cfg, {}, False, 540, 960, True, tmp_path / "s.mkv")
+    except RuntimeError:
+        pass
+    cmd = built[0]
+    j = cmd.index("-threads")
+    assert j < cmd.index("-i") and cmd[j + 1] == enc_mod.SEGMENT_DECODER_THREADS == "2"
