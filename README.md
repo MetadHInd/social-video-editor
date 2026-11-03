@@ -398,11 +398,17 @@ defaults is summarized in [docs/RESEARCH.md](docs/RESEARCH.md).
   half beat, or — when any shot asks for `"beats": N` — every cut lands exactly on a beat, with the
   middle of each transition on it. Texts can be anchored to shots, so they follow the re-timed cuts.
 - **AutoMix as a plan, then a render.** For playlists, `domain/automix.py` decides (without audio
-  I/O) each song's in-point (first strong downbeat), out-point (end of an 8-bar phrase before the
-  outro gets quiet), loudness gain and transition: a time-stretched beat-matched blend when tempos
-  are close (also at ×2 / ×½), else a short crossfade, both with a bass swap. The FFmpeg/numpy
-  adapter only measures and renders that plan. Photo durations are then fitted to the mix so every
-  photo change is on a beat, song boundaries are photo changes and the video ends with the music.
+  I/O, from each song's beat grid and level envelope) its in-point, out-point, loudness gain and
+  transition: a time-stretched beat-matched blend when tempos are close (also at ×2 / ×½), else a
+  short crossfade, both with a bass swap. A beat-matched blend enters on the first strong downbeat
+  and leaves at the end of an 8-bar phrase before the outro gets quiet. A short crossfade cannot
+  hide a quiet stretch, so it leaves at the last loud phrase end before the outgoing song's energy
+  drops and enters on the incoming song's first loud downbeat (quiet intros are skipped). The
+  FFmpeg/numpy adapter measures the songs and renders that plan; the one thing it adds is a make-up
+  gain on short crossfades that follows the rendered overlap's loudness (BS.1770, in the 1 s
+  windows `sve check` uses), so a splice does not dip below the songs around it. Photo durations are
+  then fitted to the mix so every photo change is on a beat, song boundaries are photo changes and
+  the video ends with the music.
 - **Orientation comes from the output size.** Portrait uses the TikTok / Reels safe zone (caption
   area at the bottom, button rail on the right); landscape uses title-safe margins on every side.
   Text sizes scale with the short side, polaroids and collage grids are laid out per orientation,
@@ -421,7 +427,6 @@ defaults is summarized in [docs/RESEARCH.md](docs/RESEARCH.md).
 
 ## Roadmap
 
-- Cross-platform fonts and emoji (Linux / Windows lookups instead of macOS paths).
 - Subject-aware framing: keep faces and subjects inside the crop for Ken Burns and 16:9 → 9:16 reframing.
 - Smarter photo selection for slideshows: skip near-duplicates and blurry shots.
 - Harmonic (key-aware) song ordering and transitions in AutoMix.
