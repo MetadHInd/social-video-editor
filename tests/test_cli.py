@@ -60,3 +60,13 @@ def test_new_spanish_alias_uses_existing_legacy_folder(tmp_path):
     _run("nuevo", "demo", "--receta", "resena", "--fuentes", str(clip), cwd=tmp_path)
     text = (tmp_path / "proyectos" / "demo" / "project.yaml").read_text(encoding="utf-8")
     assert "recipe: review" in text
+
+
+def test_package_version_matches_pyproject():
+    import tomllib
+
+    import social_video_editor
+
+    root = Path(__file__).resolve().parents[1]
+    with open(root / "pyproject.toml", "rb") as f:
+        assert tomllib.load(f)["project"]["version"] == social_video_editor.__version__
