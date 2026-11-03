@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from ...domain.timebase import mmss
-from ..system.fonts import LABEL_FONT
+from ..system.fonts import label_font
 from . import rich_text as rt
 from .drawing import center_crop, drop_shadow, ease_out, rounded, soft_background, to_rgb_bytes
 from .fonts import load_font
@@ -72,10 +72,13 @@ def collage_layout(n: int, W: int, H: int, shot: dict, cfg: dict) -> dict:
 
 
 def _label_font(size: int):
+    path = label_font()
     try:
-        return ImageFont.truetype(str(LABEL_FONT), size)
+        if path is not None:
+            return ImageFont.truetype(str(path), size)
     except OSError:
-        return ImageFont.load_default()
+        pass
+    return ImageFont.load_default()
 
 
 class PillowComposer:

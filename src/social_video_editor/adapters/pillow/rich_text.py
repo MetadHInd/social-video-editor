@@ -1,4 +1,4 @@
-"""Text with color emoji (Apple Color Emoji) drawn with Pillow.
+"""Text with color emoji (Apple Color Emoji on macOS, Noto Color Emoji on Linux) drawn with Pillow.
 
 Units come from domain.text_units (a composed emoji is ONE unit). Line breaking is computed with
 the full sentence, so nothing moves while it is being typed.
@@ -10,17 +10,36 @@ from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 
 from ...domain.text_units import is_emoji, units
-from ..system.fonts import EMOJI_FONT
+from ..system.fonts import emoji_font
+
+
+EMOJI_SIZES = (160, 109)   # bitmap emoji fonts only load at their strike size (Noto Color Emoji: 109)
+
+
+@lru_cache(maxsize=1)
+def _emoji_font():
+    """(font, render size) of the installed color emoji font, or (None, 0) when there is none."""
+    path = emoji_font()
+    if path is not None:
+        for s in EMOJI_SIZES:
+            try:
+                return ImageFont.truetype(str(path), s), s
+            except OSError:
+                continue
+    return None, 0
 
 
 @lru_cache(maxsize=512)
 def _emoji_image(u: str, size: int) -> Image.Image:
-    f = ImageFont.truetype(str(EMOJI_FONT), 160)
-    im = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+    side = max(1, int(size * 1.0))
+    f, s = _emoji_font()
+    if f is None:                          # no emoji font installed: leave the space empty
+        return Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas = int(s * 1.25)
+    im = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
     ImageDraw.Draw(im).text((0, 0), u, font=f, embedded_color=True)
-    bb = im.getbbox() or (0, 0, 160, 160)
-    im = im.crop((0, 0, max(bb[2], 160), max(bb[3], 160)))
-    side = int(size * 1.0)
+    bb = im.getbbox() or (0, 0, s, s)
+    im = im.crop((0, 0, max(bb[2], s), max(bb[3], s)))
     return im.resize((side, int(im.height * side / im.width)), Image.LANCZOS)
 
 
