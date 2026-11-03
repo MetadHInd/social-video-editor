@@ -31,3 +31,7 @@ sfx/
 *.pth
 music/
 models/
+
+# The synthetic demo GIFs (scripts/make_demo.py) are the only media committed
+*.gif
+!docs/media/*.gif

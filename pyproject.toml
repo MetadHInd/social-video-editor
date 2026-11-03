@@ -23,7 +23,7 @@ dependencies = [
 vision = ["sentence-transformers"]
 music = ["yt-dlp"]
 enhance = ["spandrel", "torch"]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]
 
 [project.scripts]
 sve = "social_video_editor.cli:main"
@@ -34,6 +34,15 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 social_video_editor = ["recipes/*.yaml", "data/vocabulary/*.txt"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# pyflakes + pycodestyle errors. Short math names (I = integrated loudness, L = length) and small
+# local lambdas are the house style, so E741 / E731 are off.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E731", "E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

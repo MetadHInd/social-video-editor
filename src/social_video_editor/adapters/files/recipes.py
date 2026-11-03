@@ -36,12 +36,13 @@ class YamlRecipeRepository:
         return dict(sorted(out.items()))
 
     def description(self, name: str) -> str:
-        """First line of the recipe file (its comment header), "" if the file is empty."""
+        """First meaningful line of the recipe's comment header ("#" stripped); "" if there is none.
+
+        Decorative lines (rules such as # ─────, # ====) and empty comments are skipped."""
         path = self.path(name)
         if path is None:
             raise UserError(f"Recipe '{name}' not found. Available: {', '.join(self.available())}")
-        lines = path.read_text(encoding="utf-8").splitlines()
-        return lines[0] if lines else ""
+        return header_description(path.read_text(encoding="utf-8"))
 
     def vocabulary(self, language: str) -> list[str]:
         """Packaged product names (data/vocabulary/products.<language>.txt), comments and blanks skipped."""
@@ -62,3 +63,17 @@ class YamlRecipeRepository:
         if name != "base":
             cfg = deep_merge(cfg, self.read(name))
         return resolve(deep_merge(cfg, legacy_es.config(settings or {})))
+
+
+def header_description(text: str) -> str:
+    """First comment line with letters or digits, read from the leading comment block of a YAML file."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("#"):
+            break                                   # the header ended: no description
+        comment = stripped.lstrip("#").strip()
+        if any(ch.isalnum() for ch in comment):
+            return comment
+    return ""

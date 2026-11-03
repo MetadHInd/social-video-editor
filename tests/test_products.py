@@ -328,6 +328,7 @@ def test_product_plan_or_none(tmp_path, cfg):
 def test_clip_adapter_reports_missing_package_or_model(tmp_path, monkeypatch):
     import importlib.util
     det = ClipVisualDetector(cache_folder=str(tmp_path))
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())   # as if the extra were installed
     assert "not downloaded" in det.ready({})                          # empty model cache: no torch import
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
     assert "pip install 'social-video-editor[vision]'" in det.ready({})

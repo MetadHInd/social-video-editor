@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# BASE RECIPE — defaults for EVERY video. Each type recipe (unboxing.yaml,
-# tutorial.yaml…) and each project.yaml ("settings" section) only overrides
-# what it needs (deep merge).
+# BASE RECIPE: defaults for every video (the other recipes override them)
+# Each type recipe (unboxing.yaml, tutorial.yaml…) and each project.yaml
+# ("settings" section) only overrides what it needs (deep merge).
 # A value written as {es: …, en: …} is picked by `language`.
 # ─────────────────────────────────────────────────────────────────────────────
 
