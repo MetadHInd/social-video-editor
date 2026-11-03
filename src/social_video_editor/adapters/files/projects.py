@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import itertools
+import os
 import shutil
+import time
 from pathlib import Path
 
 from ...domain.models import Project, UserError
+from ...log import log
 from . import legacy_es
 from .jsonio import read_json, read_yaml, write_json, write_yaml
 from .recipes import YamlRecipeRepository
 from .workspace import subdir, subdirs, workspace
 
+RENAME_ATTEMPTS = 3          # mark_failed: tries of the rename, RENAME_RETRY_SECONDS apart
+RENAME_RETRY_SECONDS = 0.3
 MUSIC_EXT = (".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg")
 
 
@@ -146,9 +151,30 @@ class YamlProjectRepository:
                 "plan": legacy_es.plan(read("plan_used.json")), "config": config, "stems": stems}
 
     def mark_failed(self, folder: Path, suffix: str) -> Path:
+        """Renames a version folder whose render failed (v3 → v3_failed, or v3_failed_2… when taken).
+
+        Runs inside an exception handler, so it never raises: on Windows a file still open (antivirus,
+        a player, an FFmpeg that is exiting) blocks the rename for a moment, so it is retried; if it
+        still fails the folder keeps its name and that folder is returned."""
+        folder = Path(folder)
         failed = folder.with_name(folder.name + suffix)
-        folder.rename(failed)
-        return failed
+        k = 2
+        while failed.exists():
+            failed = folder.with_name(f"{folder.name}{suffix}_{k}")
+            k += 1
+        for attempt in range(RENAME_ATTEMPTS):
+            try:
+                os.replace(folder, failed)
+                return failed
+            except PermissionError as e:
+                if attempt + 1 < RENAME_ATTEMPTS:
+                    time.sleep(RENAME_RETRY_SECONDS)
+                    continue
+                log(f"Warning: could not rename {folder.name} to {failed.name} ({e}); it keeps its name.")
+            except OSError as e:
+                log(f"Warning: could not rename {folder.name} to {failed.name} ({e}); it keeps its name.")
+                break
+        return folder
 
     # ── outputs ──────────────────────────────────────────────────────────────
     def write_json(self, path: Path, data) -> None:
@@ -177,18 +203,26 @@ class YamlProjectRepository:
         return Path(path).exists()
 
     def remove(self, path: Path) -> None:
+        """Deletes a temporary file or folder. A file another program keeps open (Windows) is left in
+        place with a warning: a leftover temporary file must not fail a finished render."""
         path = Path(path)
         if path.is_dir():
             shutil.rmtree(path, ignore_errors=True)
-        else:
+            return
+        try:
             path.unlink(missing_ok=True)
+        except PermissionError as e:
+            log(f"Warning: could not delete {path.name} ({e}); delete it later by hand.")
 
     def clear_files(self, folder: Path, pattern: str) -> None:
         folder = Path(folder)
         if folder.is_dir():
             for p in folder.glob(pattern):
                 if p.is_file():
-                    p.unlink()
+                    try:
+                        p.unlink()
+                    except PermissionError as e:       # open in another program (Windows)
+                        log(f"Warning: could not delete {p.name} ({e}); it is left in place.")
 
     def list_files(self, folder: Path) -> list[Path]:
         folder = Path(folder)
