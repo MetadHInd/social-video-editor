@@ -8,6 +8,7 @@ Thanks for helping! A few rules keep the engine easy to work on.
 pip install -e ".[dev]"
 python -m pytest -q                       # all tests (integration tests need FFmpeg ≥ 7)
 python -m pytest -q -m "not integration"  # fast unit tests
+ruff check .                              # lint; CI runs it with the full suite
 ```
 
 - Every change comes with a test. Tests run in a temporary workspace (`tests/conftest.py`); never

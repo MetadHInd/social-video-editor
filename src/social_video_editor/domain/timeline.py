@@ -141,7 +141,6 @@ def align_to_beats(plan: dict, beats: list[float], cfg: dict, source_durations: 
         return 0
     g = np.array(sorted(beats))
     T = float(np.median(np.diff(g)))
-    fps = cfg["output"]["fps"]
     shots = Sequence.from_plan(plan).shots()
     k = int(np.searchsorted(g, -1e-6))      # beat where the video starts (first one >= 0)
     cuts = []
