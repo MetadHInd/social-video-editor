@@ -105,7 +105,7 @@ def test_chunked_compose_matches_the_single_graph(tmp_path, cfg):
 def test_join_can_skip_the_start_of_an_input_and_renumber():
     joined, _, _ = filters.join([{"dur": 0.1, "overlap": 0.0, "transition": "cut", "skip": 0.4},
                                  {"dur": 0.5, "overlap": 0.1, "transition": "fade"}], 30)
-    assert "[0:v]trim=start=0.383333,fps=30" in joined and "[0:a]atrim=start=0.400000,asetpts" in joined
+    assert "[0:v]trim=start=0.383333,setpts=PTS-STARTPTS,fps=30" in joined and "[0:a]atrim=start=0.400000,asetpts" in joined
     assert "xfade=transition=fade:duration=0.1000:offset=0.0000" in joined
     plain, _, _ = filters.join([{"dur": 1.0, "overlap": 0.0, "transition": "cut", "renumber": True}], 30)
     assert plain.startswith("[0:v]setpts=N/(30*TB),fps=30") and "[0:a]asetpts=N/SR/TB,asetpts" in plain

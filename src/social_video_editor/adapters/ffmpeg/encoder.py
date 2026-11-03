@@ -19,6 +19,9 @@ PROXY_SHORT_SIDE = 540
 CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "long_master_sec": 600,
                   "chunk_min_seconds": 300}
 CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers per decoder
+# trial passes of master_audio (gain + limiter → AAC → measure). Very peaky audio needs a 5th pass with
+# FFmpeg 7.x, whose AAC encoder overshoots the true peak more than newer versions.
+MASTER_PASSES = 6
 
 
 def chunk_setting(cfg: dict, key: str):
@@ -386,7 +389,7 @@ class FfmpegEncoder:
             encode = (lambda: self._aac_only(work, cfg, aac)) if long else (lambda: self._mux_aac(src, work, cfg, out))
             ceiling, aim = peak - 1.2, target        # margin for the true peak after AAC encoding
             gain = min(target - before, max_gain)
-            for _ in range(4):
+            for _ in range(MASTER_PASSES):
                 gain, _measured = self._converge(original, gain, aim, ceiling, max_gain, work)
                 final = encode()
                 tp_ok = final["true_peak"] <= peak
