@@ -80,10 +80,12 @@ def test_usable_cpus_is_a_positive_count():
     assert isinstance(n, int) and n >= 1
 
 
-def test_base_recipe_sets_jobs_auto_and_keeps_chunk_defaults(cfg):
+def test_base_recipe_defaults_to_auto_jobs_and_keeps_chunk_defaults(cfg, monkeypatch):
     from social_video_editor.adapters.ffmpeg.encoder import CHUNK_DEFAULTS, chunk_setting
 
-    assert cfg["render"]["jobs"] == "auto"
+    monkeypatch.delenv(JOBS_ENV, raising=False)
+    assert (cfg.get("render") or {}).get("jobs") in (None, "auto")
+    assert FfmpegEncoder().parallel_jobs(cfg) == auto_jobs(FfmpegEncoder.usable_cpus())
     assert all(chunk_setting(cfg, k) == v for k, v in CHUNK_DEFAULTS.items())
 
 
