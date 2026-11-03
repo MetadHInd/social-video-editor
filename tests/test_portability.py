@@ -1,6 +1,8 @@
 """Linux portability: font lookup in nested font folders, missing emoji font, recipe descriptions,
-decoder threads of shot segments (FFmpeg 7.1)."""
+FFmpeg version detection and the decoder-thread cap of shot segments (FFmpeg 7.0 - 8.0)."""
 from __future__ import annotations
+
+import pytest
 
 from social_video_editor.adapters.files.recipes import header_description
 from social_video_editor.adapters.pillow import rich_text as rt
@@ -67,13 +69,50 @@ def test_packaged_recipe_descriptions_are_meaningful(recipes):
     assert recipes.description("base").startswith("BASE RECIPE")
 
 
-def test_shot_segments_cap_the_decoder_threads(tmp_path, monkeypatch, cfg):
-    """FFmpeg 7.1 can deadlock when a frame-threaded decoder (default: cores + 1 threads) holds 5+ frames
-    while the shot's audio chain buffers (afftdn) and pads (apad): the shot input gets a fixed count."""
+
+def test_ffmpeg_version_parsing():
+    from social_video_editor.adapters.system.tools import parse_ffmpeg_version as parse
+
+    assert parse("ffmpeg version 7.1.1-1ubuntu4.2 Copyright (c) 2000-2025") == (7, 1)
+    assert parse("ffmpeg version n8.1-12-gabcdef Copyright") == (8, 1)
+    assert parse("ffmpeg version 8.0 Copyright") == (8, 0)
+    assert parse("ffmpeg version N-118000-gabcdef Copyright") is None             # git snapshot
+    assert parse("ffmpeg version 2025-01-15-git-abc-full_build") is None
+    assert parse("") is None
+
+
+@pytest.mark.parametrize("version, override, expected", [
+    ((7, 0), None, "2"), ((7, 1), None, "2"), ((8, 0), None, "2"),      # can deadlock: capped
+    ((8, 1), None, None), ((9, 0), None, None), ((6, 1), None, None),   # FFmpeg's own default
+    (None, None, "2"),                                                  # unknown version: safe side
+    ((7, 1), "auto", None), ((7, 1), "0", None), ((9, 0), " 6 ", "6"), ((8, 1), "1", "1"),
+])
+def test_segment_decoder_threads(version, override, expected):
+    from social_video_editor.adapters.ffmpeg.encoder import segment_decoder_threads
+
+    assert segment_decoder_threads(version, override) == expected
+
+
+@pytest.mark.parametrize("bad", ["-1", "65", "2; rm -rf /", "two", "1.5"])
+def test_segment_decoder_threads_rejects_bad_overrides(bad):
+    from social_video_editor.adapters.ffmpeg.encoder import segment_decoder_threads
+    from social_video_editor.domain.models import UserError
+
+    with pytest.raises(UserError, match="SVE_DECODER_THREADS"):
+        segment_decoder_threads((9, 0), bad)
+
+
+def _shot_command(tmp_path, monkeypatch, cfg, version, env=None) -> list[str]:
+    """The FFmpeg command encode_shot builds (filters stubbed, nothing is run)."""
     from social_video_editor.adapters.ffmpeg import encoder as enc_mod
 
     for name in ("prescale", "sdr_chain", "correction_chain", "motion", "flash_filters"):
         monkeypatch.setattr(enc_mod.filters, name, lambda *a, **k: "")
+    monkeypatch.setattr(enc_mod, "ffmpeg_version", lambda: version)
+    if env is None:
+        monkeypatch.delenv("SVE_DECODER_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SVE_DECODER_THREADS", env)
     built = []
 
     def capture(build, run):
@@ -83,10 +122,21 @@ def test_shot_segments_cap_the_decoder_threads(tmp_path, monkeypatch, cfg):
     monkeypatch.setattr(enc_mod, "run_with_fallback", capture)
     shot = {"start": 0.5, "end": 2.5, "dur": 2.0, "index": 0}
     info = {"path": "clip.mp4", "has_audio": True, "audio_index": 1}
-    try:
+    with pytest.raises(RuntimeError, match="captured"):
         enc_mod.FfmpegEncoder().encode_shot(shot, info, cfg, {}, False, 540, 960, True, tmp_path / "s.mkv")
-    except RuntimeError:
-        pass
-    cmd = built[0]
-    j = cmd.index("-threads")
-    assert j < cmd.index("-i") and cmd[j + 1] == enc_mod.SEGMENT_DECODER_THREADS == "2"
+    return built[0]
+
+
+def _input_threads(cmd: list[str]) -> str | None:
+    i = cmd.index("-i")
+    return cmd[cmd.index("-threads") + 1] if "-threads" in cmd[:i] else None
+
+
+def test_shot_segments_cap_decoder_threads_only_where_ffmpeg_deadlocks(tmp_path, monkeypatch, cfg):
+    """Regression: FFmpeg 7.0 - 8.0 can hang forever on a shot whose source decoder runs 5+ frame threads
+    while its audio chain buffers (afftdn) and pads (apad). There the shot input gets 2 threads."""
+    assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (7, 1))) == "2"
+    assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (8, 0))) == "2"
+    assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (8, 1))) is None
+    assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (8, 1), env="4")) == "4"
+    assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (7, 1), env="auto")) is None

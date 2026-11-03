@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
 from ...domain.effects import freeze_seconds
+from ...domain.models import UserError
 from ...log import log
 from ..system.hwaccel import decode_args, proxy_encoder_args, run_with_fallback
-from ..system.tools import FFMPEG
+from ..system.tools import FFMPEG, ffmpeg_version
 from . import automix_render, filters
 from .loudness import ebur128
 from .runner import run
@@ -19,12 +21,32 @@ PROXY_SHORT_SIDE = 540
 CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "long_master_sec": 600,
                   "chunk_min_seconds": 300}
 CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers per decoder
-# shot segments: FFmpeg 7.1 can deadlock when a frame-threaded decoder holds 5+ frames while the
-# audio chain buffers (afftdn) and pads (apad); its default is one thread per core + 1.
-SEGMENT_DECODER_THREADS = "2"
+# Shot segments: FFmpeg 7.0 – 8.0 can deadlock when a frame-threaded decoder holds 5+ frames while the
+# audio chain buffers (afftdn) and pads (apad); its default is one thread per core + 1. Fixed in 8.1.
+DEADLOCK_VERSIONS = ((7, 0), (8, 1))     # [first affected, first fixed)
+SAFE_DECODER_THREADS = "2"
+DECODER_THREADS_ENV = "SVE_DECODER_THREADS"
 # trial passes of master_audio (gain + limiter → AAC → measure). Very peaky audio needs a 5th pass with
 # FFmpeg 7.x, whose AAC encoder overshoots the true peak more than newer versions.
 MASTER_PASSES = 6
+
+
+def segment_decoder_threads(version: tuple[int, int] | None, override: str | None = None) -> str | None:
+    """`-threads` for a shot's source input; None = FFmpeg's default (one thread per core + 1).
+
+    `override` ($SVE_DECODER_THREADS): a number of threads (1-64), or "0" / "auto" for FFmpeg's default.
+    Otherwise 2 threads on the FFmpeg versions that can deadlock, and when the version is unknown."""
+    raw = (override or "").strip().lower()
+    if raw:
+        if raw in ("0", "auto"):
+            return None
+        if raw.isdigit() and 1 <= int(raw) <= 64:
+            return str(int(raw))
+        raise UserError(f"{DECODER_THREADS_ENV} must be a number of threads (1-64), 0 or auto; got {override!r}")
+    first, fixed = DEADLOCK_VERSIONS
+    if version is None or first <= version < fixed:
+        return SAFE_DECODER_THREADS
+    return None
 
 
 def chunk_setting(cfg: dict, key: str):
@@ -90,9 +112,11 @@ class FfmpegEncoder:
         vf = ",".join(x for x in vf if x)
         af = filters.shot_audio_chain(cfg, shot, has_voice, shot["dur"])
         tmp = out.with_suffix(".tmp.mkv")
+        threads = segment_decoder_threads(ffmpeg_version(), os.environ.get(DECODER_THREADS_ENV))
+        threads_args = ["-threads", threads] if threads else []
 
         def build(hw: bool) -> list:
-            cmd = ["ffmpeg", *decode_args(hw), "-threads", SEGMENT_DECODER_THREADS,
+            cmd = ["ffmpeg", *decode_args(hw), *threads_args,
                    "-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}", "-i", info["path"]]
             if info["has_audio"]:
                 audio_map = f"0:{info['audio_index']}"
