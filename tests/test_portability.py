@@ -474,3 +474,138 @@ def test_shot_segments_cap_decoder_threads_only_where_ffmpeg_deadlocks(tmp_path,
     assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (8, 1))) is None
     assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (8, 1), env="4")) == "4"
     assert _input_threads(_shot_command(tmp_path, monkeypatch, cfg, (7, 1), env="auto")) is None
+
+
+# ── FFmpeg I/O: missing binaries, temporary files, pipes, caches (no FFmpeg needed) ──────────────
+
+def test_missing_ffmpeg_is_a_user_error(monkeypatch, tmp_path):
+    from social_video_editor.adapters.ffmpeg import probe, runner
+    from social_video_editor.domain.models import UserError
+
+    nowhere = str(tmp_path / "no-ffmpeg" / "ffmpeg")
+    monkeypatch.setattr(runner, "FFMPEG", nowhere)
+    with pytest.raises(UserError, match="FFmpeg"):
+        runner.run(["ffmpeg", "-version"])
+    with pytest.raises(UserError, match="FFmpeg"):
+        runner.stderr_of(["-version"])
+    monkeypatch.setattr(probe, "FFPROBE", nowhere.replace("ffmpeg", "ffprobe"))
+    with pytest.raises(UserError, match="FFmpeg"):
+        probe.FfprobeMediaProbe().probe(tmp_path / "clip.mp4")
+
+
+def test_temporary_names_are_unique_per_thread_and_keep_the_extension(tmp_path):
+    import threading
+
+    from social_video_editor.adapters.ffmpeg.encoder import _tmp_for
+
+    out = tmp_path / "seg_ab12.mkv"
+    names = []
+    threads = [threading.Thread(target=lambda: names.append(_tmp_for(out))) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(names)) == 4 and len({_tmp_for(out), *names}) == 5
+    assert all(p.parent == tmp_path and p.suffix == ".mkv" and p.name.startswith("seg_ab12.") for p in names)
+
+
+def test_publish_retries_a_locked_file_on_windows_only(tmp_path, monkeypatch):
+    from social_video_editor.adapters.ffmpeg import encoder as enc
+
+    real_replace, calls = enc.os.replace, []
+
+    def flaky(src, dst):
+        calls.append(src)
+        if len(calls) < 3:
+            raise PermissionError("locked by another process")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(enc.os, "replace", flaky)
+    monkeypatch.setattr(enc.time, "sleep", lambda s: None)
+    tmp, out = tmp_path / "a.tmp.mkv", tmp_path / "a.mkv"
+    tmp.write_bytes(b"x")
+    monkeypatch.setattr(enc, "_WINDOWS", False)
+    with pytest.raises(PermissionError):
+        enc._publish(tmp, out)
+    monkeypatch.setattr(enc, "_WINDOWS", True)
+    calls.clear()
+    assert enc._publish(tmp, out) == out and out.read_bytes() == b"x" and not tmp.exists() and len(calls) == 3
+
+
+def test_stderr_drain_prevents_the_two_pipe_deadlock():
+    """The child fills its stderr pipe before reading stdin, the parent writes megabytes to stdin:
+    without the drain thread both block forever (pipe buffers: 4 KiB on Windows, 64 KiB on Linux)."""
+    import subprocess
+    import sys
+    import threading
+
+    from social_video_editor.adapters.ffmpeg.runner import StderrDrain
+
+    child = ("import sys; sys.stderr.buffer.write(b'e' * 300000 + 'é✓ last words'.encode()); sys.stderr.flush(); "
+             "n = len(sys.stdin.buffer.read()); sys.stdout.write(str(n))")
+    p = subprocess.Popen([sys.executable, "-c", child], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE)
+    watchdog = threading.Timer(60, p.kill)
+    watchdog.start()
+    try:
+        drain = StderrDrain(p.stderr, limit=1000)
+        reader = threading.Thread(target=lambda: setattr(p, "result", p.stdout.read()), daemon=True)
+        reader.start()
+        for _ in range(64):
+            p.stdin.write(b"\0" * 65536)
+        p.stdin.close()
+        assert p.wait() == 0
+        reader.join(10)
+        assert p.result == str(64 * 65536).encode()
+        text = drain.text()
+        assert text.endswith("é✓ last words") and len(text.encode()) <= 1000
+    finally:
+        watchdog.cancel()
+        p.kill()
+        p.wait()
+        p.stdout.close()
+        p.stderr.close()
+
+
+def test_hlg_lut_generated_once_under_concurrent_calls(tmp_path, monkeypatch):
+    import threading
+
+    from social_video_editor.adapters.ffmpeg import luts
+
+    made = []
+    real = luts.hlg_to_sdr_lut
+    monkeypatch.setattr(luts, "hlg_to_sdr_lut", lambda *a: made.append(1) or real(*a))
+    paths: list = []
+    threads = [threading.Thread(target=lambda: paths.append(luts.hlg_lut_path(size=9))) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(paths)) == 1 and made == [1]
+    data = paths[0].read_bytes()
+    assert data.startswith(b'TITLE "HLG to SDR709"\nLUT_3D_SIZE 9\n') and b"\r" not in data
+    assert [p.name for p in paths[0].parent.iterdir()] == [paths[0].name]       # no temporary file left
+
+
+def test_ffmpeg_list_files_are_utf8_with_lf_line_ends(tmp_path, cfg):
+    from social_video_editor.adapters.pillow.text_layer import PillowTextRenderer
+
+    texts = [{"text": "Café ✓", "start": 0.0, "end": 0.5, "style": "label"}]
+    lst, _ = PillowTextRenderer().render_layer(texts, [], cfg, 120, 200, 1.0, tmp_path / "it's a layer")
+    raw = lst.read_bytes()
+    assert b"\r" not in raw and raw.startswith(b"ffconcat version 1.0\nfile 'c00000.png'\n")
+
+
+def test_rubberband_lookup(monkeypatch):
+    import sys
+
+    from social_video_editor.adapters.ffmpeg import automix_render as am
+
+    monkeypatch.setattr(am.shutil, "which", lambda name: None)
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert am.rubberband_path() is None                       # no POSIX fallback paths on Windows
+    monkeypatch.setattr(am.shutil, "which", lambda name: r"C:\Tools\rubberband.exe")
+    assert am.rubberband_path() == r"C:\Tools\rubberband.exe"
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(am.shutil, "which", lambda name: "/usr/bin/rubberband")
+    assert am.rubberband_path() == "/usr/bin/rubberband"

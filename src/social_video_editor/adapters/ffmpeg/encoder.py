@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 import os
 import subprocess
+import threading
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -14,7 +16,8 @@ from ..system.hwaccel import decode_args, proxy_encoder_args, run_with_fallback
 from ..system.tools import FFMPEG, ffmpeg_version
 from . import automix_render, filters
 from .loudness import ebur128
-from .runner import run
+from .escape import concat_path
+from .runner import StderrDrain, popen, run
 
 PROXY_SHORT_SIDE = 540
 # long videos (settings render.*): see FfmpegEncoder.compose
@@ -63,6 +66,30 @@ def should_chunk(n_segments: int, total: float, cfg: dict) -> bool:
     return bool(cfg.get("slideshow")) or float(total) > float(chunk_setting(cfg, "chunk_min_seconds"))
 
 
+_WINDOWS = os.name == "nt"
+
+
+def _tmp_for(out: Path) -> Path:
+    """A temporary name next to `out`, unique per process and thread (two shots with the same cache
+    signature may render at the same time), keeping the extension FFmpeg picks the muxer from."""
+    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}.tmp{out.suffix}")
+
+
+def _publish(tmp: Path, out: Path, attempts: int = 6) -> Path:
+    """Atomically moves a finished temporary file to `out` (replacing it). On Windows a file that was
+    just closed can stay locked for a moment (antivirus, indexer, a reader of the old `out`), so
+    PermissionError is retried there with a short back-off (1.55 s in all)."""
+    for k in range(attempts):
+        try:
+            os.replace(tmp, out)
+            return out
+        except PermissionError:
+            if not _WINDOWS or k == attempts - 1:
+                raise
+            time.sleep(0.05 * 2 ** k)
+    return out
+
+
 def _wav_seconds(path: Path) -> float:
     try:
         import soundfile as sf
@@ -81,11 +108,13 @@ class FfmpegEncoder:
         else:
             h, w = PROXY_SHORT_SIDE, round(PROXY_SHORT_SIDE * info["width"] / info["height"] / 2) * 2
         vf = f"scale={w}:{h}:flags=bicubic,{filters.sdr_chain(info, hdr_white)},fps=30"
-        tmp = out.with_suffix(".tmp.mp4")
-        run_with_fallback(lambda hw: ["ffmpeg", *decode_args(hw), "-i", info["path"], "-map", "0:v:0", "-vf", vf,
-                                      *proxy_encoder_args(hw, "3M"), "-an", tmp], run)
-        tmp.rename(out)
-        return out
+        tmp = _tmp_for(out)
+        try:
+            run_with_fallback(lambda hw: ["ffmpeg", *decode_args(hw), "-i", info["path"], "-map", "0:v:0", "-vf", vf,
+                                          *proxy_encoder_args(hw, "3M"), "-an", tmp], run)
+            return _publish(tmp, out)
+        finally:
+            tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
     def extract_wav(self, info: dict, out: Path) -> Path:
         run(["ffmpeg", "-i", info["path"], "-map", f"0:{info['audio_index']}", "-ac", "1", "-ar", "16000",
@@ -111,7 +140,7 @@ class FfmpegEncoder:
         vf.append(f"fps={fps},format=yuv420p,setsar=1")
         vf = ",".join(x for x in vf if x)
         af = filters.shot_audio_chain(cfg, shot, has_voice, shot["dur"])
-        tmp = out.with_suffix(".tmp.mkv")
+        tmp = _tmp_for(out)
         threads = segment_decoder_threads(ffmpeg_version(), os.environ.get(DECODER_THREADS_ENV))
         threads_args = ["-threads", threads] if threads else []
 
@@ -128,9 +157,11 @@ class FfmpegEncoder:
                           "-crf", "22" if draft else "12", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
                           "-ar", "48000", tmp]
 
-        run_with_fallback(build, run)
-        tmp.rename(out)
-        return out
+        try:
+            run_with_fallback(build, run)
+            return _publish(tmp, out)
+        finally:
+            tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
                       audio: dict | None = None, crf: int | None = None) -> Path:
@@ -143,7 +174,7 @@ class FfmpegEncoder:
         shot (speed, cleanup, compression), `gain_db` lower and faded in/out over `fade` seconds.
         """
         dur = n / fps
-        tmp = out.with_suffix(".tmp.mkv")
+        tmp = _tmp_for(out)
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                "-s", f"{W}x{H}", "-r", str(fps), "-i", "-"]
         info = (audio or {}).get("info") or {}
@@ -159,33 +190,39 @@ class FfmpegEncoder:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a"]
         cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", str(12 if crf is None else int(crf)),
                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
-        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        ok = False
+        p = popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        # stderr drained in a thread while frames are written: a full stderr pipe (4 KiB on Windows)
+        # would block FFmpeg while this loop blocks on a full stdin pipe
+        drain = StderrDrain(p.stderr)
+        ok = broken = False
         try:
-            try:
-                for frame in frames:
+            for frame in frames:                     # the generator's own errors propagate (FFmpeg killed below)
+                try:
                     p.stdin.write(frame)
+                except OSError:     # FFmpeg died (BrokenPipeError; EINVAL on Windows): its stderr says why
+                    broken = True
+                    break
+            try:
                 p.stdin.close()
-            except BrokenPipeError:                  # FFmpeg died: its stderr says why (raised below)
-                pass
-            err = p.stderr.read()
-            if p.wait() != 0:
+            except OSError:
+                broken = True
+            if p.wait() != 0 or broken:
                 raise RuntimeError(f"FFmpeg failed encoding {out.name} (exit {p.returncode}): "
-                                   f"{err.decode(errors='replace')[-800:].strip()}")
+                                   f"{drain.text()[-800:].strip()}")
             ok = True
         finally:
             if not ok and p.poll() is None:          # e.g. the frame generator raised: stop FFmpeg
                 p.kill()
-            for f in (p.stdin, p.stderr):
-                try:
-                    f.close()
-                except OSError:                      # BrokenPipeError flushing what FFmpeg never read
-                    pass
+            try:
+                p.stdin.close()
+            except OSError:                          # flushing what FFmpeg never read
+                pass
             p.wait()
+            drain.text(timeout=5)                    # the reader thread is done before stderr is closed
+            p.stderr.close()
             if not ok:
                 tmp.unlink(missing_ok=True)
-        tmp.rename(out)
-        return out
+        return _publish(tmp, out)
 
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of an already rendered segment (at=None → the last frame)."""
@@ -269,16 +306,16 @@ class FfmpegEncoder:
             log(f"  chunk {k + 1}/{len(bounds)}: shots {b + 1}–{e} ({frames / fps:.1f} s)")
             joined, v, a = filters.join(segs, fps)
             script = folder / f"chunk_{k:03d}.txt"
-            script.write_text(joined)
+            script.write_text(joined, encoding="utf-8", newline="\n")
             run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", v, "-map", a,
                  "-frames:v", str(frames), "-t", f"{frames / fps:.6f}",
                  "-r", str(fps), "-c:v", "libx264", "-preset", "ultrafast" if draft else "fast", "-crf", crf,
                  "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", dest])
             script.unlink(missing_ok=True)
             out_files.append(dest)
-            lines += [f"file {dest.name}", f"duration {frames / fps:.6f}"]
+            lines += [f"file {concat_path(dest.name)}", f"duration {frames / fps:.6f}"]
         listing = folder / "chunks.ffconcat"
-        listing.write_text("\n".join(lines) + "\n")
+        listing.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         return listing, out_files
 
     def _compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
@@ -321,7 +358,7 @@ class FfmpegEncoder:
         mix, am = filters.final_mix(a, total, cfg, idx_music, idx_sfx, has_voice, stems)
         parts.append(mix)
         script = workdir / "_filter.txt"
-        script.write_text(";\n".join(parts))
+        script.write_text(";\n".join(parts), encoding="utf-8", newline="\n")
         extra = []
         if stems:
             Path(stems_dir).mkdir(parents=True, exist_ok=True)
