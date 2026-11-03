@@ -176,6 +176,7 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | Key | Default | Meaning |
 |---|---|---|
 | `output.width` / `height` / `fps` | 1080 / 1920 / 30 | Output size (profiles override width/height). |
+| `output.fade_in` / `fade_out` | 0 / 0 | Seconds of fade from black at the start / to black at the end of the whole video (0 = off; the `slideshow` recipe uses 1.5 / 3.0). The fade-out reaches black on the last frame, at the very end of the audio; applied in the final pass (no extra encode). With `photo.fit_to_music` the last photo is fully on screen before the fade-out starts. `sve check` does not report these fades as black frames. |
 | `duration.target` | 30 | Seconds the planner aims for. |
 | `duration.max` | 60 | Hard maximum for the planner. |
 | `pacing.shot_min` | 0.8 | Shortest shot (s). |
@@ -286,6 +287,7 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 |---|---|---|
 | `export.crf` / `maxrate` / `audio_kbps` | 17 / 20M / 192 | H.264 quality, bitrate cap, AAC bitrate. |
 | `export.cover` / `cover_at` | true / 1.6 | Export a cover JPEG taken at that second. |
+| `export.stems` | unset | `true` / `false`: always / never write `vN/stems/`; unset: only renders up to 600 s with original sound. |
 | `polaroid.width` / `center_y` / `font` / `drop_time` / `flash` | 0.70 / 0.5 / Bradley Hand Bold / 0.16 / 0.10 | Photo size, crop center, caption font, landing time, flash duration. |
 | `collage.columns` / `subdivision` / `y0` / `y1` | 4 / 2 / 0.215 / 0.72 | Grid columns, appearance rate, vertical zone (kept in the safe zone). |
 
@@ -338,7 +340,7 @@ Language section) with:
 | `<name>_portada.jpg` / `<name>_cover.jpg` | Cover image. |
 | `plan_used.json` | The plan as rendered (resolved search windows, beat-aligned times, `_beats`). |
 | `config_used.json` | The fully merged configuration. |
-| `stems/original.wav`, `stems/music.wav`, `stems/sfx.wav` | Pre-master audio stems (written in the same FFmpeg pass as the video). |
+| `stems/original.wav`, `stems/music.wav`, `stems/sfx.wav` | Pre-master audio stems (written in the same FFmpeg pass as the video). Only for renders up to 600 s that contain original sound (a shot playing a source clip) unless `export.stems: true` (`false`: never). |
 | `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts). `sve check` reads `stems`, `text_boxes` and `typing`. |
 
 Written by other commands:
@@ -349,3 +351,186 @@ Written by other commands:
 | `cache/<id>_clip.npy`, `<id>_clip.json` | anything that uses the vision model | Frame embeddings of a source and their timestamps. |
 | `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}` |
 
+
+---
+
+## Photos and slideshows
+
+Still photos can be sources too: in `project.yaml`, a source may be a photo (`.jpg`, `.jpeg`, `.png`,
+`.webp`, `.tif`, `.bmp`; `.heic` / `.heif` when `pillow-heif` is installed) or a **folder**, scanned
+recursively (hidden files skipped; each photo becomes one source, sorted by path). Absolute paths are
+fine. Photos only need their media info — no proxy, audio analysis, Whisper or scene detection:
+
+| Media info key | Meaning |
+|---|---|
+| `image` | `true` for a photo. |
+| `width`, `height` | Displayed size (EXIF orientation applied). |
+| `orientation` | EXIF orientation (1–8). |
+| `taken`, `taken_from` | Capture time (ISO, local time) and where it came from: `exif_original` (DateTimeOriginal), `exif` (DateTime, tag 306) or `mtime` (file modification time). |
+
+```yaml
+recipe: base
+sources:
+  - /path/to/album            # a folder: every photo inside it, recursively
+settings:
+  slideshow: true
+  output: {width: 1920, height: 1080}
+  photo: {duration: 4.5}
+```
+
+### Photo shots
+
+```json
+{"type": "photo", "source": "/path/to/album/IMG_0042.jpg", "duration": 4.5, "motion": "zoom_in", "transition": "fade"}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `source` | required | The photo: a source index, a source id, or a path (the planner writes the path). |
+| `duration` | `photo.duration` (4.5) | Seconds on screen (whole frames). Beat alignment changes it; edit freely. |
+| `motion` | alternating | Ken Burns move: `zoom_in`, `zoom_out`, `pan_left`, `pan_right` or `none`. |
+| `motion_amount` | `photo.motion_amount` (0.06) | Maximum zoom of the move (0.06 = 6 %; pans travel the room that zoom leaves). |
+| `auto_tone` | `photo.auto_tone` (0) | Exposure fix strength for this photo (0–1). |
+| `transition` | `cut` | As any shot (the planner uses `photo.transition`, `fade`). |
+| `framing` | `framing.mode` | `auto` (blurred background when the aspect ratio differs a lot — the same rule as video), `blur`, `crop` (cover) or `fit` (black bars). |
+| `focus_x`, `focus_y` | `framing.focus_x/y` | Crop center with `crop`. |
+| `color` | — | Per-shot `warmth` / `vignette` overrides. |
+
+Rendering: the EXIF orientation is applied first; if `sve enhance` made an enhanced copy
+(`cache/photos/`), it is used instead of the original. Every frame is resampled at sub-pixel
+positions from a canvas slightly larger than the output, so the slow motion has no jitter. The
+segment has a silent audio track, like polaroid and collage shots.
+
+### `sve plan` for photos
+
+When the settings have `slideshow: true`, or every source is a photo, `sve plan` proposes one photo
+shot per photo in **chronological order** (capture time, then file name and path), `photo.duration`
+seconds each, entering with `photo.transition` and alternating gentle motions (zoom in, pan right,
+zoom out, pan left; photos whose aspect differs a lot from the output's — portrait photos in a
+landscape video — only zoom in / out). Each shot's `note` is its capture time. With mixed
+sources and no `slideshow`, the regular video plan is made from the videos only.
+
+### `sve enhance` (alias `mejorar`)
+
+`sve enhance <project> [--force]` prepares the photos for the output size, never touching the originals:
+
+- short side below the output's (e.g. 640×480 for 1080p): enlarged ×4 with Real-ESRGAN
+  (`RealESRGAN_x4plus`, optional extra `pip install -e ".[enhance]"`), then reduced with Lanczos to the
+  output short side. Without spandrel / torch / the model file, Lanczos + a mild unsharp mask is used;
+- short side above `enhance.headroom` × the output's: only reduced to that (room for Ken Burns, faster render);
+- otherwise the original is used as is.
+
+Results: `cache/photos/<hash of path + modification time>.jpg` (JPEG quality 95). Photos already done
+are skipped (a replaced photo gets a new hash).
+
+### Settings
+
+| Key | Default | Meaning |
+|---|---|---|
+| `slideshow` | `false` | `sve plan` makes a photo slideshow (automatic when every source is a photo). |
+| `photo.duration` | 4.5 | Seconds per photo proposed by the planner. |
+| `photo.transition` | `fade` | Transition between photos proposed by the planner. |
+| `photo.motion_amount` | 0.06 | Maximum Ken Burns zoom (at most 0.25). |
+| `photo.auto_tone` | 0 | Gentle automatic exposure fix at render time, 0–1 (0 = off; the `slideshow` recipe uses 0.6). Dark or backlit photos get a smooth lightness lift (CIE Lab: blacks and whites stay put, hue kept) plus a little local contrast; backlit photos (people in shadow before a bright window or sky) get their shadows lifted locally along an edge-aware illumination map, so the bright areas stay as they are; well-exposed photos are left untouched. Applied before framing, so the blurred background matches. A shot may override it with `"auto_tone"`. |
+| `color.warmth` | 0 | Photos only: gentle warm tint, 0–1 (0 = off). |
+| `color.vignette` | `false` | Photos: strength 0–1 (`true` = 0.5); videos keep their on/off vignette. |
+| `enhance.model` | — | Path of the Real-ESRGAN `.pth` file. Default: `$XDG_CACHE_HOME/social-video-editor/models/RealESRGAN_x4plus.pth`, else `~/.cache/social-video-editor/models/RealESRGAN_x4plus.pth` (never downloaded automatically). |
+| `enhance.device` | `auto` | `auto` (Apple GPU `mps` when available, else CPU), `mps`, `cpu` or `cuda`. |
+| `enhance.tile` | 384 | Tile size in pixels (the model works tile by tile to bound memory). |
+| `enhance.headroom` | 1.25 | Large photos are reduced to this × the output short side. |
+
+---
+
+## Playlists, AutoMix and long videos
+
+### `music.playlist`
+
+```yaml
+settings:
+  music:
+    playlist: [set/first.mp3, set/second.mp3, /abs/path/third.flac]   # or one folder: "set"
+    automix: {max_overlap: 10}                                         # optional, see below
+  photo: {fit_to_music: true}
+```
+
+Entries are files or folders (a folder = its audio files sorted by name), absolute or relative to
+the project folder, then the workspace `music/` folder, then the workspace. `music.file` keeps its
+single-track meaning; `music.file: none` disables the playlist too. With a playlist the songs are
+mixed into **one continuous track** (AutoMix, cached as `cache/automix/mix_<hash>.wav`), which then
+goes through the regular music chain (volume, ducking, fade-in at the start, fade-out ending exactly
+at the end of the video). `music.start_at` (seconds) still applies, to the mix; `auto` means 0.
+
+AutoMix, per song: every song is brought to the same integrated loudness; leading silence and the
+record's long fade-out are trimmed; a song leaves at the end of a musical phrase (8 bars from its
+first downbeat, 4/4) before its outro gets quiet, and the next one enters on its first strong
+downbeat (a long quiet intro is skipped, an energetic one kept). When the tempos are within
+`tempo_tolerance` (also at half / double tempo), the outgoing tail is time-stretched (Rubber Band;
+FFmpeg `atempo` when it is not installed) to the incoming tempo over 8, 4, 2 or 1 bars so the beats
+line up, with the incoming first downbeat on an outgoing downbeat; otherwise a short crossfade at a
+phrase end. Both use an equal-power crossfade with a bass swap: the incoming song starts high-passed
+(the cutoff opens from `crossover_hz` to full over the overlap), the outgoing one loses its lows in
+the second half.
+
+| Key (`music.automix.…`) | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | `false` (or `automix: false`): songs one after another with a plain 2 s crossfade. |
+| `max_overlap` | 12.0 | Seconds: longest beat-matched transition. |
+| `short_overlap` | 3.5 | Seconds: transition between songs whose tempos differ a lot. |
+| `tempo_tolerance` | 0.08 | Tempos within ±8 % (×1, ×2, ×½) are beat-matched. |
+| `target_lufs` | −16 | Integrated loudness every song is brought to before mixing. |
+| `crossover_hz` / `gentle_hz` | 250 / 150 | Start cutoff of the incoming high-pass (beat-matched / short transition). |
+| `silence_db` | −50 | Leading / trailing silence threshold (dBFS, 0.1 s RMS). |
+| `intro_drop_db` / `outro_drop_db` | 6 / 9 | An intro / outro this far below the song's body level is quiet (skipped / cut). |
+| `end_fade` | 3.0 | The last song fades out over this many seconds where its outro starts. |
+| `min_play` | 20 | Seconds every song plays outside its transitions (when it is long enough). |
+| `phrase_bars` | 8 | Out-points on multiples of this many bars. |
+
+A short (not beat-matched) crossfade gets a smooth make-up gain (at most +6 dB, tapered to 0 dB at
+both ends, peaks still limited) wherever its level falls below the quieter of the two songs around it.
+
+A playlist render also writes `vN/automix.json`: `{"duration", "songs": [{"index", "name", "start",
+"end", "region": [a, b], "tempo", "energy", "gain_db"}], "boundaries", "overlaps", "beats",
+"downbeats"}` (video seconds; `boundaries` = middle of every transition, on a beat). `config_used.json`
+keeps a short `music._automix` (`songs`, `splices` [{`t`, `start`, `end`, `matched`}], `duration`) and
+`summary.json` adds `music.playlist` (file names). Cuts are aligned to the mix's merged beat grid as
+with a single song. The beat list of a song is no longer capped at 600 s.
+
+### Photos fitted to the music
+
+| Key | Default | Meaning |
+|---|---|---|
+| `photo.fit_to_music` | `false` | Plans made only of photo shots: their durations are recomputed at render time (the plan.json is not modified; `plan_used.json` has the result) so the video lasts exactly as long as the music (the playlist mix, or the single song from `music.start_at` to its end), every photo change lands on a beat (bar boundaries preferred), every song change of the mix is a photo change, and energetic / faster songs get shorter photos. |
+| `photo.min_duration` / `photo.max_duration` | 3.5 / 5.5 | Range of the time between two photo changes (middle of one transition to the middle of the next). Too few photos for the music: they cover its beginning (ending on a bar); too many: they get shorter than the minimum. |
+
+### Transitions for slideshows
+
+| Key / name | Default | Meaning |
+|---|---|---|
+| `transitions.<name>_duration` | — | Duration of one transition, fixed or not, e.g. `fade_duration: 1.0` (without it `fade` stays 0.35 s). |
+| `soft_slide` | 0.8 s | Soft sliding wipe, no sound effect. |
+| `soft_zoom` | 0.8 s | Zoom-in dissolve, no sound effect. |
+
+### Long videos (`render.…`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `render.chunk_threshold` | 60 | More shots than this **and** longer than `render.chunk_min_seconds` (or a `slideshow: true` recipe): segments are joined in chunks first (0 = never). Other videos are composed exactly as before. |
+| `render.chunk_min_seconds` | 300 | See `chunk_threshold`. |
+| `render.chunk_size` | 20 | Segments per chunk (bounds the memory of one FFmpeg pass). A chunk ends where the transition into the next chunk begins, and the next chunk renders that transition from the tail of the previous segment, so the final pass reads the chunks one after another (one open input) and transitions at chunk borders look identical. |
+| `render.photo_crf` | 16 | x264 CRF of the cached photo segments (a still photo compresses well). |
+| `render.chunk_crf` | 14 | x264 CRF of the intermediate chunk files (PCM audio). Deleted after the compose. |
+| `render.long_master_sec` | 600 | Longer audio: the mastering's trial passes encode the audio alone and the video is copied once at the end. |
+
+A playlist mix at least as long as the video is not looped (single tracks keep the looping chain).
+`sve check` analyses the audio of renders longer than 600 s block by block (same measurements).
+
+`duration.max` / `duration.target` set to `null` or `0` disable the length checks of `sve check`;
+a slideshow with `photo.fit_to_music` is never flagged for its length (it follows the music).
+
+### `sve check` on a playlist render
+
+Around every AutoMix transition: no silence longer than `check.splice_silence_sec` (0.3 s), no dip of
+the momentary loudness of more than `check.splice_dip_db` (2 dB) below the neighbouring music
+(warnings), no true peak above `audio.true_peak` (error). Results in `metrics.automix.splices`.
+Cut-to-beat deviations use the mix beat grid from `vN/automix.json`. Photo shots are not reported as
+frozen pictures.

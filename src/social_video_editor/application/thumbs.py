@@ -3,6 +3,7 @@
 Creates in cache/thumbs/:
   <id>_sheet_01.jpg …  grid of frames with their time, motion bar (green) and loudness bar (orange)
   <id>_transcript.txt  what is said, with times
+  photos_sheet_01.jpg …  grid of the still photos themselves (photo sources have no video to sample)
 Fine-grained: sve thumbs <project> --source 0 --start 120 --end 150 --every 1
 """
 from __future__ import annotations
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from ..domain.models import Project
 from ..domain.timebase import mmss
-from .analyze import prepare_sources
+from .analyze import is_photo, prepare_sources
 from .services import Services
 
 
@@ -40,7 +41,11 @@ def contact_sheets(svc: Services, project: Project, source: int | None = None, s
     infos, analyses = prepare_sources(svc, project)
     out_dir = project.cache / "thumbs"
     out = []
-    for k in (range(len(infos)) if source is None else [source]):
+    chosen = range(len(infos)) if source is None else [source]
+    photos = [{**infos[k], "index": k} for k in chosen if is_photo(infos[k])]
+    for k in chosen:
+        if is_photo(infos[k]):
+            continue
         read = svc.video.frame_reader(infos[k]["proxy"])
         try:
             out += svc.composer.contact_sheets(infos[k], analyses[k], read, out_dir, start or 0, end, every)
@@ -49,4 +54,7 @@ def contact_sheets(svc: Services, project: Project, source: int | None = None, s
         path = out_dir / f"{infos[k]['id']}_transcript.txt"
         svc.projects.write_text(path, transcript_text(infos[k], analyses[k]))
         out.append(path)
+    if photos:
+        name = "photos" if source is None else f"{photos[0]['id']}_photo"
+        out += svc.composer.photo_sheets(photos, out_dir, name)
     return out

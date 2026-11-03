@@ -194,8 +194,29 @@ class Layer(LayoutNode):
 
 # ── styles ───────────────────────────────────────────────────────────────────
 
+REFERENCE_SIDE = 1080          # style sizes are written for a 1080-px short side (1080×1920)
+LANDSCAPE_TEXT_WIDTH = 1.4     # in landscape, lines wrap within at most 1.4·H (not the whole width)
+
+
+def text_scale(W: int, H: int) -> float:
+    """Factor applied to style sizes: the output's short side over 1080.
+
+    Vertical 1080×1920 (and square) keep W/1080, so they render exactly as before; landscape
+    1920×1080 gets 1.0 instead of 1.78 (fonts were too big when scaled by the width).
+    """
+    return min(W, H) / REFERENCE_SIDE
+
+
+def text_width(W: int, H: int) -> float:
+    """Width that text fractions (subtitles 0.86, style max_width) refer to.
+
+    W in portrait and square (unchanged); capped at 1.4·H in landscape so lines stay readable.
+    """
+    return min(W, H * LANDSCAPE_TEXT_WIDTH) if W > H else W
+
+
 def resolve_style(text: dict, styles: dict, scale: float = 1.0) -> dict:
-    """Style of a plan text: its named style, the text's own overrides, sizes scaled to the output width."""
+    """Style of a plan text: its named style, the text's own overrides, sizes scaled (see text_scale)."""
     st = dict(styles.get(text.get("style", "simple"), styles["simple"]))
     st.update({k: v for k, v in text.items() if k in STYLE_OVERRIDES})
     st["size"] = int(st["size"] * scale)

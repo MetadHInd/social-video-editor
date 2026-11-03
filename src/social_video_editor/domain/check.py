@@ -25,7 +25,7 @@ DEFAULTS = {
     "black_min_sec": 0.1,
     "freeze_min_sec": 1.0,
     "beat_tolerance_sec": 0.05,       # median cut-to-beat deviation
-    "safe_top": 0.06,                 # text boxes inside [safe_top, safe_bottom]·H…
+    "safe_top": 0.06,                 # portrait / square: text boxes inside [safe_top, safe_bottom]·H…
     "safe_bottom": 0.78,
     "safe_right": 0.08,               # …and off the right 8 % where TikTok's buttons are…
     "right_rail": [0.35, 0.85],       # …(that column spans this part of the height)
@@ -34,6 +34,13 @@ DEFAULTS = {
     "listen_sec": 3.0,
 }
 SILENT_LUFS = -70.0
+# Landscape output (W > H): generic title-safe area, no app buttons. A `check:` section may override
+# them with the same keys (they are not in DEFAULTS / base.yaml).
+LANDSCAPE_SAFE = {
+    "landscape_safe_top": 0.05,       # text boxes inside [top, bottom]·H …
+    "landscape_safe_bottom": 0.90,
+    "landscape_safe_side": 0.05,      # … and this far from the left and right edges
+}
 
 
 def thresholds(*layers: dict | None) -> dict:
@@ -75,6 +82,11 @@ def rms_db(x: np.ndarray, sr: int, win: float = 0.05) -> tuple[np.ndarray, float
 def silences(x: np.ndarray, sr: int, threshold_db: float, min_sec: float) -> list[tuple[float, float]]:
     """Stretches quieter than threshold_db for longer than min_sec → [(start, end)]."""
     db, step = rms_db(x, sr)
+    return silences_from_db(db, step, threshold_db, min_sec)
+
+
+def silences_from_db(db: np.ndarray, step: float, threshold_db: float, min_sec: float) -> list[tuple[float, float]]:
+    """silences() from the RMS levels of consecutive windows of `step` seconds."""
     out, start = [], None
     for i, quiet in enumerate(list(db < threshold_db) + [False]):
         if quiet and start is None:
@@ -126,6 +138,123 @@ def harshness(x: np.ndarray, sr: int, win: float = 1.0, floor_db: float = -45) -
     if best[1] is not None:
         out.update(worst_t=round(best[1] + win / 2, 2), worst_ratio=round(best[0], 3))
     return out
+
+
+class AudioScan:
+    """The whole-track measurements of `sve check` (clipping per channel, silences, harshness) fed
+    block by block, so a long render is never decoded into memory at once. Same windows as
+    clipping / silences / harshness on the whole signal; only the summation order differs.
+
+    keep: [(first, last)] sample ranges kept in full (stereo), e.g. the AutoMix splices.
+    """
+
+    N_FFT, WIN_FFT = 4096, 2048
+
+    def __init__(self, sr: int, keep: list[tuple[int, int]] = (), clip_level: float = 0.999,
+                 win: float = 1.0, floor_db: float = -45):
+        self.sr, self.clip_level, self.floor_db = sr, clip_level, floor_db
+        self.n = 0                                          # samples seen
+        self.mono = np.zeros(0)                             # unprocessed mono tail …
+        self.base = 0                                       # … starting at this sample
+        self.hop = max(int(sr * 0.05), 1)                   # rms_db windows
+        self.db: list[np.ndarray] = []
+        self.rms_pos = self.f_pos = self.h_pos = 0
+        self.spec = np.zeros(self.N_FFT // 2 + 1)           # whole-mix Welch sum
+        self.frames = 0
+        self.hn = int(sr * win)                             # harshness windows (hop = half)
+        self.best = (-1.0, None)
+        self.hot: list[np.ndarray] = []
+        self.keep = {(int(a), int(b)): [] for a, b in keep}
+        self._win = np.hanning(self.N_FFT)
+
+    def feed(self, stereo: np.ndarray) -> None:
+        stereo = np.asarray(stereo)
+        if not len(stereo):
+            return
+        start, end = self.n, self.n + len(stereo)
+        hot = np.where(np.abs(stereo).max(axis=1) >= self.clip_level)[0]
+        if len(hot):
+            self.hot.append(hot + start)
+        for (a, b), parts in self.keep.items():
+            if a < end and b > start:
+                parts.append(stereo[max(a - start, 0):min(b, end) - start])
+        self.mono = np.concatenate([self.mono, stereo.mean(axis=1)])
+        self.n = end
+        self._process()
+
+    def _seg(self, a: int, b: int) -> np.ndarray:
+        return self.mono[a - self.base:b - self.base]
+
+    def _process(self) -> None:
+        end = self.n
+        k = (end - self.rms_pos) // self.hop
+        if k > 0:
+            x = self._seg(self.rms_pos, self.rms_pos + k * self.hop).reshape(k, self.hop)
+            self.db.append(20 * np.log10(np.sqrt(np.mean(x ** 2, axis=1)) + 1e-10))
+            self.rms_pos += k * self.hop
+        hop = self.N_FFT // 2
+        k = 0 if end - self.f_pos < self.N_FFT else 1 + (end - self.f_pos - self.N_FFT) // hop
+        if k > 0:
+            x = self._seg(self.f_pos, self.f_pos + (k - 1) * hop + self.N_FFT)
+            idx = np.arange(self.N_FFT)[None, :] + hop * np.arange(k)[:, None]
+            self.spec += (np.abs(np.fft.rfft(x[idx] * self._win, axis=1)) ** 2).sum(axis=0)
+            self.frames += k
+            self.f_pos += k * hop
+        while self.h_pos + self.hn <= end:
+            self._harsh_window(self._seg(self.h_pos, self.h_pos + self.hn), self.h_pos)
+            self.h_pos += self.hn // 2
+        drop = min(self.rms_pos, self.f_pos, self.h_pos) - self.base
+        if drop > 0:
+            self.mono = self.mono[drop:]
+            self.base += drop
+
+    def _harsh_window(self, seg: np.ndarray, at: int) -> None:
+        if 20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-10) < self.floor_db:
+            return
+        r = band_ratio(seg, self.sr, n_fft=2048)
+        if r > self.best[0]:
+            self.best = (r, at / self.sr)
+
+    def clipping(self, min_run: int = 2) -> list[tuple[float, int]]:
+        if not self.hot:
+            return []
+        idx = np.concatenate(self.hot)
+        breaks = np.where(np.diff(idx) != 1)[0]
+        starts = np.concatenate([[0], breaks + 1])
+        ends = np.concatenate([breaks + 1, [len(idx)]])
+        return [(round(idx[a] / self.sr, 3), int(b - a)) for a, b in zip(starts, ends) if b - a >= min_run]
+
+    def silences(self, threshold_db: float, min_sec: float) -> list[tuple[float, float]]:
+        db = np.concatenate(self.db) if self.db else np.zeros(0)
+        return silences_from_db(db, self.hop / self.sr, threshold_db, min_sec)
+
+    def harshness(self, win: float = 1.0) -> dict:
+        if self.frames:
+            spec = self.spec
+        else:                                               # shorter than one FFT: padded, as band_ratio
+            x = np.pad(self._seg(self.base, self.n), (0, max(self.N_FFT - (self.n - self.base), 0)))
+            spec = np.abs(np.fft.rfft(x[:self.N_FFT] * self._win)) ** 2
+        f = np.fft.rfftfreq(self.N_FFT, 1 / self.sr)
+        total = spec[(f >= 60) & (f < 16000)].sum()
+        ratio = float(spec[(f >= 2000) & (f < 5000)].sum() / total) if total > 0 else 0.0
+        if self.h_pos == 0 and self.n < self.hn and self.n:  # shorter than one window: the whole track
+            self._harsh_window(self._seg(0, self.n), 0)
+        out = {"ratio": round(ratio, 3), "worst_t": None, "worst_ratio": None}
+        if self.best[1] is not None:
+            out.update(worst_t=round(self.best[1] + win / 2, 2), worst_ratio=round(self.best[0], 3))
+        return out
+
+    @property
+    def seconds(self) -> float:
+        return self.n / self.sr
+
+    def excerpt(self, a: int, b: int) -> np.ndarray:
+        """Samples [a, b) of a kept range (empty if none contains it)."""
+        for (k0, k1), parts in self.keep.items():
+            if k0 <= a and b <= k1:
+                x = np.concatenate(parts) if parts else np.zeros((0, 2), np.float32)
+                return x[a - k0:b - k0]
+        return np.zeros((0, 2), np.float32)
 
 
 # ── timeline facts ───────────────────────────────────────────────────────────
@@ -213,25 +342,70 @@ def beat_deviation(cuts: list[float], beats: list[float], half_beats: bool = Fal
     return [round(float(np.min(np.abs(grid - c))), 3) for c in cuts]
 
 
+def outside_output_fades(black: list, output: dict, total: float | None, min_sec: float,
+                         margin: float = 0.05) -> list:
+    """Black stretches minus the intended fades of the whole video (output.fade_in from 0,
+    output.fade_out up to the end); what is left counts only if still at least min_sec long."""
+    fi = max(finite(output.get("fade_in"), 0.0), 0.0)
+    fo = max(finite(output.get("fade_out"), 0.0), 0.0)
+    if fi <= 0 and fo <= 0:
+        return black
+    out = []
+    for a, b in black:
+        if fi > 0 and a <= fi + margin:
+            a = max(a, fi + margin)
+        if fo > 0 and total and b >= total - fo - margin:
+            b = min(b, total - fo - margin)
+        if b - a >= min_sec:
+            out.append([round(a, 3), round(b, 3)])
+    return out
+
+
 def overlaps(a: tuple[float, float], spans: list[tuple[float, float]], margin: float = 0.05) -> bool:
     return any(a[0] < e + margin and a[1] > s - margin for s, e in spans)
 
 
+def safe_zone(W: int, H: int, th: dict) -> dict:
+    """Safe area for the output's orientation (W > H = landscape), as fractions of W / H.
+
+    Portrait and square: TikTok / Reels layout (caption and buttons at the bottom, button column on
+    the right). Landscape: generic title-safe margins on every side; there is no right rail.
+    """
+    if W > H:
+        ls = {k: float(th.get(k, v)) for k, v in LANDSCAPE_SAFE.items()}
+        side = ls["landscape_safe_side"]
+        return {"orientation": "landscape", "top": ls["landscape_safe_top"],
+                "bottom": ls["landscape_safe_bottom"], "left": side, "right": side, "rail": None}
+    return {"orientation": "portrait" if H > W else "square", "top": th["safe_top"],
+            "bottom": th["safe_bottom"], "left": None, "right": th["safe_right"],
+            "rail": (th.get("right_rail") or [0, 1])[:2]}
+
+
 def box_issues(boxes: list[dict], W: int, H: int, th: dict) -> list[dict]:
-    """Text boxes outside the safe zone: too high, too low, or under the right-hand buttons."""
-    top, bottom = th["safe_top"] * H, th["safe_bottom"] * H
-    right = (1 - th["safe_right"]) * W
-    r0, r1 = (th.get("right_rail") or [0, 1])[:2]
+    """Text boxes outside the safe zone: too high, too low, under the right-hand buttons (portrait) or
+    too close to the side edges (landscape)."""
+    z = safe_zone(W, H, th)
+    top, bottom = z["top"] * H, z["bottom"] * H
+    right = (1 - z["right"]) * W
     out = []
     for b in boxes:
         y0, y1 = b["y"], b["y"] + b["h"]
         where = []
         if y0 < top:
-            where.append(f"top {y0 / H:.2f}·H < {th['safe_top']}")
+            where.append(f"top {y0 / H:.2f}·H < {z['top']}")
         if y1 > bottom:
-            where.append(f"bottom {y1 / H:.2f}·H > {th['safe_bottom']}")
-        if b.get("w") is not None and b["x"] + b["w"] > right and y1 > r0 * H and y0 < r1 * H:
-            where.append(f"right edge {(b['x'] + b['w']) / W:.2f}·W under the buttons")
+            where.append(f"bottom {y1 / H:.2f}·H > {z['bottom']}")
+        if b.get("w") is not None:
+            x1 = b["x"] + b["w"]
+            if z["rail"] is not None:
+                r0, r1 = z["rail"]
+                if x1 > right and y1 > r0 * H and y0 < r1 * H:
+                    where.append(f"right edge {x1 / W:.2f}·W under the buttons")
+            else:
+                if b["x"] < z["left"] * W:
+                    where.append(f"left edge {b['x'] / W:.2f}·W < {z['left']}")
+                if x1 > right:
+                    where.append(f"right edge {x1 / W:.2f}·W > {1 - z['right']:.2f}")
         if where:
             out.append({"text": b.get("text", ""), "kind": b.get("kind", "text"), "start": b["start"],
                         "end": b["end"], "issues": where, "estimated": bool(b.get("estimated"))})
@@ -240,11 +414,11 @@ def box_issues(boxes: list[dict], W: int, H: int, th: dict) -> list[dict]:
 
 def estimated_boxes(texts: list[dict], styles: dict, W: int, H: int) -> list[dict]:
     """Old renders (no recorded boxes): approximate boxes from each text's style (center, size)."""
-    from .text_layout import resolve_style
+    from .text_layout import resolve_style, text_scale
 
     out = []
     for tx in texts:
-        st = resolve_style(tx, styles, W / 1080)
+        st = resolve_style(tx, styles, text_scale(W, H))
         size = float(st.get("size", 60))
         lines = 1 + (1 if tx.get("description") else 0) + len(str(tx.get("text", ""))) // 28
         h = size * 1.25 * lines + size * 0.56

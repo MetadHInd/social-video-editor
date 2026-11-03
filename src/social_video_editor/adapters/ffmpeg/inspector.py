@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,30 @@ class FfmpegRenderInspector:
                             "-map", "0:a:0", "-ac", "2", "-ar", str(sr), "-f", "f32le", "-"],
                            capture_output=True, check=True)
         return np.frombuffer(r.stdout, dtype="<f4").astype(np.float32).reshape(-1, 2)
+
+    def audio_blocks(self, path: Path, sr: int = 48000, block_sec: float = 30.0) -> Iterator[np.ndarray]:
+        """The same decoded audio as audio(), streamed in blocks of block_sec (long renders: never
+        the whole track in memory)."""
+        p = subprocess.Popen([FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path),
+                              "-map", "0:a:0", "-ac", "2", "-ar", str(sr), "-f", "f32le", "-"],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        size = max(int(sr * block_sec), 1) * 8               # bytes: 2 channels × float32
+        try:
+            while True:
+                buf = p.stdout.read(size)
+                if not buf:
+                    break
+                buf = buf[:len(buf) // 8 * 8]
+                yield np.frombuffer(buf, dtype="<f4").astype(np.float32).reshape(-1, 2)
+            err = p.stderr.read()
+            if p.wait() != 0:
+                raise subprocess.CalledProcessError(p.returncode, "ffmpeg", stderr=err)
+        finally:
+            if p.poll() is None:
+                p.kill()
+            p.stdout.close()
+            p.stderr.close()
+            p.wait()
 
     def video_events(self, path: Path, black_min: float, freeze_min: float) -> dict:
         """{"black": [[start, end]], "freeze": [[start, end]]} in one decoding pass (scaled down)."""

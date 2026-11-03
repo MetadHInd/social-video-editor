@@ -10,11 +10,37 @@ from ...domain.effects import freeze_seconds
 from ...log import log
 from ..system.hwaccel import decode_args, proxy_encoder_args, run_with_fallback
 from ..system.tools import FFMPEG
-from . import filters
+from . import automix_render, filters
 from .loudness import ebur128
 from .runner import run
 
 PROXY_SHORT_SIDE = 540
+# long videos (settings render.*): see FfmpegEncoder.compose
+CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "long_master_sec": 600,
+                  "chunk_min_seconds": 300}
+CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers per decoder
+
+
+def chunk_setting(cfg: dict, key: str):
+    v = (cfg.get("render") or {}).get(key)
+    return CHUNK_DEFAULTS[key] if v is None else v
+
+
+def should_chunk(n_segments: int, total: float, cfg: dict) -> bool:
+    """Chunked compose: more than render.chunk_threshold shots AND either longer than
+    render.chunk_min_seconds or a slideshow recipe (`slideshow: true`)."""
+    threshold = int(chunk_setting(cfg, "chunk_threshold"))
+    if threshold <= 0 or n_segments <= threshold:
+        return False
+    return bool(cfg.get("slideshow")) or float(total) > float(chunk_setting(cfg, "chunk_min_seconds"))
+
+
+def _wav_seconds(path: Path) -> float:
+    try:
+        import soundfile as sf
+        return float(sf.info(str(path)).duration)
+    except Exception:                       # unreadable header: treat as short (the regular path)
+        return 0.0
 
 
 class FfmpegEncoder:
@@ -77,8 +103,10 @@ class FfmpegEncoder:
         return out
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
-                      audio: dict | None = None) -> Path:
+                      audio: dict | None = None, crf: int | None = None) -> Path:
         """Encodes n raw RGB frames (piped to FFmpeg) as a segment like the other shots.
+
+        crf: x264 quality (default 12, the drawn shots'); photos pass render.photo_crf.
 
         audio=None → silence. Otherwise {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"}:
         the source audio from `start` (source seconds) through the same per-shot chain as a video
@@ -99,7 +127,7 @@ class FfmpegEncoder:
                     "-map", "0:v", "-map", f"1:{info['audio_index']}", "-af", af]
         else:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a"]
-        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", "12",
+        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", str(12 if crf is None else int(crf)),
                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         ok = False
@@ -144,11 +172,95 @@ class FfmpegEncoder:
         """Joins the segments, overlays the text layer and progress bar, mixes music + sfx → premaster.
 
         stems_dir: also writes stems_dir/{original,music,sfx}.wav (pre-master levels) in the same pass.
+        Long videos (should_chunk) are first joined in chunks of render.chunk_size segments. A chunk
+        ends where the transition into the next chunk's first shot begins and that chunk starts with
+        the same transition (from the tail of the previous segment), so the chunks join with plain
+        cuts: the final pass reads them one after another (concat demuxer, one open input), and every
+        transition looks the same as in a single graph.
         """
+        if cfg.get("slideshow") or should_chunk(len(segments), total, cfg):
+            # audio of every segment exactly as long as its picture (else A/V drift over many crossfades)
+            segments = [{**s, "exact_audio": True} for s in segments]
+        if should_chunk(len(segments), total, cfg):
+            listing, files = self._chunks(segments, segment_files, cfg, draft, Path(workdir))
+            try:
+                return self._compose([{"dur": float(total), "overlap": 0.0, "transition": "cut", "renumber": True,
+                                       "exact_audio": True}],
+                                     [listing],
+                                     layer, music, sfx, cfg, W, H, total, has_voice, draft, workdir, out, stems_dir)
+            finally:
+                for f in [*files, listing]:
+                    Path(f).unlink(missing_ok=True)
+        return self._compose(segments, segment_files, layer, music, sfx, cfg, W, H, total,
+                             has_voice, draft, workdir, out, stems_dir)
+
+    def _chunks(self, segments: list[dict], files: list[Path], cfg: dict, draft: bool,
+                workdir: Path) -> tuple[Path, list[Path]]:
+        """Joins groups of segments into chunk files → (ffconcat list of the chunks, chunk files).
+
+        Chunk k covers [start of the transition into its first shot, start of the transition into
+        the next chunk's first shot). The transition at the border is rendered inside chunk k from
+        the last `overlap` seconds of the previous segment (entry_overlap is at most half of either
+        shot, so no other transition overlaps it)."""
+        fps = int(cfg["output"]["fps"])
+        size = max(int(chunk_setting(cfg, "chunk_size")), 2)
+        crf = str(int(chunk_setting(cfg, "chunk_crf")))
+        folder = workdir / "_chunks"
+        folder.mkdir(parents=True, exist_ok=True)
+        n = len(segments)
+        eff = [float(s["overlap"]) if i and filters.xfade_name(s["transition"]) and s["overlap"] > 0 else 0.0
+               for i, s in enumerate(segments)]
+        pos, length = [], 0.0                   # start of every segment in the joined video (as join)
+        for i, s in enumerate(segments):
+            p = 0.0 if i == 0 else length - eff[i]
+            pos.append(p)
+            length = p + float(s["dur"])
+        starts = list(range(0, n, size))
+        if len(starts) > 1 and n - starts[-1] < 2:          # never a one-segment tail chunk
+            starts.pop()
+        bounds = [(b, starts[k + 1] if k + 1 < len(starts) else n) for k, b in enumerate(starts)]
+        out_files, lines = [], ["ffconcat version 1.0"]
+        for k, (b, e) in enumerate(bounds):
+            end = pos[e] if e < n else length
+            frames = max(int(round((end - pos[b]) * fps)), 1)
+            segs, inputs = [], []
+            if b and eff[b] > 0:                # the border transition: tail of the previous segment
+                prev = float(segments[b - 1]["dur"])
+                segs.append({"dur": eff[b], "overlap": 0.0, "transition": "cut", "skip": prev - eff[b],
+                             "exact_audio": True})
+                inputs += ["-threads", CHUNK_DECODER_THREADS, "-i", files[b - 1]]
+            for i in range(b, e):
+                seg = dict(segments[i])
+                if i == b and not segs:
+                    seg.update(overlap=0.0, transition="cut")
+                segs.append(seg)
+                inputs += ["-threads", CHUNK_DECODER_THREADS, "-i", files[i]]
+            dest = folder / f"chunk_{k:03d}.mkv"
+            log(f"  chunk {k + 1}/{len(bounds)}: shots {b + 1}–{e} ({frames / fps:.1f} s)")
+            joined, v, a = filters.join(segs, fps)
+            script = folder / f"chunk_{k:03d}.txt"
+            script.write_text(joined)
+            run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", v, "-map", a,
+                 "-frames:v", str(frames), "-t", f"{frames / fps:.6f}",
+                 "-r", str(fps), "-c:v", "libx264", "-preset", "ultrafast" if draft else "fast", "-crf", crf,
+                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", dest])
+            script.unlink(missing_ok=True)
+            out_files.append(dest)
+            lines += [f"file {dest.name}", f"duration {frames / fps:.6f}"]
+        listing = folder / "chunks.ffconcat"
+        listing.write_text("\n".join(lines) + "\n")
+        return listing, out_files
+
+    def _compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
+                 music: Path | None, sfx: Path | None, cfg: dict, W: int, H: int, total: float,
+                 has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None) -> Path:
         fps = int(cfg["output"]["fps"])
         inputs = []
         for s in segment_files:
-            inputs += ["-i", s]
+            if Path(s).suffix == ".ffconcat":                # chunked: the chunks one after another
+                inputs += ["-f", "concat", "-safe", "0", "-i", s]
+            else:
+                inputs += ["-i", s]
         idx = len(segment_files)
         idx_layer = idx_music = idx_sfx = None
         if layer:
@@ -173,7 +285,8 @@ class FfmpegEncoder:
             parts.append(f"color=c=0x{col}:s={W}x{bar_h}:r={fps}:d={total:.3f}[bar];"
                          f"{v}[bar]overlay=x='-w+w*t/{total:.3f}':y=0[vb]")
             v = "[vb]"
-        parts.append(f"{v}format=yuv420p,setsar=1[vout]")
+        fades = filters.output_fades(cfg, total)       # output.fade_in / fade_out ("" by default)
+        parts.append(f"{v}{fades + ',' if fades else ''}format=yuv420p,setsar=1[vout]")
         stems = {} if stems_dir else None
         mix, am = filters.final_mix(a, total, cfg, idx_music, idx_sfx, has_voice, stems)
         parts.append(mix)
@@ -189,6 +302,15 @@ class FfmpegEncoder:
              "-t", f"{total:.4f}", "-r", str(fps), *filters.video_output_options(cfg, draft),
              "-c:a", "pcm_s16le", "-ar", "48000", out, *extra])
         return out
+
+    # ── AutoMix (playlist → one continuous mix) ─────────────────────────────
+    def music_features(self, path: Path, analysis: dict, cache_dir: Path) -> dict:
+        """Loudness, level envelope, onset rate and beat accents of a song (cached in cache_dir)."""
+        return automix_render.features(Path(path), analysis, Path(cache_dir))
+
+    def render_automix(self, paths: list[Path], plan: dict, cache_dir: Path) -> Path:
+        """The continuous mix of a playlist (domain.automix.plan_mix plan) as one WAV (cached)."""
+        return automix_render.render_cached([Path(p) for p in paths], plan, Path(cache_dir))
 
     def measure_loudness(self, path: Path, cfg: dict | None = None) -> dict:
         """{"integrated" LUFS, "true_peak" dBTP, "lra" LU}: the same EBU R128 measurement as `sve check`."""
@@ -206,6 +328,11 @@ class FfmpegEncoder:
         run(["ffmpeg", "-i", src, "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
              "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
              "-movflags", "+faststart", out])
+        return ebur128(out)
+
+    def _aac_only(self, audio: Path, cfg: dict, out: Path) -> dict:
+        run(["ffmpeg", "-i", audio, "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
+             out])
         return ebur128(out)
 
     def _converge(self, original: Path, gain: float, aim: float, ceiling: float, max_gain: float,
@@ -251,13 +378,17 @@ class FfmpegEncoder:
                     "warning": "silent or unmeasurable audio: not mastered"}
         original = src.with_name(src.stem + "_audio.wav")
         work = src.with_name(src.stem + "_master.wav")
+        aac = src.with_name(src.stem + "_master.m4a")
         try:
             run(["ffmpeg", "-i", src, "-map", "0:a", "-c:a", "pcm_s24le", original])
+            # long videos: every trial pass encodes the audio alone (the video is copied ONCE at the end)
+            long = _wav_seconds(original) > float(chunk_setting(cfg, "long_master_sec"))
+            encode = (lambda: self._aac_only(work, cfg, aac)) if long else (lambda: self._mux_aac(src, work, cfg, out))
             ceiling, aim = peak - 1.2, target        # margin for the true peak after AAC encoding
             gain = min(target - before, max_gain)
             for _ in range(4):
                 gain, _measured = self._converge(original, gain, aim, ceiling, max_gain, work)
-                final = self._mux_aac(src, work, cfg, out)
+                final = encode()
                 tp_ok = final["true_peak"] <= peak
                 if not tp_ok:                        # AAC overshoot: more headroom
                     ceiling -= final["true_peak"] - peak + 0.5
@@ -268,10 +399,14 @@ class FfmpegEncoder:
             if final["true_peak"] > peak:            # guarantee: never deliver above the ceiling
                 ceiling -= final["true_peak"] - peak + 3.0
                 self._limited(original, gain, ceiling, work)
-                final = self._mux_aac(src, work, cfg, out)
+                final = encode()
+            if long:
+                run(["ffmpeg", "-i", src, "-i", aac, "-map", "0:v", "-map", "1:a", "-c", "copy",
+                     "-movflags", "+faststart", out])
         finally:
             original.unlink(missing_ok=True)
             work.unlink(missing_ok=True)
+            aac.unlink(missing_ok=True)
         res = {"before_lufs": round(before, 2), "after_lufs": round(final["integrated"], 2),
                "true_peak_dbtp": round(final["true_peak"], 2), "gain_db": round(gain, 2)}
         why = []

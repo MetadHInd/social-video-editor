@@ -87,7 +87,8 @@ PROFILES = {"cuadrado": "square"}                    # unchanged: tiktok, reels,
 
 COLOR = Ctx(keys={"hdr_blanco": "hdr_white", "niveles": "levels", "balance_blancos": "white_balance",
                   "luma_objetivo": "target_luma", "contraste": "contrast", "saturacion": "saturation",
-                  "temperatura": "temperature", "nitidez": "sharpen", "vineta": "vignette"})
+                  "temperatura": "temperature", "nitidez": "sharpen", "vineta": "vignette",
+                  "calidez": "warmth"})
 # unchanged: auto, gamma_min, gamma_max, vibrance, lut
 
 TEXT_STYLE_KEYS = {"tam": "size", "fuente": "font", "fondo": "background", "mayusculas": "uppercase",
@@ -109,12 +110,20 @@ VISION = Ctx(
                                    "nitidez": "sharpness"})},
 )
 
+PHOTO = Ctx(   # new section: still photos and slideshows
+    keys={"duracion": "duration", "transicion": "transition", "cantidad_movimiento": "motion_amount",
+          "ajustar_a_musica": "fit_to_music", "duracion_min": "min_duration", "duracion_max": "max_duration",
+          "tono_auto": "auto_tone"},
+    values={"transition": TRANSITIONS},
+)
+
 CONFIG = Ctx(
     keys={"idioma": "language", "salida": "output", "duracion": "duration", "ritmo": "pacing",
           "gancho": "hook", "seleccion": "selection", "analisis": "analysis",
           "transcripcion": "transcription", "encuadre": "framing", "transiciones": "transitions",
           "efectos": "effects", "musica": "music", "subtitulos": "subtitles", "textos": "texts",
-          "exportar": "export", "verificacion": "check", "visión": "vision"},
+          "exportar": "export", "verificacion": "check", "visión": "vision", "foto": "photo",
+          "presentacion": "slideshow"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
@@ -152,7 +161,7 @@ CONFIG = Ctx(
                            "fundido_salida": "fade_out", "fundido_entrada": "fade_in",
                            "cortes_en_beat": "cuts_on_beat", "medio_tiempo": "half_beats",
                            "drop_en_seg": "drop_at", "alinear": "align", "_entrada": "_start",
-                           "bpm": "bpm", "factor_tempo": "tempo_factor"},
+                           "bpm": "bpm", "factor_tempo": "tempo_factor", "lista": "playlist"},
                      values={"file": MUSIC_FILE, "align": MUSIC_ALIGN}),
         "sfx": Ctx(keys={"activado": "enabled", "volumen_db": "volume_db", "pop_en_textos": "pop_on_texts",
                          "tecleo": "typing", "tecleo_db": "typing_db", "tecleo_max_por_seg": "typing_max_per_sec",
@@ -180,6 +189,7 @@ CONFIG = Ctx(
                            "columna_botones": "right_rail", "tolerancia_duracion": "duration_tolerance",
                            "escuchar_max": "listen_max", "escuchar_seg": "listen_sec"}),
         "vision": VISION,
+        "photo": PHOTO,
     },
 )
 
@@ -196,7 +206,8 @@ SHOT = Ctx(
           "de_tomas": "from_shots", "fondo_de": "background_from", "texto": "text", "giro": "tilt",
           "columnas": "columns", "enfoque_x": "focus_x", "enfoque_y": "focus_y", "volumen_db": "volume_db",
           "silenciar": "mute", "congelar": "freeze", "nota": "note", "puntaje": "score", "pico": "peak",
-          "voz": "voice", "grupo": "group", "_golpes": "_beats"},
+          "voz": "voice", "grupo": "group", "_golpes": "_beats", "duracion": "duration",
+          "movimiento": "motion", "cantidad_movimiento": "motion_amount", "tono_auto": "auto_tone"},
     # unchanged: dur, zoom, subdivision, color (its keys use the color table)
     values={"role": ROLES, "transition": TRANSITIONS, "type": SHOT_TYPES},
     children={"effects": EFFECT, "search": SEARCH, "_searched": SEARCH, "color": COLOR},

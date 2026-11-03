@@ -22,14 +22,17 @@ EXPORT_PROFILES = {
     "reels":   {"width": 1080, "height": 1920, "crf": 17, "maxrate": "15M"},
     "shorts":  {"width": 1080, "height": 1920, "crf": 17, "maxrate": "20M"},
     "youtube": {"width": 1920, "height": 1080, "crf": 18, "maxrate": "16M"},
+    "landscape": {"width": 1920, "height": 1080, "crf": 18, "maxrate": "16M"},   # 16:9, any platform
     "square":  {"width": 1080, "height": 1080, "crf": 17, "maxrate": "15M"},
 }
+# Other names accepted for a profile (sve render --profile horizontal)
+PROFILE_ALIASES = {"horizontal": "landscape"}
 
 # Names of version folders and output files, per language
 _LABELS = {
     "es": {"draft": "Borrador", "no_music": "SinMusica", "failed": "_fallida",
            "file_draft": "_borrador", "file_no_music": "_sin_musica", "cover": "_portada",
-           "listen": "escuchar", "profiles": {"square": "cuadrado"}},
+           "listen": "escuchar", "profiles": {"square": "cuadrado", "landscape": "horizontal"}},
     "en": {"draft": "Draft", "no_music": "NoMusic", "failed": "_failed",
            "file_draft": "_draft", "file_no_music": "_no_music", "cover": "_cover",
            "listen": "listen", "profiles": {}},
@@ -74,6 +77,23 @@ def resolve(cfg: dict) -> dict:
     if isinstance(tr, dict) and not tr.get("language"):
         tr["language"] = language
     return out
+
+
+def canonical_profile(name: str | None) -> str | None:
+    """Export profile name with aliases resolved ('horizontal' → 'landscape')."""
+    return PROFILE_ALIASES.get(name, name) if name else name
+
+
+def orientation(W: int, H: int) -> str:
+    """'landscape' when wider than tall, 'square' when equal, else 'portrait'.
+
+    Taken from the output size only, so a project gets it from `output.width/height` alone.
+    """
+    return "landscape" if W > H else "square" if W == H else "portrait"
+
+
+def is_landscape(W: int, H: int) -> bool:
+    return W > H
 
 
 def labels(language: str) -> dict:

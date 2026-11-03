@@ -19,3 +19,15 @@ sfx/
 
 # agent worktrees / local tool state
 .claude/
+
+# Photos, model weights and music folders (never publish personal media)
+*.jpg
+*.jpeg
+*.JPG
+*.JPEG
+*.png
+*.heic
+*.heif
+*.pth
+music/
+models/

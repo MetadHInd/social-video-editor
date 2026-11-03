@@ -2,6 +2,10 @@
 
 Analysis of a source (cache/<id>_analysis.json): samples (brightness, sharpness, motion, color),
 scenes, audio levels and peaks, Whisper words and speech segments.
+
+Still photos are sources too: a source may be a photo or a FOLDER (scanned recursively; each photo in
+it becomes one source, sorted by path). Photos only need their media info (size, EXIF orientation,
+capture time): no proxy, no audio, no Whisper, no scene detection.
 """
 from __future__ import annotations
 
@@ -46,14 +50,38 @@ def resolve_source_id(svc: Services, cache: Path, path: str | Path) -> str:
     return source_id(fp)
 
 
+def expand_sources(svc: Services, sources: list[dict]) -> list[dict]:
+    """Sources with every folder replaced by the photos inside it (recursively, sorted by path)."""
+    out = []
+    for s in sources:
+        path = Path(str(s["path"])).expanduser()
+        if svc.photos is not None and path.is_dir():
+            found = svc.photos.scan(path)
+            if not found:
+                log(f"Warning: no photos found in {path}")
+            out += [{**s, "path": p, "folder": str(path)} for p in found]
+        else:
+            out.append(s)
+    return out
+
+
+def is_photo(info: dict) -> bool:
+    return bool(info.get("image"))
+
+
 def prepare_source(svc: Services, source: dict, cache: Path, cfg: dict) -> dict:
-    """Media info + light copies (proxy video, 16 kHz wav) of one source."""
+    """Media info + light copies (proxy video, 16 kHz wav) of one source (only media info for a photo)."""
     path = source["path"]
     fid = resolve_source_id(svc, cache, path)
     info = svc.cache.load(cache, "media", fid) or svc.probe.probe(path)
     if info.get("size") is None:                  # recorded so a replaced file is noticed (see resolve_source_id)
         info["size"] = svc.probe.fingerprint(path)["size"]
     info["id"] = fid
+    if is_photo(info):
+        if info.get("proxy", "") is not None or info.get("wav", "") is not None:
+            info["proxy"] = info["wav"] = None
+            svc.cache.save(cache, "media", fid, info)
+        return info
     proxy = cache / f"{fid}_proxy.mp4"
     if not svc.cache.has(proxy):
         svc.encoder.make_proxy(info, proxy, float(cfg["color"].get("hdr_white", 0.62)))
@@ -66,7 +94,15 @@ def prepare_source(svc: Services, source: dict, cache: Path, cfg: dict) -> dict:
     return info
 
 
+def photo_analysis(info: dict) -> dict:
+    """What the planner and renderer read from a photo's "analysis" (nothing to analyze; not cached)."""
+    return {"id": info["id"], "duration": 0.0, "image": True, "samples": [], "scenes": [], "audio": None,
+            "words": [], "voice": {"segments": [], "ratio": 0.0}}
+
+
 def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: bool = False) -> dict:
+    if is_photo(info):
+        return photo_analysis(info)
     if not force:
         cached = svc.cache.load(cache, "analysis", info["id"])
         if cached is not None:
@@ -97,5 +133,8 @@ def prepare_sources(svc: Services, project: Project, cfg: dict | None = None,
                     force: bool = False) -> tuple[list[dict], list[dict]]:
     """→ (media infos, analyses) of every source, in story order."""
     cfg = cfg or project.cfg
-    infos = [prepare_source(svc, s, project.cache, cfg) for s in project.sources]
+    infos = [prepare_source(svc, s, project.cache, cfg) for s in expand_sources(svc, project.sources)]
+    photos = sum(is_photo(i) for i in infos)
+    if photos:
+        log(f"Sources: {len(infos) - photos} videos, {photos} photos")
     return infos, [analyze_source(svc, i, project.cache, cfg, force) for i in infos]

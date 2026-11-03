@@ -6,7 +6,8 @@
       │     ├── VideoShot (fast)                    the same "group" label in the plan)
       │     ├── VideoShot (slow, continuous)
       │     └── PolaroidShot (from_shot = …)      leaf drawn from another shot's last frame
-      └── CollageShot (from_shots = […])          leaf drawn from several shots' frames
+      ├── CollageShot (from_shots = […])          leaf drawn from several shots' frames
+      └── PhotoShot (source = a still photo)      leaf: a photo with a gentle Ken Burns motion
 
 Every piece answers duration(), children() and walk(). Leaves (shots) also know how to
 fit a beat-aligned duration, which other shots they are drawn from (dependencies), which
@@ -15,8 +16,9 @@ sound effects they trigger and how to describe themselves; rendering dispatches 
 
 A shot wraps the plan's dict (no copy): changes made by the beat alignment land in the plan.
 Plan shot keys (English): source, start, end, speed, role, transition, effects, beats, continuous,
-search, type (video | polaroid | collage), from_shot, from_shots, background_from, text, tilt,
-columns, subdivision, zoom, focus_x, focus_y, volume_db, mute, freeze, color, note, group, dur.
+search, type (video | polaroid | collage | photo), from_shot, from_shots, background_from, text, tilt,
+columns, subdivision, zoom, focus_x, focus_y, volume_db, mute, freeze, color, note, group, dur,
+duration, motion, motion_amount, framing.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ from typing import Protocol
 
 from .effects import freeze_seconds
 from .models import PlanError
+from .photos import ALL_MOTIONS, PHOTO_SECONDS, default_motion
 from .timebase import DEFAULT_FPS, frames, mmss
 from .transitions import entry_overlap
 
@@ -39,6 +42,7 @@ class PieceVisitor(Protocol):
     def visit_video(self, shot: VideoShot): ...
     def visit_polaroid(self, shot: PolaroidShot): ...
     def visit_collage(self, shot: CollageShot): ...
+    def visit_photo(self, shot: PhotoShot): ...
 
 
 class Piece(ABC):
@@ -281,7 +285,55 @@ def appearance_times(shot: dict, n: int, subdivision: int = 2) -> list[float]:
     return [min(0.1 + k * (dur * 0.5) / max(n, 1), last) for k in range(n)]
 
 
-SHOT_TYPES: dict[str, type[Shot]] = {"video": VideoShot, "polaroid": PolaroidShot, "collage": CollageShot}
+class PhotoShot(Shot):
+    """A still photo on screen for "duration" seconds with a gentle Ken Burns "motion".
+
+    "source" is a source index, a source id or a path; "motion" is zoom_in | zoom_out | pan_left |
+    pan_right | none (default: alternating by position). Beat alignment changes "duration".
+    """
+
+    kind = "photo"
+
+    @property
+    def ref(self):
+        """What "source" says (index, id or path): the renderer resolves it to a file."""
+        if self.data.get("source") in (None, ""):
+            raise PlanError(f"Shot {self.index} (photo) needs 'source' (a source index or a photo path)")
+        return self.data["source"]
+
+    @property
+    def motion(self) -> str:
+        m = self.data.get("motion") or default_motion(self.index)
+        if m not in ALL_MOTIONS:
+            raise PlanError(f"Shot {self.index} (photo): unknown motion '{m}'. Options: {', '.join(ALL_MOTIONS)}")
+        return m
+
+    def base_duration(self) -> float:
+        return float(self.data.get("duration", self.data.get("dur", PHOTO_SECONDS)))
+
+    def fit_to_duration(self, dur, prev, source_durations):
+        self.data["duration"] = round(dur, 4)
+
+    def shift_end(self, delta, cfg, source_durations):
+        new = self.base_duration() + delta
+        if new < cfg["pacing"]["shot_min"]:
+            return False
+        self.data["duration"] = round(new, 4)
+        return True
+
+    def summary(self) -> dict:
+        return {"type": self.kind, "source": str(self.data.get("source")), "from": None, "to": None}
+
+    def describe(self) -> str:
+        name = str(self.data.get("source", "?")).replace("\\", "/").rsplit("/", 1)[-1]
+        return f"photo {name[:18]:<18} {self.data.get('motion') or default_motion(self.index):<9}"
+
+    def accept(self, visitor):
+        return visitor.visit_photo(self)
+
+
+SHOT_TYPES: dict[str, type[Shot]] = {"video": VideoShot, "polaroid": PolaroidShot, "collage": CollageShot,
+                                     "photo": PhotoShot}
 
 
 def make_shot(data: dict, index: int) -> Shot:

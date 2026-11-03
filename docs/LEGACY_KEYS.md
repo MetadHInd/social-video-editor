@@ -115,6 +115,8 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `exportar` | `export` |
 | `verificacion` | `check` |
 | `visión` | `vision` |
+| `foto` | `photo` |
+| `presentacion` | `slideshow` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -224,6 +226,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `temperatura` | `temperature` |
 | `nitidez` | `sharpen` |
 | `vineta` | `vignette` |
+| `calidez` | `warmth` |
 
 ### Keys of `config.framing`
 
@@ -297,6 +300,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `_entrada` | `_start` |
 | `bpm` | `bpm` |
 | `factor_tempo` | `tempo_factor` |
+| `lista` | `playlist` |
 
 ### Values of `config.music.file`
 
@@ -460,6 +464,20 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `novedad` | `novelty` |
 | `nitidez` | `sharpness` |
 
+### Keys of `config.photo` (new section: still photos and slideshows)
+
+| Spanish | English |
+|---|---|
+| `duracion` | `duration` |
+| `transicion` | `transition` |
+| `cantidad_movimiento` | `motion_amount` |
+| `ajustar_a_musica` | `fit_to_music` |
+| `duracion_min` | `min_duration` |
+| `duracion_max` | `max_duration` |
+| `tono_auto` | `auto_tone` |
+
+`config.photo.transition` values use the same table as `config.hook.transition`.
+
 ## Project file (`proyecto.yaml` → `project.yaml`)
 
 ### Keys of `project`
@@ -530,6 +548,10 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `voz` | `voice` |
 | `grupo` | `group` |
 | `_golpes` | `_beats` |
+| `duracion` | `duration` |
+| `movimiento` | `motion` |
+| `cantidad_movimiento` | `motion_amount` |
+| `tono_auto` | `auto_tone` |
 
 ### Values of `plan.shots.role`
 

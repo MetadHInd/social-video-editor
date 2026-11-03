@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from ...domain.text_layout import Caption, Card, CardState, Layer, resolve_style
+from ...domain.text_layout import Caption, Card, CardState, Layer, resolve_style, text_scale, text_width
 from ...domain.text_units import clean
 from . import rich_text as rt
 from .fonts import load_font
@@ -33,7 +33,8 @@ def rgba(c: str | None):
 
 # ── images ───────────────────────────────────────────────────────────────────
 
-def subtitle_image(words: list[str], active: int, style: dict, W: int) -> Image.Image:
+def subtitle_image(words: list[str], active: int, style: dict, W: float) -> Image.Image:
+    """W: the text width (output width, capped in landscape — see domain.text_layout.text_width)."""
     f = load_font(style.get("font", "Inter-Black"), int(style["size"]))
     stroke = int(style.get("stroke", 8))
     ws = [w.upper() if style.get("uppercase", True) else w for w in words]
@@ -103,8 +104,10 @@ class TextBlock:
                                            y + self.asc * 1.08], fill=self.color)
 
 
-def blocks(text: dict, style: dict, W: int, default_font: str) -> tuple[TextBlock, TextBlock | None]:
-    max_px = W * float(style.get("max_width", 0.84)) - 2 * style["size"] * 0.45
+def blocks(text: dict, style: dict, W: int, default_font: str,
+           H: int | None = None) -> tuple[TextBlock, TextBlock | None]:
+    """Title and description blocks; lines wrap within max_width of the text width (W, capped in landscape)."""
+    max_px = text_width(W, H or W) * float(style.get("max_width", 0.84)) - 2 * style["size"] * 0.45
     title = TextBlock(text["text"], style.get("font", default_font), style["size"], style.get("color", "#FFFFFF"),
                       max_px, style.get("uppercase", False))
     desc = None
@@ -144,7 +147,7 @@ def card_image(title: TextBlock, desc: TextBlock | None, style: dict, n_t: int, 
 
 def build_card(text: dict, style: dict, W: int, H: int, default_font: str, idx: int):
     """→ (domain Card with its timing, function CardState → image)."""
-    title, desc = blocks(text, style, W, default_font)
+    title, desc = blocks(text, style, W, default_font, H)
     anim = text.get("animation", style.get("animation", "pop"))
     pop = anim in ("pop", "typewriter") and text.get("pop", True)
     x, y = float(style.get("x", 0.5)) * W, float(style.get("y", 0.5)) * H
@@ -179,7 +182,7 @@ class PillowTextRenderer:
         folder.mkdir(parents=True, exist_ok=True)
         for old in folder.glob("*.png"):
             old.unlink()
-        scale = W / 1080
+        scale = text_scale(W, H)          # short side / 1080: vertical output unchanged
         sub = {**cfg["subtitles"], "size": int(cfg["subtitles"]["size"] * scale),
                "stroke": max(int(cfg["subtitles"]["stroke"] * scale), 2)}
         styles = cfg["texts"]["styles"]
@@ -193,7 +196,7 @@ class PillowTextRenderer:
                 end = g["words"][k + 1]["start"] if k + 1 < len(g["words"]) else g["end"]
                 if end <= start:
                     continue
-                im = subtitle_image(words, k, sub, W)
+                im = subtitle_image(words, k, sub, text_width(W, H))
                 key = f"s{gi}_{k}"
                 elements.append(Caption(key, start, end, W / 2, float(sub["y"]) * H,
                                         k == 0 and sub.get("animation") == "pop"))

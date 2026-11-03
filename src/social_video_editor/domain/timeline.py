@@ -152,6 +152,15 @@ def align_to_beats(plan: dict, beats: list[float], cfg: dict, source_durations: 
             n = max(1, int(round(s.base_duration() / T)))
         k += n
         cuts.append(float(g[k]) if k < len(g) else float(g[-1] + (k - len(g) + 1) * T))
+    _fit_shots(shots, cuts, cfg, source_durations, g)
+    return len(shots)
+
+
+def _fit_shots(shots: list[Shot], cuts: list[float], cfg: dict, source_durations: list[float], beats) -> None:
+    """Gives every shot the duration that puts the middle of each transition on `cuts` (absolute
+    seconds; cuts[i] = change from shot i to i+1, the last one = end of the video)."""
+    fps = cfg["output"]["fps"]
+    g = np.asarray(beats, float)
     overlaps = [0.0] + [frames(transition_duration(s.transition, cfg), fps) for s in shots[1:]]
     prev_end = 0.0
     for i, s in enumerate(shots):
@@ -162,4 +171,16 @@ def align_to_beats(plan: dict, beats: list[float], cfg: dict, source_durations: 
         s.data["_beats"] = [round(float(b - out_start), 3) for b in g
                             if out_start + 0.05 < b < out_start + dur - 0.05]
         prev_end = out_start + dur
+
+
+def fit_to_cuts(plan: dict, cuts: list[float], cfg: dict, source_durations: list[float],
+                beats: list[float] | None = None) -> int:
+    """Makes the shot changes happen EXACTLY at `cuts` (one per shot, the last = end of the video).
+
+    Like align_to_beats with the change times given (e.g. photos fitted to a mix). Shots store
+    "_beats" (beats inside the shot, relative to its start) when `beats` is given."""
+    shots = Sequence.from_plan(plan).shots()
+    if len(cuts) != len(shots):
+        raise ValueError(f"fit_to_cuts: {len(cuts)} cuts for {len(shots)} shots")
+    _fit_shots(shots, [float(c) for c in cuts], cfg, source_durations, sorted(beats or []))
     return len(shots)

@@ -1,0 +1,23 @@
+# RECIPE: PHOTO SLIDESHOW / MEMORIES (landscape, long, music playlist)
+# Formula: every photo in chronological order, gentle Ken Burns motion, soft crossfades, warm look,
+# one or more songs blended back to back. No hook, no loop, no on-screen texts by default.
+slideshow: true
+output: {width: 1920, height: 1080, fps: 30, fade_in: 1.5, fade_out: 3.0}   # from / to black; the last photo holds through the fade-out
+duration: {target: 0, max: 0}          # 0 = no limit: the photos (or the playlist) decide the length
+hook: {strategy: start, duration: 0, text: null}
+photo:
+  duration: 4.5                        # seconds per photo (fitted to the music when fit_to_music is on)
+  transition: fade
+  motion_amount: 0.05                  # very gentle Ken Burns
+  fit_to_music: true                   # spread the photos over the playlist; changes land on the beat
+  min_duration: 3.5
+  max_duration: 5.5
+  auto_tone: 0.6                       # gentle exposure fix for dark / backlit photos (0 = off, 1 = strongest)
+transitions:
+  fade_duration: 1.0                   # soft 1 s crossfade between photos
+music:
+  automix: {enabled: true}             # blend songs back to back (beat-matched when tempos are close)
+color:
+  warmth: 0.25                         # slightly warm, never sepia
+  vignette: 0.15
+subtitles: {enabled: false}

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "social-video-editor"
-version = "0.2.0"
-description = "Vertical video editing engine for social media (Python + FFmpeg)"
+version = "0.3.0"
+description = "Video editing engine for social media: vertical clips and landscape photo slideshows (Python + FFmpeg)"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
@@ -22,6 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 vision = ["sentence-transformers"]
 music = ["yt-dlp"]
+enhance = ["spandrel", "torch"]
 dev = ["pytest"]
 
 [project.scripts]
@@ -38,4 +39,5 @@ social_video_editor = ["recipes/*.yaml", "data/vocabulary/*.txt"]
 testpaths = ["tests"]
 pythonpath = ["src"]          # works even when the package is not installed
 markers = ["integration: needs FFmpeg (generates synthetic media in a temporary folder)",
-           "vision: needs the CLIP model already downloaded (skipped otherwise)"]
+           "vision: needs the CLIP model already downloaded (skipped otherwise)",
+           "enhance: needs spandrel + torch and the Real-ESRGAN model file (skipped otherwise)"]

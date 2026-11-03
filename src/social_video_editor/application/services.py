@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..ports import (AudioAnalyzer, CacheStore, ImageComposer, MediaProbe, MusicDownloader, ProjectRepository,
-                     RecipeRepository, RenderInspector, SoundEffects, TextRenderer, Transcriber, VideoAnalyzer,
-                     VideoEncoder, VisualDetector)
+from ..ports import (AudioAnalyzer, CacheStore, ImageComposer, ImageUpscaler, MediaProbe, MusicDownloader,
+                     PhotoRenderer, ProjectRepository, RecipeRepository, RenderInspector, SoundEffects, TextRenderer,
+                     Transcriber, VideoAnalyzer, VideoEncoder, VisualDetector)
 
 
 @dataclass
@@ -24,3 +24,5 @@ class Services:
     downloader: MusicDownloader
     visual: VisualDetector | None = None
     inspector: RenderInspector | None = None
+    photos: PhotoRenderer | None = None
+    upscaler: ImageUpscaler | None = None

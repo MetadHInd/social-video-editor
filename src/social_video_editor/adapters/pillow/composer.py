@@ -1,4 +1,5 @@
-"""ImageComposer with Pillow: frames of drawn shots (polaroid, collage) and contact sheets."""
+"""ImageComposer with Pillow: frames of drawn shots (polaroid, collage) and contact sheets (of video
+frames, or of the still photos themselves)."""
 from __future__ import annotations
 
 import random
@@ -6,13 +7,68 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from ...domain.timebase import mmss
 from ..system.fonts import LABEL_FONT
 from . import rich_text as rt
 from .drawing import center_crop, drop_shadow, ease_out, rounded, soft_background, to_rgb_bytes
 from .fonts import load_font
+
+
+POLAROID_HEIGHT_RATIO = 1.25 + 0.06 + 0.27   # frame height / photo width (4:5 photo, margin, caption strip)
+POLAROID_MAX_HEIGHT = 0.82                   # the frame never takes more than this share of the height
+LANDSCAPE_COLLAGE = {"y0": 0.10, "y1": 0.90, "width": 0.90}   # title-safe zone of a landscape grid
+
+
+def polaroid_photo_width(W: int, H: int, cfg: dict) -> int:
+    """Width of the polaroid photo: polaroid.width·W, bounded so the whole frame fits the height.
+
+    In vertical output the width bound always wins (unchanged); in landscape the height does.
+    """
+    p = cfg.get("polaroid", {})
+    return int(min(W * float(p.get("width", 0.70)), H * POLAROID_MAX_HEIGHT / POLAROID_HEIGHT_RATIO))
+
+
+def _grid_cells(n: int, cols: int, W: int, H: int, zone_y0: float, zone_y1: float, width: float,
+                gap: int) -> tuple[int, int, int, int]:
+    """3:4 cells of a cols-wide grid fitting width·W and the vertical zone → (rows, cw, ch, total_h)."""
+    rows = (n + cols - 1) // cols
+    cw = int((W * width - gap * (cols - 1)) / cols)
+    ch = int(cw * 4 / 3)
+    total_h = rows * ch + (rows - 1) * gap
+    if total_h > H * (zone_y1 - zone_y0):              # must fit in the safe zone
+        ch = int((H * (zone_y1 - zone_y0) - gap * (rows - 1)) / rows)
+        cw = int(ch * 3 / 4)
+        total_h = rows * ch + (rows - 1) * gap
+    return rows, cw, ch, total_h
+
+
+def collage_layout(n: int, W: int, H: int, shot: dict, cfg: dict) -> dict:
+    """Grid geometry of a collage: columns, rows, cell size and top-left corner of the grid.
+
+    Portrait / square: `columns` (shot, else collage.columns) inside the collage.y0–y1 zone.
+    Landscape (W > H): the column count that gives the largest cells inside a title-safe zone
+    (ties → fewest empty slots, then more columns / fewer rows); a portrait column count would
+    make tiny cells.
+    """
+    c = cfg.get("collage", {})
+    gap = int(min(W, H) * 0.022)
+    if W > H:
+        zone_y0, zone_y1, width = LANDSCAPE_COLLAGE["y0"], LANDSCAPE_COLLAGE["y1"], LANDSCAPE_COLLAGE["width"]
+        n_ = max(n, 1)
+        options = []
+        for k in range(1, n_ + 1):
+            rows, cw, ch, total_h = _grid_cells(n_, k, W, H, zone_y0, zone_y1, width, gap)
+            options.append(((cw, -(rows * k - n_), k), (k, rows, cw, ch, total_h)))
+        cols, rows, cw, ch, total_h = max(options)[1]
+    else:
+        zone_y0, zone_y1, width = float(c.get("y0", 0.215)), float(c.get("y1", 0.72)), 0.94
+        cols = int(shot.get("columns", c.get("columns", 4)))
+        rows, cw, ch, total_h = _grid_cells(n, cols, W, H, zone_y0, zone_y1, width, gap)
+    x0 = (W - (cols * cw + (cols - 1) * gap)) / 2
+    y0 = H * (zone_y0 + zone_y1) / 2 - total_h / 2
+    return {"columns": cols, "rows": rows, "cw": cw, "ch": ch, "gap": gap, "x0": x0, "y0": y0}
 
 
 def _label_font(size: int):
@@ -24,9 +80,9 @@ def _label_font(size: int):
 
 class PillowComposer:
     # ── polaroid ─────────────────────────────────────────────────────────────
-    def _photo(self, frame: Image.Image, W: int, text: str, cfg: dict) -> Image.Image:
+    def _photo(self, frame: Image.Image, W: int, text: str, cfg: dict, H: int | None = None) -> Image.Image:
         p = cfg.get("polaroid", {})
-        photo_w = int(W * float(p.get("width", 0.70)))
+        photo_w = polaroid_photo_width(W, H or W * 16 // 9, cfg)
         photo = center_crop(frame, 4 / 5, float(p.get("center_y", 0.5))).resize(
             (photo_w, int(photo_w * 5 / 4)), Image.LANCZOS)
         m, bottom = int(photo_w * 0.06), int(photo_w * 0.27)
@@ -49,7 +105,7 @@ class PillowComposer:
         """The photo drops in tilting with a white flash, then slowly comes closer."""
         frame = Image.open(frame_png).convert("RGB")
         background = soft_background(frame, W, H)
-        photo = self._photo(frame, W, shot.get("text", ""), cfg)
+        photo = self._photo(frame, W, shot.get("text", ""), cfg, H)
         tilt = float(shot.get("tilt", -4))
         n = int(round(float(shot["dur"]) * fps))
         white = Image.new("RGBA", (W, H), (255, 255, 255, 255))
@@ -73,20 +129,8 @@ class PillowComposer:
     def collage_frames(self, frame_pngs: list[Path], background_png: Path, shot: dict, times: list[float],
                        W: int, H: int, fps: int, cfg: dict) -> Iterator[bytes]:
         """Grid of photos popping in one by one at `times` (seconds inside the shot)."""
-        c = cfg.get("collage", {})
-        cols = int(shot.get("columns", c.get("columns", 4)))
-        rows = (len(frame_pngs) + cols - 1) // cols
-        zone_y0, zone_y1 = float(c.get("y0", 0.215)), float(c.get("y1", 0.72))
-        gap = int(W * 0.022)
-        cw = int((W * 0.94 - gap * (cols - 1)) / cols)
-        ch = int(cw * 4 / 3)
-        total_h = rows * ch + (rows - 1) * gap
-        if total_h > H * (zone_y1 - zone_y0):              # must fit in the safe zone
-            ch = int((H * (zone_y1 - zone_y0) - gap * (rows - 1)) / rows)
-            cw = int(ch * 3 / 4)
-            total_h = rows * ch + (rows - 1) * gap
-        x0 = (W - (cols * cw + (cols - 1) * gap)) / 2
-        y0 = H * (zone_y0 + zone_y1) / 2 - total_h / 2
+        g = collage_layout(len(frame_pngs), W, H, shot, cfg)
+        cols, cw, ch, gap, x0, y0 = g["columns"], g["cw"], g["ch"], g["gap"], g["x0"], g["y0"]
         rnd = random.Random(3)
         cells = []
         for k, png in enumerate(frame_pngs):
@@ -157,6 +201,39 @@ class PillowComposer:
                     v = np.clip((audio["db"][i] + 60) / 60, 0, 1)
                     d.rectangle([x, y + thumb_h + 25, x + int(thumb_w * v), y + thumb_h + 28], fill=(250, 150, 50))
             path = out_dir / f"{info['id']}{suffix}_sheet_{h // per_sheet + 1:02d}.jpg"
+            sheet.save(path, quality=88)
+            paths.append(path)
+        return paths
+
+    def photo_sheets(self, photos: list[dict], out_dir: Path, name: str = "photos", columns: int = 6,
+                     rows: int = 5, thumb_w: int = 170) -> list[Path]:
+        """Grids of the photos themselves (EXIF orientation applied, fitted in 4:3 cells), labeled with
+        their source index and capture date (or file name). photos: media infos (+ "index").
+        An unreadable photo leaves a dark cell with its label."""
+        out_dir.mkdir(parents=True, exist_ok=True)
+        thumb_h = int(thumb_w * 3 / 4)
+        f_label = _label_font(13)
+        paths, per_sheet = [], columns * rows
+        for h in range(0, len(photos), per_sheet):
+            batch = photos[h:h + per_sheet]
+            sheet = Image.new("RGB", (columns * (thumb_w + 6) + 6, rows * (thumb_h + 22) + 6), (20, 20, 24))
+            d = ImageDraw.Draw(sheet)
+            for k, info in enumerate(batch):
+                x = 6 + (k % columns) * (thumb_w + 6)
+                y = 6 + (k // columns) * (thumb_h + 22)
+                d.rectangle([x, y, x + thumb_w - 1, y + thumb_h - 1], fill=(36, 36, 42))
+                try:
+                    with Image.open(info["path"]) as im:
+                        im.draft("RGB", (thumb_w * 2, thumb_h * 2))
+                        im = ImageOps.exif_transpose(im).convert("RGB")
+                        im.thumbnail((thumb_w, thumb_h), Image.LANCZOS)
+                        sheet.paste(im, (x + (thumb_w - im.width) // 2, y + (thumb_h - im.height) // 2))
+                except (OSError, ValueError):
+                    pass
+                taken = str(info.get("taken") or "")[:10]
+                label = f"{info.get('index', h + k)} {taken or Path(str(info['path'])).name}"
+                d.text((x + 2, y + thumb_h + 3), label[:26], font=f_label, fill=(255, 255, 255))
+            path = out_dir / f"{name}_sheet_{h // per_sheet + 1:02d}.jpg"
             sheet.save(path, quality=88)
             paths.append(path)
         return paths

@@ -36,10 +36,11 @@ class VideoEncoder(Protocol):
         """Renders one video shot from the ORIGINAL source (color, framing, speed, effects, audio)."""
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
-                      audio: dict | None = None) -> Path:
+                      audio: dict | None = None, crf: int | None = None) -> Path:
         """Encodes raw RGB frames as a segment like the other shots. Audio: silent, or with `audio`
         {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"} a piece of a source (from
-        `start`, source seconds) through the same per-shot audio chain, gain_db lower, faded in/out."""
+        `start`, source seconds) through the same per-shot audio chain, gain_db lower, faded in/out.
+        crf: x264 quality (None = the drawn shots' default; photos pass render.photo_crf)."""
 
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of a segment (at=None → the last frame)."""
@@ -58,6 +59,12 @@ class VideoEncoder(Protocol):
         """{"integrated" LUFS, "true_peak" dBTP, "lra" LU} (EBU R128)."""
 
     def cover(self, video: Path, t: float, out: Path) -> Path: ...
+
+    def music_features(self, path: Path, analysis: dict, cache_dir: Path) -> dict:
+        """Loudness, level envelope, onset rate and beat accents of a song, for AutoMix (cached in cache_dir)."""
+
+    def render_automix(self, paths: list[Path], plan: dict, cache_dir: Path) -> Path:
+        """The continuous mix of a playlist (a domain.automix.plan_mix plan) as one WAV (cached)."""
 
 
 class VideoAnalyzer(Protocol):
@@ -98,6 +105,9 @@ class ImageComposer(Protocol):
 
     def contact_sheets(self, info: dict, analysis: dict, frames_at, out_dir: Path, start: float = 0,
                        end: float | None = None, every: float | None = None) -> list[Path]: ...
+
+    def photo_sheets(self, photos: list[dict], out_dir: Path, name: str = "photos") -> list[Path]:
+        """Grids of still photos (media infos with "path", optional "taken" and "index") → JPEG sheets."""
 
 
 class SoundEffects(Protocol):
@@ -150,6 +160,9 @@ class ProjectRepository(Protocol):
         """Files (not folders) directly inside `folder`; [] if it does not exist."""
 
     def find_music(self, music_cfg: dict, project_dir: Path) -> Path | None: ...
+
+    def find_playlist(self, music_cfg: dict, project_dir: Path) -> list[Path]:
+        """music.playlist: its tracks in order (folders expanded to their audio files); [] without one."""
     def music_dir(self) -> Path: ...
 
 
@@ -161,6 +174,9 @@ class RenderInspector(Protocol):
 
     def audio(self, path: Path, sr: int = 48000):
         """The audio as a float32 numpy array, shape (samples, 2)."""
+
+    def audio_blocks(self, path: Path, sr: int = 48000, block_sec: float = 30.0):
+        """The same audio streamed as consecutive (samples, 2) float32 blocks (long renders)."""
 
     def video_events(self, path: Path, black_min: float, freeze_min: float) -> dict:
         """{"black": [[start, end]], "freeze": [[start, end]]}"""
@@ -206,3 +222,32 @@ class VisualDetector(Protocol):
 
     def text_embeddings(self, texts: list[str], settings: dict):
         """Embeddings [len(texts), d] of texts in any supported language."""
+
+
+class PhotoRenderer(Protocol):
+    """Still photos as sources: finding them and turning one into a segment like the other shots."""
+
+    def is_image(self, path: str | Path) -> bool:
+        """A still photo the engine can read."""
+
+    def scan(self, folder: str | Path) -> list[str]:
+        """Photos inside a folder and its subfolders, sorted by path."""
+
+    def encode_photo(self, image: Path, shot: dict, cfg: dict, W: int, H: int, fps: int, out: Path) -> Path:
+        """A segment of exactly shot["dur"] seconds at W×H/fps with a silent audio track (like a drawn
+        shot): EXIF orientation applied, framed like a video (blurred background when the aspect differs
+        a lot, otherwise cover), smooth Ken Burns (shot "motion", "motion_amount"), optional
+        photo.auto_tone exposure fix and color.warmth / color.vignette (0–1), x264 quality
+        render.photo_crf."""
+
+
+class ImageUpscaler(Protocol):
+    """Enlarges / reduces photos for `sve enhance` (the originals are never modified)."""
+
+    def describe(self, settings: dict) -> str:
+        """Which method will be used with these `enhance` settings (e.g. "Real-ESRGAN x4 on mps")."""
+
+    def enhance(self, src: Path, out: Path, short_side: int, upscale: bool, settings: dict) -> str:
+        """Writes `src` (EXIF orientation applied) to `out` as JPEG (quality 95) with its short side equal
+        to `short_side`. upscale=True first enlarges it with the model (×4), then reduces it with
+        Lanczos. Returns the method used ("realesrgan" | "lanczos")."""

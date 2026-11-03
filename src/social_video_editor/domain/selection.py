@@ -14,6 +14,7 @@ Analysis dict of a source (English keys):
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from collections.abc import Callable
@@ -117,6 +118,15 @@ def has_voice(an: dict, start: float, end: float) -> bool:
     return spoken / max(end - start, 1e-3) > 0.3
 
 
+def duration_limit(value) -> float:
+    """duration.target / duration.max in seconds; null, 0 or a non-number = no limit (infinity)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return math.inf
+    return v if v > 0 else math.inf
+
+
 def propose(analyses: list[dict], cfg: dict) -> dict:
     """Candidate windows of every source and the chosen ones (story order)."""
     r, d = cfg["pacing"], cfg["duration"]
@@ -158,7 +168,9 @@ def propose(analyses: list[dict], cfg: dict) -> dict:
 
     # Choose: first the best of each source (if asked), then the best overall
     candidates.sort(key=lambda c: -c["score"])
-    target = d["target"] - (cfg["hook"]["duration"] if cfg["hook"]["strategy"] == "teaser" else 0)
+    teaser = cfg["hook"]["duration"] if cfg["hook"]["strategy"] == "teaser" else 0
+    target = duration_limit(d.get("target")) - teaser
+    max_total = duration_limit(d.get("max"))
     chosen, total = [], 0.0
 
     def dur(c):
@@ -194,7 +206,7 @@ def propose(analyses: list[dict], cfg: dict) -> dict:
             break
         if c in chosen or c["score"] <= 0:
             continue
-        if total + dur(c) > d["max"]:
+        if total + dur(c) > max_total:
             continue
         chosen.append(c)
         total += dur(c)

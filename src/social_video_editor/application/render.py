@@ -10,8 +10,9 @@ Steps:
   3. Audio is mastered to −14 LUFS; video, cover, .srt, plan_used/config_used/summary.json are
      written to a new version folder (vN, or a variant such as v3SinMusica / v3NoMusic).
      The same FFmpeg pass also writes vN/stems/{original,music,sfx}.wav (pre-master levels; the
-     summary's audio.master_gain_db brings them to the final level) and the summary records where
-     every text box was drawn (text_boxes) and the typing bursts, for `sve check`.
+     summary's audio.master_gain_db brings them to the final level; skipped for long renders and
+     renders without original sound unless export.stems: true, see stems_wanted) and the summary
+     records where every text box was drawn (text_boxes) and the typing bursts, for `sve check`.
 """
 from __future__ import annotations
 
@@ -26,7 +27,9 @@ import numpy as np
 from ..domain import color_math
 from ..domain.config import EXPORT_PROFILES, labels, output_name, variant_suffix
 from ..domain.models import Project
-from ..domain.pieces import CollageShot, PolaroidShot, Sequence, VideoShot
+from ..domain.models import PlanError
+from ..domain.photos import auto_tone_setting, photo_crf, photo_settings, resolve_photo_ref
+from ..domain.pieces import CollageShot, PhotoShot, PolaroidShot, Sequence, VideoShot
 from ..domain.selection import has_voice, resolve_ranges
 from ..domain.text_layout import srt_text, subtitle_groups, text_animation
 from ..domain.timebase import mmss
@@ -35,11 +38,13 @@ from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
 from ..log import log
 from .analyze import prepare_sources
+from .enhance import enhanced_or_none
 from .music import prepare_music
 from .products import visual_search
 from .services import Services
 
 SEGMENT_VERSION = 5
+STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
 SHOT_SIGNATURE_KEYS = ("source", "start", "end", "speed", "effects", "zoom", "focus_x", "focus_y", "volume_db",
                        "mute", "freeze", "color", "_beats")
 
@@ -149,6 +154,31 @@ class ShotRenderer:
             for p in pngs:
                 self.svc.cache.discard(p)
 
+    # ── still photos ─────────────────────────────────────────────────────────
+    def visit_photo(self, shot: PhotoShot) -> Path:
+        d = self.tl[shot.index].as_dict()
+        try:
+            photo = resolve_photo_ref(shot.ref, self.infos)
+        except ValueError as e:
+            raise PlanError(f"Shot {shot.index} (photo): {e}") from None
+        if self.svc.photos is None or not self.svc.photos.is_image(photo) or not self.svc.projects.exists(Path(photo)):
+            raise PlanError(f"Shot {shot.index} (photo): not a readable photo: {photo}")
+        image = enhanced_or_none(self.svc, self.cache, photo) or Path(photo)
+        d["motion"] = shot.motion
+        d.setdefault("motion_amount", photo_settings(self.cfg)["motion_amount"])
+        log(f"{self._header(shot)} photo {Path(photo).name} ({d['dur']:.2f} s, {d['motion']}) "
+            f"[{d.get('transition')}]{' enhanced' if image != Path(photo) else ''}")
+        path = self._segment_path({
+            "shot": {k: d.get(k) for k in ("motion", "motion_amount", "focus_x", "focus_y", "framing", "color", "dur")},
+            "image": self.svc.probe.fingerprint(image), "W": self.W, "H": self.H, "fps": self.fps,
+            "cfg": {"color": {k: self.cfg.get("color", {}).get(k) for k in ("warmth", "vignette")},
+                    "framing": self.cfg.get("framing"), "auto_tone": auto_tone_setting(self.cfg, d),
+                    "crf": photo_crf(self.cfg)},
+            "v": SEGMENT_VERSION}, prefix="photo_")
+        if self.svc.cache.has(path):
+            return path
+        return self.svc.photos.encode_photo(image, d, self.cfg, self.W, self.H, self.fps, path)
+
 
 def sound_events(timeline: Timeline, texts: list[dict], keystrokes: list[float], cfg: dict) -> list:
     """Every sound effect of the video: (name, second, gain dB)."""
@@ -172,6 +202,17 @@ def sound_events(timeline: Timeline, texts: list[dict], keystrokes: list[float],
     for clip in timeline:
         events += clip.piece.sound_events(clip.out_start, clip.dur, base, cfg)
     return events
+
+
+def stems_wanted(cfg: dict, timeline: Timeline, total: float) -> bool:
+    """export.stems: true / false decides; unset (null) → only for renders up to STEMS_MAX_SEC that
+    contain original sound (at least one shot playing a source clip; photo-only videos have none)."""
+    v = (cfg.get("export") or {}).get("stems")
+    if v is not None and v != "auto":
+        return bool(v)
+    if total > STEMS_MAX_SEC:
+        return False
+    return any(c.piece.source_window() is not None for c in timeline)
 
 
 def _master_gain(lufs: dict) -> float | None:
@@ -208,6 +249,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     if draft:
         W, H = W // 2 // 2 * 2, H // 2 // 2 * 2
     plan, infos, analyses, music, tl = prepare_edit(svc, project, copy.deepcopy(plan), cfg, no_music)
+    mix_timeline = cfg["music"].pop("_automix_timeline", None)      # playlist: written to vN/automix.json
     order = tl.sequence.render_order()               # validates shot references before encoding anything
     total = tl.total
     log(f"Timeline: {len(tl)} shots, {total:.1f} s, {W}×{H}{' (draft)' if draft else ''}")
@@ -235,7 +277,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         sfx = svc.sfx.mix_track(events, total, vdir / "_sfx.wav") if events else None
         svc.encoder.compose([{"dur": c.dur, "overlap": c.overlap, "transition": c.piece.transition} for c in tl],
                             segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster,
-                            stems_dir=vdir / "stems")
+                            stems_dir=vdir / "stems" if stems_wanted(cfg, tl, total) else None)
         lufs = svc.encoder.master_audio(premaster, final, cfg)
     except BaseException:                 # UserError is a SystemExit; Ctrl-C also leaves the folder marked
         failed = svc.projects.mark_failed(vdir, labels(lang)["failed"])
@@ -251,9 +293,13 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         svc.encoder.cover(final, t_cover, vdir / f"{name}{labels(lang)['cover']}.jpg")
     svc.projects.write_json(vdir / "plan_used.json", plan)
     svc.projects.write_json(vdir / "config_used.json", cfg)
+    if mix_timeline:
+        svc.projects.write_json(vdir / "automix.json", mix_timeline)
     summary = {
         "video": final.name, "duration_sec": round(total, 2), "shots": len(tl), "resolution": f"{W}x{H}",
-        "music": None if not music else {"file": music.name, "start_sec": cfg["music"].get("_start")},
+        "music": None if not music else {"file": music.name, "start_sec": cfg["music"].get("_start"),
+                                         **({"playlist": [s["file"] for s in cfg["music"]["_automix"]["songs"]]}
+                                            if cfg["music"].get("_automix") else {})},
         "audio": {**lufs, "master_gain_db": _master_gain(lufs)}, "auto_subtitles": len(groups),
         "texts": len(texts), "sound_effects": len(events),
         "render_time_sec": round(time.time() - t0, 1),

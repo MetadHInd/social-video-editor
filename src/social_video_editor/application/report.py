@@ -14,11 +14,13 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from ..domain import automix
 from ..domain.models import Project, UserError
+from ..domain.photos import is_image_name
 from ..domain.pieces import Group, Sequence
 from ..domain.timebase import mmss
 from ..domain.timeline import compute_timeline
-from .analyze import resolve_source_id
+from .analyze import expand_sources, resolve_source_id
 from .services import Services
 
 LOW_CONFIDENCE = 0.5      # products below this confidence: look at the images before trusting them
@@ -50,11 +52,20 @@ def build_report(svc: Services, project: Project) -> dict:
 
 
 def _sources(svc: Services, project: Project) -> list[dict]:
+    """One entry per source of project.yaml; a folder of photos is ONE entry with its photo count."""
     out = []
     for i, s in enumerate(project.sources):
+        expanded = expand_sources(svc, [s])
+        if any(e.get("folder") for e in expanded) or (not expanded and svc.photos is not None):
+            out.append({"index": i, "file": Path(str(s["path"])).name + "/", "folder": True,
+                        "photos": len(expanded), "duration": None, "hdr": None, "has_audio": None})
+            continue
         info = svc.cache.load(project.cache, "media", resolve_source_id(svc, project.cache, s["path"])) or {}
-        out.append({"index": i, "file": Path(s["path"]).name, "duration": info.get("duration"),
-                    "hdr": info.get("hdr"), "has_audio": info.get("has_audio")})
+        entry = {"index": i, "file": Path(s["path"]).name, "duration": info.get("duration"),
+                 "hdr": info.get("hdr"), "has_audio": info.get("has_audio")}
+        if info.get("image") or is_image_name(s["path"]):
+            entry.update(photo=True, duration=None, has_audio=None)
+        out.append(entry)
     return out
 
 
@@ -100,7 +111,11 @@ def _plan(svc: Services, project: Project) -> dict | None:
         tl = compute_timeline(Sequence.from_plan(_timeline_plan(plan)), project.cfg)
         out["duration"] = round(tl.total, 2)
         out["groups"] = sum(1 for c in tl.sequence.children() if isinstance(c, Group))
-        out["timeline"] = [_shot_entry(c) for c in tl]
+        photos = [c.dur for c in tl if c.piece.kind == "photo"]
+        if photos:      # a slideshow has hundreds: summarized instead of listed
+            out["photos"] = {"count": len(photos), "min_dur": round(min(photos), 2),
+                             "max_dur": round(max(photos), 2)}
+        out["timeline"] = [_shot_entry(c) for c in tl if c.piece.kind != "photo"]
     except (UserError, KeyError, TypeError, ValueError) as exc:     # an incomplete plan still gets a report
         out["timeline_error"] = str(exc) or type(exc).__name__
     return out
@@ -114,6 +129,9 @@ def _music(svc: Services, project: Project, cfg: dict, latest: dict | None) -> d
     m = cfg.get("music", {})
     out = {"file": None, "start_at": m.get("start_at", 0), "bpm": None,
            "settings": {k: m[k] for k in MUSIC_SETTINGS if m.get(k) is not None}}
+    if m.get("playlist") and m.get("file") not in (False, "none"):
+        out["playlist"] = _playlist(svc, project, m)
+        return out
     try:
         path = svc.projects.find_music(m, project.dir)
     except UserError as exc:
@@ -129,6 +147,19 @@ def _music(svc: Services, project: Project, cfg: dict, latest: dict | None) -> d
         out["rendered_file"] = rendered.get("file")
         out["rendered_start"] = rendered.get("start_sec")
     return out
+
+
+def _playlist(svc: Services, project: Project, m: dict) -> dict:
+    """music.playlist: number of songs, total minutes (of the songs already analyzed) and AutoMix on/off."""
+    try:
+        paths = svc.projects.find_playlist(m, project.dir)
+    except UserError as exc:
+        return {"songs": 0, "minutes": None, "automix": automix.settings(m)["enabled"], "error": str(exc)}
+    known = [am.get("duration") for am in (svc.cache.load(project.cache, "music", _music_key(p)) or {}
+                                            for p in paths)]
+    known = [float(d) for d in known if isinstance(d, (int, float))]
+    return {"songs": len(paths), "minutes": round(sum(known) / 60, 1) if known else None,
+            "analyzed": len(known), "automix": automix.settings(m)["enabled"]}
 
 
 def _version_entry(svc: Services, folder: Path) -> dict:
@@ -208,6 +239,15 @@ def _pack(tokens: list[str], indent: str = "  ", max_lines: int | None = None) -
     return lines
 
 
+def _source_token(s: dict) -> str:
+    if s.get("folder"):
+        return f"{s['index']} {s['file']} {s['photos']} photos"
+    if s.get("photo"):
+        return f"{s['index']} {s['file']} photo"
+    return (f"{s['index']} {s['file']} {mmss(s['duration']) if s['duration'] is not None else '?'}"
+            + (" HDR" if s.get("hdr") else "") + ("" if s.get("has_audio") in (True, None) else " mute"))
+
+
 def _shot_token(e: dict) -> str:
     parts = [str(e["n"])]
     if e.get("role") and e["role"] not in ("story", e["type"]):
@@ -257,14 +297,15 @@ def report_lines(r: dict) -> list[str]:
     out = [f"PROJECT {r['project']} · recipe {r['recipe']} · language {r['language']}"]
 
     src = r["sources"]
-    known = [s["duration"] for s in src if s["duration"] is not None]
-    head = f"SOURCES {len(src)}" + (f" · {mmss(sum(known))} total" if known else "")
-    if len(known) < len(src):
-        head += f" · {len(src) - len(known)} not analyzed yet (sve analyze)"
+    videos = [s for s in src if not s.get("folder") and not s.get("photo")]
+    n_photos = sum(s.get("photos", 0) for s in src) + sum(1 for s in src if s.get("photo"))
+    known = [s["duration"] for s in videos if s["duration"] is not None]
+    head = f"SOURCES {len(src)}" + (f" · {n_photos} photos" if n_photos or len(videos) < len(src) else "")
+    head += f" · {mmss(sum(known))} total" if known else ""
+    if len(known) < len(videos):
+        head += f" · {len(videos) - len(known)} not analyzed yet (sve analyze)"
     out.append(head)
-    out += _pack([f"{s['index']} {s['file']} {mmss(s['duration']) if s['duration'] is not None else '?'}"
-                  + (" HDR" if s.get("hdr") else "") + ("" if s.get("has_audio") in (True, None) else " mute")
-                  for s in src])
+    out += _pack([_source_token(s) for s in src])
 
     p = r["plan"]
     if p is None:
@@ -280,12 +321,26 @@ def report_lines(r: dict) -> list[str]:
         out.append(line)
         if p.get("timeline_error"):
             out.append(f"  timeline not computable: {_message(p['timeline_error'])}")
+        ph = p.get("photos")
+        if ph:
+            out.append(f"  {ph['count']} photo shots · {ph['min_dur']:.1f}–{ph['max_dur']:.1f} s each "
+                       "(before fitting to the music)")
         out += _pack([_shot_token(e) for e in p.get("timeline", [])], max_lines=MAX_SHOT_LINES)
         if p.get("first_text"):
             out.append(f"  first text: {_message(p['first_text'])}")
 
     m = r["music"]
-    if m.get("error"):
+    pl = m.get("playlist")
+    if pl is not None:
+        if pl.get("error"):
+            out.append(f"MUSIC playlist: {_message(pl['error'])}")
+        else:
+            minutes = (f"{pl['minutes']:.1f} min" + ("" if pl["analyzed"] == pl["songs"]
+                                                     else f" ({pl['analyzed']} analyzed)")
+                       if pl["minutes"] is not None else "length unknown (not analyzed)")
+            out.append(f"MUSIC playlist of {pl['songs']} songs · {minutes} · "
+                       f"AutoMix {'on' if pl['automix'] else 'off'}")
+    elif m.get("error"):
         out.append(f"MUSIC {_message(m['error'])}")
     elif not m["file"] and not m.get("rendered_file"):
         out.append("MUSIC none")

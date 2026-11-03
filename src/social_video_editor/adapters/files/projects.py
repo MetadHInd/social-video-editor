@@ -214,3 +214,33 @@ class YamlProjectRepository:
         folder = workspace() / music_cfg["folder"] if music_cfg.get("folder") else self.music_dir()
         tracks = sorted(p for p in folder.glob("*") if p.suffix.lower() in MUSIC_EXT) if folder.exists() else []
         return tracks[0] if tracks else None
+
+    def find_playlist(self, music_cfg: dict, project_dir: Path) -> list[Path]:
+        """music.playlist: a list of tracks and/or folders (a folder = its audio files sorted by
+        name), or one folder. Relative entries are looked up in the project folder, then in the
+        workspace music folder, then in the workspace. [] when there is no playlist."""
+        entries = music_cfg.get("playlist")
+        if not entries or music_cfg.get("file") in (False, "none"):
+            return []
+        if isinstance(entries, (str, Path)):
+            entries = [entries]
+        out: list[Path] = []
+        for e in entries:
+            p = Path(str(e)).expanduser()
+            if not p.is_absolute():
+                for base in (project_dir, self.music_dir(), workspace()):
+                    if (base / p).exists():
+                        p = base / p
+                        break
+                else:
+                    raise UserError(f"Playlist entry not found: {e}")
+            if p.is_dir():
+                out += sorted((f for f in p.iterdir() if f.is_file() and f.suffix.lower() in MUSIC_EXT),
+                              key=lambda f: f.name.lower())
+            elif p.exists():
+                out.append(p)
+            else:
+                raise UserError(f"Playlist entry not found: {p}")
+        if not out:
+            raise UserError("music.playlist has no audio files")
+        return out

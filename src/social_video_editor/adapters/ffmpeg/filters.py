@@ -17,6 +17,7 @@ XFADE = {
     "cut": None, "fade": "fade", "fade_black": "fadeblack", "flash": "fadewhite", "zoom": "zoomin",
     "whip": "smoothleft", "slide_up": "slideup", "slide_left": "slideleft", "circle": "circleopen",
     "pixel": "pixelize", "blur": "hblur", "radial": "radial", "curtain": "vertopen",
+    "soft_slide": "smoothleft", "soft_zoom": "zoomin",
 }
 
 
@@ -219,6 +220,31 @@ def shot_audio_chain(cfg: dict, shot: dict, voice: bool, dur_out: float) -> str:
     return ",".join(f)
 
 
+def music_covers(music_cfg: dict, total: float) -> bool:
+    """True for a playlist (AutoMix) whose mix, from music._start on, lasts at least `total` seconds.
+    Single tracks keep the looping chain unchanged."""
+    mix = music_cfg.get("_automix") or {}
+    try:
+        return bool(mix) and float(mix.get("duration") or 0) >= float(total) - 0.05
+    except (TypeError, ValueError):
+        return False
+
+
+def output_fades(cfg: dict, total: float) -> str:
+    """Video fade from black (output.fade_in s) and to black (output.fade_out s) of the whole video,
+    "" when both are 0. The fade-out reaches black on the last frame, which lasts until `total`."""
+    o = cfg.get("output") or {}
+    fps = int(o.get("fps", 30))
+    fi, fo = max(float(o.get("fade_in") or 0), 0.0), max(float(o.get("fade_out") or 0), 0.0)
+    f = []
+    if fi > 0:
+        f.append(f"fade=t=in:st=0:d={min(fi, total):.4f}")
+    if fo > 0:
+        fo = min(fo, total)
+        f.append(f"fade=t=out:st={max(total - fo, 0):.4f}:d={max(fo - 1 / fps, 1 / fps):.4f}")
+    return ",".join(f)
+
+
 def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx_idx: int | None,
               has_voice: bool, stems: dict | None = None) -> tuple[str, str]:
     """Mix filter: shot audio + music (with ducking) + sound-effect track.
@@ -235,9 +261,11 @@ def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx
     mix = [voice_in]
     if music_idx is not None:
         vol = m["volume_without_voice_db"] if (m.get("ducking", True) or not has_voice) else m["volume_with_voice_db"]
+        # a playlist mix that already covers the video is never looped (aloop would keep it all in RAM)
+        loop = "" if music_covers(m, total) else "aloop=loop=-1:size=2147483647,"
         chain = (f"[{music_idx}:a]aresample=48000,aformat=channel_layouts=stereo,"
                  f"atrim=start={float(m.get('_start', 0)):.3f},asetpts=PTS-STARTPTS,"
-                 f"aloop=loop=-1:size=2147483647,atrim=0:{total:.4f},volume={float(vol):.1f}dB,"
+                 f"{loop}atrim=0:{total:.4f},volume={float(vol):.1f}dB,"
                  f"afade=t=in:d={float(m.get('fade_in', 0.25)):.2f},"
                  f"afade=t=out:st={max(total - float(m['fade_out']), 0):.3f}:d={float(m['fade_out']):.3f}")
         if m.get("ducking", True) and (has_voice or m.get("ducking_asmr")):
@@ -273,12 +301,28 @@ def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx
 def join(segments: list[dict], fps: int) -> tuple[str, str, str]:
     """Filter joining inputs [i:v]/[i:a] with their transitions.
 
-    segments: [{"dur": s, "overlap": s, "transition": name}, …] (in order, inputs 0..n-1)
+    segments: [{"dur": s, "overlap": s, "transition": name}, …] (in order, inputs 0..n-1); an
+    optional "skip" (seconds) drops the start of that input (a chunk border, see encoder._chunks);
+    "renumber": timestamps rebuilt from the frame / sample count (the chunk list of a long video);
+    "exact_audio": the input's audio padded / cut to exactly "dur" (48 kHz) — a segment whose audio
+    stopped at the last whole codec frame (up to 21 ms short) would shorten every crossfade after it.
     Returns (filter, video_label, audio_label).
     """
     # normalized inputs (same time base: xfade requires it)
-    parts = [f"[{i}:v]fps={fps},settb=AVTB,setpts=PTS-STARTPTS[sv{i}];[{i}:a]asetpts=PTS-STARTPTS[sa{i}]"
-             for i in range(len(segments))]
+    parts = []
+    for i, s in enumerate(segments):
+        vs = as_ = ""
+        if s.get("renumber"):       # chunks read one after another: timestamps from the frame / sample count
+            vs, as_ = f"setpts=N/({fps}*TB),", "asetpts=N/SR/TB,"
+        if s.get("skip"):           # half a frame early: the container's millisecond timestamps
+            vs = f"trim=start={max(float(s['skip']) - 0.5 / fps, 0):.6f},"
+            as_ = f"atrim=start={float(s['skip']):.6f},"
+        pad = ""
+        if s.get("exact_audio"):
+            samples = int(round(float(s["dur"]) * 48000))
+            pad = f",apad=whole_len={samples},atrim=end_sample={samples}"
+        parts.append(f"[{i}:v]{vs}fps={fps},settb=AVTB,setpts=PTS-STARTPTS[sv{i}];"
+                     f"[{i}:a]{as_}asetpts=PTS-STARTPTS{pad}[sa{i}]")
     v, a = "[sv0]", "[sa0]"
     length = segments[0]["dur"]
     for i, s in enumerate(segments[1:], start=1):

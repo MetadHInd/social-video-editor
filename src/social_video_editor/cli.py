@@ -4,7 +4,7 @@
   sve analyze <project> [--force]
   sve thumbs  <project> [--source 0 --start 60 --end 90 --every 1]
   sve plan    <project> [--force]
-  sve render  <project> [--draft] [--profile youtube] [--no-music]
+  sve render  <project> [--draft] [--profile youtube|landscape|horizontal] [--no-music]
   sve build   <project> [--draft]          (analyze + thumbs + plan if missing + render)
   sve view    <project>                    (plan and timeline summary)
   sve report  <project> [--json]           (one-screen project report; reads only files on disk)
@@ -12,9 +12,10 @@
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
   sve products <project>                   (products recognized by the vision model → cache/products.json)
+  sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
-productos and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
+productos, mejorar and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
 """
 from __future__ import annotations
 
@@ -32,11 +33,11 @@ from .application.report import build_report, report_json, report_lines
 from .application.thumbs import contact_sheets
 from .application.view import load_plan, view_lines
 from .container import build_services
-from .domain.config import EXPORT_PROFILES
+from .domain.config import EXPORT_PROFILES, PROFILE_ALIASES, canonical_profile
 from .domain.music import tempo_lines
 from .log import log
 
-PROFILE_CHOICES = [*EXPORT_PROFILES, "cuadrado"]
+PROFILE_CHOICES = [*EXPORT_PROFILES, *PROFILE_ALIASES, "cuadrado"]
 
 
 def _project(svc, name: str):
@@ -62,7 +63,7 @@ def cmd_plan(svc, a):
 
 def cmd_render(svc, a):
     p = _project(svc, a.project)
-    render(svc, p, load_plan(svc, p), draft=a.draft, profile=profile_name(a.profile), no_music=a.no_music)
+    render(svc, p, load_plan(svc, p), draft=a.draft, profile=canonical_profile(profile_name(a.profile)), no_music=a.no_music)
 
 
 def cmd_build(svc, a):
@@ -103,6 +104,12 @@ def cmd_check(svc, a):
 
 def cmd_products(svc, a):
     print("\n".join(product_lines(find_products(svc, _project(svc, a.project)))))
+
+
+def cmd_enhance(svc, a):
+    from .application.enhance import enhance_photos
+
+    enhance_photos(svc, _project(svc, a.project), force=a.force)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -154,6 +161,10 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("products", aliases=["productos"], help="products recognized by the vision model")
     s.add_argument("project")
     s.set_defaults(f=cmd_products)
+    s = sub.add_parser("enhance", aliases=["mejorar"], help="upscale small photos / reduce big ones (cache/photos/)")
+    s.add_argument("project")
+    s.add_argument("--force", "--forzar", action="store_true", help="redo photos already enhanced")
+    s.set_defaults(f=cmd_enhance)
     return ap
 
 

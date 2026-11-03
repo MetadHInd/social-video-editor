@@ -2,6 +2,8 @@
 
 Each transition has a default duration, says whether that duration is fixed (ignores
 `transitions.duration` from the recipe) and which sound effect accompanies it.
+`transitions.<name>_duration` (e.g. `fade_duration: 1.0`) overrides the duration of one transition,
+fixed or not. The soft_* variants (no sound, 0.8 s) are meant for photo slideshows.
 How it is drawn (FFmpeg xfade name) lives in the FFmpeg adapter.
 To add a new one: add it here and in adapters/ffmpeg/filters.py:XFADE.
 """
@@ -39,6 +41,8 @@ TRANSITIONS: dict[str, Transition] = {t.name: t for t in (
     Transition("blur", 0.3, fixed=True),
     Transition("radial", 0.3, fixed=True, sound="whoosh"),
     Transition("curtain", 0.3, fixed=True, sound="whoosh"),
+    Transition("soft_slide", 0.8, fixed=True),
+    Transition("soft_zoom", 0.8, fixed=True),
 )}
 
 
@@ -62,6 +66,10 @@ def transition_duration(name: str, cfg: dict) -> float:
     t = get_transition(name)
     if t.is_cut:
         return 0.0
+    tc = cfg.get("transitions", {}) or {}
+    own = tc.get(f"{name}_duration")
+    if own is not None:                   # e.g. transitions.fade_duration: 1.0
+        return max(float(own), 0.0)
     if t.fixed:
         return t.duration
-    return float(cfg.get("transitions", {}).get("duration", t.duration))
+    return float(tc.get("duration", t.duration))

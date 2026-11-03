@@ -117,7 +117,8 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve analyze <project> [--force]` | `analizar` (`--forzar`) | Probe every source, make proxies/16 kHz wav, analyze image, scenes, audio and speech (cached). |
 | `sve thumbs <project> [--source N --start S --end S --every S]` | `vistazo` (`--fuente --desde --hasta --cada`) | Contact sheets (frames with time, motion and loudness bars) + transcript in `cache/thumbs/`. |
 | `sve plan <project> [--force]` | `planear` | Propose `plan.json` (an existing one is kept as `plan_previous.json` with `--force`). |
-| `sve render <project> [--draft] [--profile P] [--no-music]` | `--borrador`, `--perfil`, `--sin-musica` | Render a new version folder (or a variant). Profiles: `tiktok`, `reels`, `shorts`, `youtube`, `square` (`cuadrado`). `--draft` = half resolution, fast encode. |
+| `sve render <project> [--draft] [--profile P] [--no-music]` | `--borrador`, `--perfil`, `--sin-musica` | Render a new version folder (or a variant). Profiles: `tiktok`, `reels`, `shorts`, `youtube`, `landscape` (`horizontal`, 1920×1080), `square` (`cuadrado`). `--draft` = half resolution, fast encode. |
+| `sve enhance <project> [--force]` | `mejorar` (`--forzar`) | Photo sources: enlarge small photos (Real-ESRGAN when installed, else Lanczos) and reduce very large ones into `cache/photos/`; the originals are never modified. |
 | `sve build <project> [render flags]` | `montar` | Analysis + contact sheets + plan if missing + render. |
 | `sve view <project>` | `ver` | Plan and timeline, shot by shot, with the same beat alignment as the render (runs the analysis if it is missing). |
 | `sve report <project> [--json]` | `informe` | One compact screen (≲50 lines) or JSON: sources, plan/timeline, texts, music, versions and their files, products, check results. Reads only files on disk — instant. |
@@ -166,6 +167,7 @@ commented). Each recipe only overrides what it changes; a project overrides the 
 | `vlog` | Most striking moment → fast chronological sequence on the beat → emotional/funny ending. |
 | `before_after` | The "after" in 1 s → "before" → sped-up process → reveal with flash/zoom. |
 | `storytime` | Strongest line first → story without silences, big subtitles, almost no effects. |
+| `slideshow` | Photo slideshow (landscape): every photo in chronological order, gentle Ken Burns, soft crossfades, warm look, gentle exposure fix, a playlist blended back to back. |
 
 Put `recipes/<name>.yaml` in your workspace to add a recipe or replace a packaged one. The first
 line comment is shown by `sve recipes`.
@@ -233,6 +235,44 @@ before. What uses it:
 "Available" follows `vision.enabled`: `auto` (default) = used when installed **and** already
 downloaded; `true` = may download it; `false` = never (except `sve products`). All keys:
 [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#vision).
+
+## Photo slideshows (landscape)
+
+Still photos are sources too: a source may be a photo or a **folder** (scanned recursively; every
+photo becomes a source, ordered by capture time from EXIF). The `slideshow` recipe turns them into
+a long 16:9 video: one shot per photo with a gentle Ken Burns motion and soft crossfades, photo
+durations spread over the music with the changes on the beat, and a playlist mixed back to back
+(AutoMix, beat-matched when the tempos are close).
+
+```yaml
+# projects/holidays/project.yaml
+name: holidays
+recipe: slideshow
+sources:
+  - /path/to/photo/folder         # every photo inside it (subfolders too)
+settings:
+  music:
+    playlist: [slideshow_songs]   # tracks and/or folders (looked up in the project, then music/)
+    automix: {enabled: true}
+  photo:
+    duration: 4.5                 # seconds per photo (fitted to the music: photo.fit_to_music)
+    auto_tone: 0.6                # gentle exposure fix for dark / backlit photos (0 = off)
+  color: {warmth: 0.25, vignette: 0.15}
+```
+
+```bash
+sve enhance holidays                       # optional: upscale small photos, reduce huge ones (cached)
+sve plan holidays                          # one "photo" shot per photo, chronological
+sve thumbs holidays                        # contact sheets of the photos themselves
+sve render holidays --profile landscape    # 1920×1080
+sve report holidays                        # photo count, playlist (songs, minutes, AutoMix), summary
+```
+
+`photo.auto_tone` lifts underexposed photos with a smooth lightness curve and a little local
+contrast, and recovers the shadows of backlit ones locally (subjects in front of a bright window or
+sky get brighter, the window or sky does not); blacks and whites stay put, colors keep their hue,
+and well-exposed photos are left untouched. Photo segments are cached at `render.photo_crf` (default 16). Long videos are joined in
+chunks (`render.chunk_threshold` / `render.chunk_size`). Full keys: [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md).
 
 ## Language
 

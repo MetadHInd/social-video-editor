@@ -7,10 +7,12 @@ Python (no FFmpeg, no files); everything that touches the outside world sits beh
 src/social_video_editor/
 ├── domain/        pure logic: models, configuration, pieces (Composite), timeline, beat math,
 │                  shot selection, transitions/effects catalogs, text layout, color math,
-│                  render checks, product detection math (products.py)
+│                  render checks, product detection math (products.py), still photos (photos.py:
+│                  capture time, Ken Burns, slideshow plan, auto-tone curve), playlist mixing
+│                  (automix.py) and photo durations fitted to the music (slideshow_timing.py)
 ├── ports/         typing.Protocol interfaces the application needs
-├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/
-├── application/   use cases: analyze, plan, render, thumbs, view, report, check, products, music, project
+├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/, upscale/
+├── application/   use cases: analyze, plan, render, thumbs, view, report, check, products, music, enhance, project
 ├── container.py   composition root: wires every port to its adapter (build_services)
 ├── cli.py         argparse front end (`sve …`)
 ├── recipes/       packaged YAML recipes (base.yaml + one per video type)
@@ -26,15 +28,17 @@ the `Services` bundle of ports (`application/services.py`); `adapters` implement
 | Port (`ports/__init__.py`) | Adapter | Role |
 |---|---|---|
 | `MediaProbe` | `adapters/ffmpeg/probe.py` · `FfprobeMediaProbe` | Size (with rotation), fps, duration, audio, HDR/HLG flags. |
-| `VideoEncoder` | `adapters/ffmpeg/encoder.py` · `FfmpegEncoder` | Proxies, 16 kHz wav, one segment per shot, raw-frame segments, final compose (transitions, text layer, music, sfx), loudness mastering, cover. Filter strings live in `adapters/ffmpeg/filters.py`; the HLG→SDR LUT in `luts.py`. |
+| `VideoEncoder` | `adapters/ffmpeg/encoder.py` · `FfmpegEncoder` | Proxies, 16 kHz wav, one segment per shot, raw-frame segments, final compose (transitions, text layer, music, sfx; long videos joined in chunks, `render.chunk_*`), loudness mastering, cover; AutoMix song features and the rendered playlist mix (`music_features`, `render_automix`, in `automix_render.py`; plan in `domain/automix.py`). Filter strings live in `adapters/ffmpeg/filters.py`; the HLG→SDR LUT in `luts.py`. |
 | `VideoAnalyzer` | `adapters/opencv/video_analyzer.py` · `OpenCvVideoAnalyzer` | Per-frame samples (brightness, sharpness, motion, color), scene changes (PySceneDetect), frame reading. |
 | `AudioAnalyzer` | `adapters/librosa/audio_analyzer.py` · `LibrosaAudioAnalyzer` | Loudness/peaks of a source; tempo, beat grid and drop of a song (math in `domain/music.py`). |
 | `Transcriber` | `adapters/whisper/transcriber.py` · `WhisperTranscriber` | Word-level faster-whisper transcription, run in a subprocess (`worker.py`) because OpenCV and PyAV libraries clash in one process. |
 | `TextRenderer` | `adapters/pillow/text_layer.py` · `PillowTextRenderer` | Draws subtitles and text cards as still PNGs + an ffconcat list; returns keystroke times. Emoji-aware text in `rich_text.py`. |
-| `ImageComposer` | `adapters/pillow/composer.py` · `PillowComposer` | Polaroid and collage frames, contact sheets. |
+| `ImageComposer` | `adapters/pillow/composer.py` · `PillowComposer` | Polaroid and collage frames, contact sheets (video frames, or the photos themselves: `photo_sheets`). |
+| `PhotoRenderer` | `adapters/ffmpeg/photo_encoder.py` · `FfmpegPhotoEncoder` | Still photos: finding them (folders), and one photo → a segment (EXIF orientation, `photo.auto_tone` exposure fix with local shadow recovery for backlit photos, cover or blurred-background framing, sub-pixel Ken Burns, warmth / vignette, `render.photo_crf`). Tone curve math in `domain/photos.py`. |
+| `ImageUpscaler` | `adapters/upscale/realesrgan.py` · `RealEsrganUpscaler` (fallback `lanczos.py` · `LanczosUpscaler`) | `sve enhance`: small photos enlarged ×4 (torch loaded lazily), big ones reduced, into `cache/photos/`. |
 | `SoundEffects` | `adapters/ffmpeg/sfx.py` · `FfmpegSoundEffects` | Mixes all sound effects into one track; synthesizes missing `sfx/*.wav`. |
 | `RecipeRepository` | `adapters/files/recipes.py` · `YamlRecipeRepository` | `base → recipe → settings` merge and language resolution. |
-| `ProjectRepository` | `adapters/files/projects.py` · `YamlProjectRepository` | project.yaml, plan.json, version folders, outputs, music lookup. |
+| `ProjectRepository` | `adapters/files/projects.py` · `YamlProjectRepository` | project.yaml, plan.json, version folders, outputs, music lookup (one track, or `music.playlist`: `find_playlist`). |
 | `CacheStore` | `adapters/files/cache.py` · `JsonCacheStore` | Per-project JSON cache (media info, analyses, words, music analyses). |
 | `MusicDownloader` | `adapters/ytdlp/downloader.py` · `YtDlpDownloader` | `sve music`. |
 | `RenderInspector` | `adapters/ffmpeg/inspector.py` · `FfmpegRenderInspector` | `sve check`: EBU R128 loudness series, decoded audio, black/frozen frames, listening snippets (rules in `domain/check.py`). |
@@ -55,7 +59,8 @@ Sequence (whole video)                     composite
   │     ├── VideoShot (fast)
   │     ├── VideoShot (slow, "continuous")
   │     └── PolaroidShot (from_shot = k)   leaf drawn from another shot's last frame
-  └── CollageShot (from_shots = […])       leaf drawn from several shots' frames
+  ├── CollageShot (from_shots = […])       leaf drawn from several shots' frames
+  └── PhotoShot        a still photo       leaf (own "duration", Ken Burns "motion")
 ```
 
 - Every `Piece` answers `duration()`, `children()`, `walk()`, `shots()` and `dependencies()`.
@@ -68,7 +73,7 @@ Sequence (whole video)                     composite
   every drawn shot is rendered after the shots it depends on, and raises `PlanError` for missing
   or circular references before anything is encoded.
 - Rendering is polymorphic: `piece.accept(visitor)` calls `visit_video / visit_polaroid /
-  visit_collage` on a `PieceVisitor` (the renderer is `application/render.py:ShotRenderer`).
+  visit_collage / visit_photo` on a `PieceVisitor` (the renderer is `application/render.py:ShotRenderer`).
 
 `domain/timeline.py` places the leaves on the output timeline (`Clip`: duration in whole frames,
 overlap of the entry transition, start/end), aligns cuts to music beats (`snap_cuts_to_beats`,
@@ -116,6 +121,14 @@ time (`clip_0001_3fa2c9d1`), so two clips with the same name in different folder
 cache and a replaced file is analyzed again. Caches written by earlier versions under the bare
 file name (`clip_0001_media.json` / `_info.json`) keep being used while they record the same
 resolved path (and size, once recorded).
+
+Photo slideshows: folder sources are expanded to their photos (`application/analyze.py:expand_sources`;
+photos only get a media info, no proxy or analysis); `sve enhance` (`application/enhance.py`,
+`ImageUpscaler` port) writes resized copies to `cache/photos/`; `sve plan` writes one `photo` shot per
+photo in chronological order (`domain/photos.py`); render step 1 with `music.playlist` analyzes every
+song, plans and renders one AutoMix WAV (`application/music.py:prepare_playlist`, `domain/automix.py`)
+and, with `photo.fit_to_music`, fits the photo durations to it (`domain/slideshow_timing.py`); step 2
+renders each photo through the `PhotoRenderer` port; step 3 joins long timelines in chunks.
 
 With the optional vision model (`application/products.py`, `VisualDetector` port):
 `sve products` writes `cache/products.json` (summarized by `sve report`); `plan` proposes one shot

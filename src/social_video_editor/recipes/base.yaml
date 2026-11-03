@@ -11,6 +11,8 @@ output:
   width: 1080            # 9:16 vertical; vertical video increases comments and shares (Xiao et al., 2024)
   height: 1920
   fps: 30                # export profiles (tiktok | reels | shorts | youtube | square): sve render --profile
+  fade_in: 0             # seconds of fade from black at the start of the video (0 = off)
+  fade_out: 0            # seconds of fade to black at the end (0 = off); the last frame is black
 
 duration:
   target: 30             # seconds. <15 s competes on completion rate; 30 s+ on total watch time
@@ -187,7 +189,9 @@ check:                   # sve check <project>: automatic review of a render (th
   safe_top: 0.06                 # text boxes inside [safe_top, safe_bottom] of the height
   safe_bottom: 0.78
   safe_right: 0.08               # and off the right 8 % (TikTok buttons) …
-  right_rail: [0.35, 0.85]       # … in this part of the height
+  right_rail: [0.35, 0.85]       # … in this part of the height (the four keys above: vertical/square output)
+  # landscape output (width > height) uses a generic title-safe area instead (no app buttons):
+  # 5 % top and sides, bottom at 0.90 (domain/check.py LANDSCAPE_SAFE)
   duration_tolerance: 0.25       # ± 25 % of duration.target
   listen_max: 6                  # ≤ 3 s snippets of the worst moments (listen/ or escuchar/)
   listen_sec: 3.0
