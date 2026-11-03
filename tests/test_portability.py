@@ -1,0 +1,50 @@
+"""Linux portability: font lookup in nested font folders, missing emoji font."""
+from __future__ import annotations
+
+from social_video_editor.adapters.pillow import rich_text as rt
+from social_video_editor.adapters.system import fonts
+
+
+def _clear_caches():
+    for cached in (fonts._index, fonts.label_font, fonts.emoji_font, rt._emoji_font, rt._emoji_image):
+        cached.cache_clear()
+
+
+def _fake_linux_fonts(tmp_path, monkeypatch, files):
+    """Font folders that contain only `files` (paths relative to a fake /usr/share/fonts)."""
+    root = tmp_path / "share_fonts"
+    for f in files:
+        (root / f).parent.mkdir(parents=True, exist_ok=True)
+        (root / f).write_bytes(b"")
+    monkeypatch.setattr(fonts, "FONT_DIRS", [root])
+    monkeypatch.setattr(fonts, "LINUX_FONT_DIRS", [root])
+    _clear_caches()
+    monkeypatch.chdir(tmp_path)
+    return root
+
+
+def test_fonts_in_linux_subfolders_and_fallbacks(tmp_path, monkeypatch):
+    root = _fake_linux_fonts(tmp_path, monkeypatch, ["opentype/inter/InterDisplay-Black.otf",
+                                                     "truetype/dejavu/DejaVuSans-Bold.ttf",
+                                                     "truetype/noto/NotoColorEmoji.ttf"])
+    try:
+        assert fonts.find_font_file("InterDisplay-Black") == (root / "opentype/inter/InterDisplay-Black.otf", 0)
+        assert fonts.find_font_file("interdisplay-black:1")[1] == 1                       # case-insensitive
+        # missing (macOS-only) fonts fall back to an installed bold sans-serif
+        assert fonts.find_font_file("Bradley Hand Bold") == (root / "truetype/dejavu/DejaVuSans-Bold.ttf", 0)
+        assert fonts.label_font() == root / "truetype/dejavu/DejaVuSans-Bold.ttf"
+        assert fonts.emoji_font() == root / "truetype/noto/NotoColorEmoji.ttf"
+    finally:
+        _clear_caches()
+
+
+def test_without_any_font_text_and_emoji_still_render(tmp_path, monkeypatch):
+    _fake_linux_fonts(tmp_path, monkeypatch, [])
+    try:
+        assert fonts.find_font_file("Inter-Black") == (None, 0)
+        assert fonts.emoji_font() is None
+        im = rt._emoji_image("👀", 40)                         # no emoji font: an empty square, no crash
+        assert im.size == (40, 40) and im.getbbox() is None
+    finally:
+        _clear_caches()
+
