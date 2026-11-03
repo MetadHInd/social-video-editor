@@ -23,7 +23,7 @@ def test_join_counts_xfade_and_concat():
     assert "xfade=transition=fade:duration=0.3500:offset=2.6500" in flt
     assert "xfade=transition=zoomin:duration=0.2000:offset=3.9500" in flt
     for i in range(5):
-        assert f"[{i}:v]fps=30,settb=AVTB" in flt
+        assert f"[{i}:v]setpts=PTS-STARTPTS,fps=30,settb=AVTB" in flt
 
 
 def test_join_single_segment():
