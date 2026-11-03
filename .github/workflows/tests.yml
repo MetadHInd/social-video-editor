@@ -65,3 +65,15 @@ jobs:
       - name: Tests (unit + integration)
         run: python -m pytest -q -rs
 
+  docker:
+    name: docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t sve .
+      - name: Smoke test
+        run: |
+          docker run --rm sve --help
+          docker run --rm --entrypoint python sve -c "import cv2, librosa; from social_video_editor.adapters.system import fonts; assert fonts.find_font_file('InterDisplay-Black')[0] and fonts.emoji_font(), 'fonts missing'"
