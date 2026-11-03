@@ -1,5 +1,7 @@
 # social-video-editor (`sve`)
 
+[![tests](https://github.com/MetadHInd/social-video-editor/actions/workflows/tests.yml/badge.svg)](https://github.com/MetadHInd/social-video-editor/actions/workflows/tests.yml)
+
 A Python + FFmpeg engine that turns raw phone clips into finished **vertical social videos**
 (TikTok, Reels, Shorts). It analyzes your footage, proposes an editable plan, and renders it:
 a hook in the first second, cuts that land on the music's beat, typed text cards with color emoji,
@@ -54,17 +56,25 @@ and render again. Originals are never modified.
 
 - **Python ≥ 3.11**
 - **FFmpeg 7 or newer** (with `ffprobe`) on the `PATH` — the engine passes filter graphs with the
-  `-/filter_complex <file>` syntax introduced in FFmpeg 7. On macOS: `brew install ffmpeg`.
-- **macOS notes** (the engine is developed and tested on macOS):
-  - Fonts are looked up by file name in `~/Library/Fonts`, `/Library/Fonts`,
-    `/System/Library/Fonts/Supplemental` and `/System/Library/Fonts`. The default styles use
-    [Inter / Inter Display](https://rsms.me/inter/) (install the `.otf`/`.ttf` files) and
-    *Bradley Hand Bold* (ships with macOS); missing fonts fall back to Arial Black.
-  - Color emoji are drawn with *Apple Color Emoji*.
-  - **VideoToolbox** (hardware decoding, and encoding of the small analysis proxies) is used
-    automatically when FFmpeg supports it, with automatic fallback to software;
-    `SVE_HWACCEL=0` forces software. The final export always uses libx264.
-- Other platforms are untested: fonts and emoji paths are macOS paths.
+  `-/filter_complex <file>` syntax introduced in FFmpeg 7. On macOS: `brew install ffmpeg`; on
+  Debian 13 / Ubuntu 25.04 or newer: `apt install ffmpeg`.
+- **Fonts** are looked up by file name (no extension): on macOS in `~/Library/Fonts`,
+  `/Library/Fonts`, `/System/Library/Fonts/Supplemental` and `/System/Library/Fonts`; on Linux in
+  `~/.local/share/fonts`, `~/.fonts`, `/usr/local/share/fonts` and `/usr/share/fonts`, sub-folders
+  included. The default styles use [Inter / Inter Display](https://rsms.me/inter/) (macOS: install
+  the `.otf`/`.ttf` files; Debian/Ubuntu: `fonts-inter`) and *Bradley Hand Bold* (ships with macOS).
+  A missing font falls back to an installed bold sans-serif (Arial Black, Inter, DejaVu Sans, Noto
+  Sans, Liberation Sans).
+- **Color emoji** are drawn with *Apple Color Emoji* on macOS and *Noto Color Emoji* on Linux
+  (`fonts-noto-color-emoji`); without an emoji font they are left out.
+- **Optional:** [Rubber Band](https://breakfastquay.com/rubberband/) (`rubberband` on the `PATH`;
+  `brew install rubberband` / `apt install rubberband-cli`) for AutoMix tempo matching; FFmpeg
+  `atempo` is used without it.
+- **macOS:** **VideoToolbox** (hardware decoding, and encoding of the small analysis proxies) is
+  used automatically when FFmpeg supports it, with automatic fallback to software; `SVE_HWACCEL=0`
+  forces software. The final export always uses libx264.
+- **Linux:** CI runs the whole suite on Debian 13 (FFmpeg 7.1), and the [Docker image](#docker)
+  ships everything above. OpenCV needs `libgl1` and `libglib2.0-0`. Windows is untested.
 
 ## Install
 
@@ -73,7 +83,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .              # the engine and the `sve` command
 pip install -e ".[music]"     # + yt-dlp, for `sve music`
 pip install -e ".[vision]"    # + sentence-transformers: local CLIP product recognition (optional)
-pip install -e ".[dev]"       # + pytest
+pip install -e ".[dev]"       # + pytest and ruff
 ```
 
 The same CLI is available as `sve`, `social-video-editor` and `python -m social_video_editor`.
@@ -324,6 +334,7 @@ top of that base, so all of them inherit English unless the recipe itself or a p
 ```bash
 python -m pytest -q                       # everything (integration tests need FFmpeg)
 python -m pytest -q -m "not integration"  # fast unit tests only
+ruff check .                              # lint (rules in pyproject.toml)
 ```
 
 Integration tests generate synthetic media in a temporary folder; nothing is written outside it.
@@ -334,6 +345,22 @@ Hexagonal (ports and adapters): a pure `domain/`, `ports/` (Protocols), `adapter
 OpenCV, librosa, Whisper, Pillow, files, yt-dlp), `application/` use cases, and `container.py`
 wiring them together. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The research behind the
 defaults is summarized in [docs/RESEARCH.md](docs/RESEARCH.md).
+
+## Docker
+
+The image runs `sve` on Linux with everything it needs: Python 3.12, FFmpeg 7, Rubber Band,
+OpenCV's system libraries, Inter / Inter Display, fallback fonts and Noto Color Emoji.
+
+```bash
+docker build -t sve .
+docker run --rm sve --help
+docker run --rm -v "$PWD/workspace:/workspace" --user "$(id -u):$(id -g)" sve report my_video
+```
+
+The mounted folder is the workspace (`projects/`, `music/`, `sfx/`, `recipes/`); downloaded models
+and caches go to `/workspace/.cache`, so they survive between runs. The container runs as an
+unprivileged user; `--user` keeps the files it writes owned by you. VideoToolbox is macOS-only, so
+the container always decodes in software.
 
 ## Music and copyright
 

@@ -308,20 +308,21 @@ def join(segments: list[dict], fps: int) -> tuple[str, str, str]:
     stopped at the last whole codec frame (up to 21 ms short) would shorten every crossfade after it.
     Returns (filter, video_label, audio_label).
     """
-    # normalized inputs (same time base: xfade requires it)
+    # normalized inputs (same time base: xfade requires it). Timestamps start at 0 BEFORE fps: setpts
+    # marks its output as variable frame rate and FFmpeg 7.x xfade refuses inputs without a frame rate.
     parts = []
     for i, s in enumerate(segments):
-        vs = as_ = ""
+        vs, as_ = "setpts=PTS-STARTPTS,", ""
         if s.get("renumber"):       # chunks read one after another: timestamps from the frame / sample count
             vs, as_ = f"setpts=N/({fps}*TB),", "asetpts=N/SR/TB,"
         if s.get("skip"):           # half a frame early: the container's millisecond timestamps
-            vs = f"trim=start={max(float(s['skip']) - 0.5 / fps, 0):.6f},"
+            vs = f"trim=start={max(float(s['skip']) - 0.5 / fps, 0):.6f},setpts=PTS-STARTPTS,"
             as_ = f"atrim=start={float(s['skip']):.6f},"
         pad = ""
         if s.get("exact_audio"):
             samples = int(round(float(s["dur"]) * 48000))
             pad = f",apad=whole_len={samples},atrim=end_sample={samples}"
-        parts.append(f"[{i}:v]{vs}fps={fps},settb=AVTB,setpts=PTS-STARTPTS[sv{i}];"
+        parts.append(f"[{i}:v]{vs}fps={fps},settb=AVTB[sv{i}];"
                      f"[{i}:a]{as_}asetpts=PTS-STARTPTS{pad}[sa{i}]")
     v, a = "[sv0]", "[sa0]"
     length = segments[0]["dur"]
