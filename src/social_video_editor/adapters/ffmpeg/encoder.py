@@ -19,6 +19,9 @@ PROXY_SHORT_SIDE = 540
 CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "long_master_sec": 600,
                   "chunk_min_seconds": 300}
 CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers per decoder
+# shot segments: FFmpeg 7.1 can deadlock when a frame-threaded decoder holds 5+ frames while the
+# audio chain buffers (afftdn) and pads (apad); its default is one thread per core + 1.
+SEGMENT_DECODER_THREADS = "2"
 # trial passes of master_audio (gain + limiter → AAC → measure). Very peaky audio needs a 5th pass with
 # FFmpeg 7.x, whose AAC encoder overshoots the true peak more than newer versions.
 MASTER_PASSES = 6
@@ -89,8 +92,8 @@ class FfmpegEncoder:
         tmp = out.with_suffix(".tmp.mkv")
 
         def build(hw: bool) -> list:
-            cmd = ["ffmpeg", *decode_args(hw), "-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}",
-                   "-i", info["path"]]
+            cmd = ["ffmpeg", *decode_args(hw), "-threads", SEGMENT_DECODER_THREADS,
+                   "-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}", "-i", info["path"]]
             if info["has_audio"]:
                 audio_map = f"0:{info['audio_index']}"
             else:
