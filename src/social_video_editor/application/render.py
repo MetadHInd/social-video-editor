@@ -161,7 +161,7 @@ class ShotRenderer:
         path = self._segment_path({
             "shot": {k: v for k, v in d.items() if k not in ("out_start", "out_end", "index", "overlap")},
             "refs": [str(self.segments[k]) for k in refs], "W": self.W, "H": self.H,
-            "cfg": {k: self.cfg.get(k) for k in ("polaroid", "collage")}, "v": SEGMENT_VERSION,
+            "cfg": {k: self.cfg.get(k) for k in ("polaroid", "collage")}, "draft": self.draft, "v": SEGMENT_VERSION,
             "audio": sig_audio and {**sig_audio, "src": audio["info"]["path"], "cfg": self.cfg.get("audio")}},
             prefix=f"{shot.kind}_", n=14)
         return d, path
@@ -192,7 +192,7 @@ class ShotRenderer:
         try:
             frames = self.svc.composer.polaroid_frames(png, d, self.W, self.H, self.fps, self.cfg)
             return self.svc.encoder.encode_frames(frames, int(round(d["dur"] * self.fps)), self.W, self.H,
-                                                  self.fps, path, audio)
+                                                  self.fps, path, audio, draft=self.draft)
         finally:
             self.svc.cache.discard(png)
 
@@ -212,7 +212,7 @@ class ShotRenderer:
             times = shot.appearance_times(d["dur"], int(self.cfg.get("collage", {}).get("subdivision", 2)))
             frames = self.svc.composer.collage_frames(pngs[:-1], bg, d, times, self.W, self.H, self.fps, self.cfg)
             return self.svc.encoder.encode_frames(frames, int(round(d["dur"] * self.fps)), self.W, self.H,
-                                                  self.fps, path, audio)
+                                                  self.fps, path, audio, draft=self.draft)
         finally:
             for p in pngs:
                 self.svc.cache.discard(p)
@@ -237,11 +237,11 @@ class ShotRenderer:
             "cfg": {"color": {k: self.cfg.get("color", {}).get(k) for k in ("warmth", "vignette")},
                     "framing": self.cfg.get("framing"), "auto_tone": auto_tone_setting(self.cfg, d),
                     "crf": photo_crf(self.cfg)},
-            "v": SEGMENT_VERSION}, prefix="photo_")
+            "draft": self.draft, "v": SEGMENT_VERSION}, prefix="photo_")
         with self._claim(path):
             if self.svc.cache.has(path):
                 return path
-            return self.svc.photos.encode_photo(image, d, self.cfg, self.W, self.H, self.fps, path)
+            return self.svc.photos.encode_photo(image, d, self.cfg, self.W, self.H, self.fps, path, draft=self.draft)
 
 
 def _temp_png(segment: Path, tag: str) -> Path:

@@ -170,10 +170,11 @@ class FfmpegEncoder:
             tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
-                      audio: dict | None = None, crf: int | None = None) -> Path:
+                      audio: dict | None = None, crf: int | None = None, draft: bool = False) -> Path:
         """Encodes n raw RGB frames (piped to FFmpeg) as a segment like the other shots.
 
         crf: x264 quality (default 12, the drawn shots'); photos pass render.photo_crf.
+        draft: the same speed / quality trade as a draft video shot (ultrafast, CRF 22; `crf` ignored).
 
         audio=None → silence. Otherwise {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"}:
         the source audio from `start` (source seconds) through the same per-shot chain as a video
@@ -194,7 +195,8 @@ class FfmpegEncoder:
                     "-map", "0:v", "-map", f"1:{info['audio_index']}", "-af", af]
         else:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a"]
-        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", str(12 if crf is None else int(crf)),
+        preset, quality = ("ultrafast", 22) if draft else ("fast", 12 if crf is None else int(crf))
+        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", preset, "-crf", str(quality),
                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
         p = popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         # stderr drained in a thread while frames are written: a full stderr pipe (4 KiB on Windows)

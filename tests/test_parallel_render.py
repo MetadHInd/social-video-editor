@@ -120,7 +120,7 @@ class FakeEncoder:
         out_png.write_bytes(b"png")
         return out_png
 
-    def encode_frames(self, frames, n, W, H, fps, out: Path, audio=None, crf=None) -> Path:
+    def encode_frames(self, frames, n, W, H, fps, out: Path, audio=None, crf=None, draft=False) -> Path:
         list(frames)
         out.write_bytes(b"drawn")
         return out
