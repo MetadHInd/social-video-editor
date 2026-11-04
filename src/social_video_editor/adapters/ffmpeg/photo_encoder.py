@@ -255,7 +255,8 @@ class FfmpegPhotoEncoder:
     def scan(self, folder: str | Path) -> list[str]:
         return scan_images(folder)
 
-    def encode_photo(self, image: Path, shot: dict, cfg: dict, W: int, H: int, fps: int, out: Path) -> Path:
+    def encode_photo(self, image: Path, shot: dict, cfg: dict, W: int, H: int, fps: int, out: Path,
+                     draft: bool = False) -> Path:
         n = max(1, int(round(float(shot["dur"]) * fps)))
         amount = min(max(motion_amount(cfg, shot), 0.0), 0.25)
         motion = shot.get("motion") or "none"
@@ -271,4 +272,4 @@ class FfmpegPhotoEncoder:
         img.close()
         # the crop already used the focus: the motion is centered on the canvas
         frames = ken_burns_frames(canvas, W, H, n, motion, amount, (0.5, 0.5), vignette_mask(W, H, vignette))
-        return self.encoder.encode_frames(frames, n, W, H, fps, Path(out), crf=photo_crf(cfg))
+        return self.encoder.encode_frames(frames, n, W, H, fps, Path(out), crf=photo_crf(cfg), draft=draft)

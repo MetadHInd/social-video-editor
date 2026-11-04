@@ -121,14 +121,16 @@ def output_name(name: str, language: str, draft: bool = False, profile: str | No
 
 
 # Parallel shot rendering (settings render.jobs, environment SVE_JOBS): how many video / photo shots
-# are encoded at the same time. Each FFmpeg shot encode is already multi-threaded (x264), so a few jobs
-# are enough to fill the idle time of the single-threaded parts (decoding, filters, the audio chain).
+# are encoded at the same time. Each FFmpeg shot encode is already multi-threaded (x264), so parallel
+# shots only fill the idle time of the single-threaded parts (decoding, filters). Measured with
+# scripts/bench.py (vertical60, 10 CPUs, median of 3): 2 / 3 / 4 jobs were 16 / 17 / 13 % faster than 1
+# (max RSS 2.7 / 2.3 / 2.6 GB vs 2.7 GB), so auto stops at 3: a fourth job added nothing.
 MAX_JOBS = 16
 
 
 def auto_jobs(cpus: int) -> int:
-    """render.jobs: auto → half the CPUs, between 1 and 4 (more jobs mostly add memory, not speed)."""
-    return max(1, min(4, int(cpus) // 2))
+    """render.jobs: auto → half the CPUs, between 1 and 3 (see above)."""
+    return max(1, min(3, int(cpus) // 2))
 
 
 def resolve_jobs(setting, env: str | None, cpus: int) -> int:

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..files.atomic import publish, temp_name
+
 JPEG_QUALITY = 95
 
 
@@ -34,10 +36,12 @@ def save_jpeg(img, out: Path) -> Path:
     """JPEG quality 95 written atomically (a half-written file never looks finished)."""
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(out.stem + ".tmp.jpg")
-    img.save(tmp, "JPEG", quality=JPEG_QUALITY, subsampling=0, optimize=True)
-    tmp.replace(out)
-    return out
+    tmp = temp_name(out)                       # unique: two enhance runs may write the same photo
+    try:
+        img.save(tmp, "JPEG", quality=JPEG_QUALITY, subsampling=0, optimize=True)
+        return publish(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)            # only left behind when saving failed
 
 
 class LanczosUpscaler:

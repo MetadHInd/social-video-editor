@@ -113,8 +113,8 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   `%LOCALAPPDATA%\social_video_editor` (`XDG_CACHE_HOME` wins when set). CI runs the whole suite on
   `windows-latest` (FFmpeg 8.1, no GPU, Rubber Band not installed).
 - **Speed:** video and photo shots render in parallel (`render.jobs`, default `auto` = half the
-  CPUs, 1–4; `SVE_JOBS=1` renders one at a time), and numba's compiled librosa code is cached in
-  the user cache folder (`NUMBA_CACHE_DIR`): the first song analysis of a new process took 13 s
+  CPUs, 1–3: 17 % faster than one at a time in the benchmark; `SVE_JOBS=1` renders one at a time),
+  and numba's compiled librosa code is cached in the user cache folder (`NUMBA_CACHE_DIR`): the first song analysis of a new process took 13 s
   without it and ~3 s with it (measured on 4 cores). `python scripts/bench.py` measures render
   speed on synthetic 4K footage.
 

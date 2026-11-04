@@ -201,7 +201,8 @@ def compare_table(a: dict, b: dict, a_name: str = "A", b_name: str = "B") -> str
 
 def _first_line(cmd: list[str], cwd: Path | None = None) -> str | None:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=30)
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           cwd=cwd, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     out = r.stdout.strip()
@@ -216,7 +217,7 @@ def environment() -> dict:
     status = None
     try:
         r = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], capture_output=True,
-                           text=True, cwd=REPO, timeout=30)
+                           text=True, encoding="utf-8", errors="replace", cwd=REPO, timeout=30)
         status = bool(r.stdout.strip()) if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         pass

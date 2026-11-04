@@ -150,27 +150,39 @@ def zoom_expr(shot: dict, cfg: dict, dur: float, index: int) -> str:
     return f"min({expr},{margin:.3f})"
 
 
-def crop_expr(shot: dict, fx: float, fy: float) -> tuple[str, str]:
-    x, y = f"(iw-ow)*{fx:.3f}", f"(ih-oh)*{fy:.3f}"
+def crop_expr(shot: dict, fx: float, fy: float, span_w: str = "iw-ow", span_h: str = "ih-oh") -> tuple[str, str]:
+    """Crop position: the focus inside the free span (zoomed size − output size), plus shake, clamped.
+
+    span_w / span_h: the free span as an expression. The zoom passes it computed from the zoom factor:
+    the crop filter's iw / ih stay those of the FIRST frame when the frame size changes per frame."""
+    x, y = f"({span_w})*{fx:.3f}", f"({span_h})*{fy:.3f}"
     for e in effects_of(shot, "shake"):
         t0, d, a = float(e.get("t", 0)), float(e.get("dur", 0.3)), float(e.get("amplitude", 14))
         env = f"between(t,{t0:.3f},{t0 + d:.3f})*(1-(t-{t0:.3f})/{d:.3f})"
         x += f"+{a}*sin(t*73)*{env}"
         y += f"+{a * 0.7}*cos(t*61)*{env}"
-    return f"'max(0,min(iw-ow,{x}))'", f"'max(0,min(ih-oh,{y}))'"
+    return f"'max(0,min({span_w},{x}))'", f"'max(0,min({span_h},{y}))'"
 
 
 def motion(W: int, H: int, cfg: dict, shot: dict, dur: float, index: int) -> str:
-    """Time-varying zoom + final crop to the output size."""
+    """Time-varying zoom about the focus + final crop to the output size.
+
+    scale with eval=frame gives frames whose size changes every frame, but the next filter's input
+    keeps the first frame's size: a crop reading iw/ih (0.5.0 and earlier) stayed at x = y = 0, so every
+    zoom grew from the top-left corner and focus_x/focus_y and shake did nothing while zooming. The
+    scaled frame is therefore padded onto a fixed canvas (as big as the largest zoom) and cropped at a
+    position computed from the zoom factor itself."""
     z = zoom_expr(shot, cfg, dur, index)
+    if z == "1":                                  # no zoom: no free span, so no focus or shake either
+        return f"scale={W}:{H}:flags=bicubic"
     fx = float(shot.get("focus_x", 0.5))
     fy = float(shot.get("focus_y", 0.5))
-    x, y = crop_expr(shot, fx, fy)
-    if z == "1":
-        scale = f"scale={W}:{H}:flags=bicubic"
-    else:
-        scale = f"scale=w='trunc({W}*({z})/2)*2':h='trunc({H}*({z})/2)*2':eval=frame:flags=bicubic"
-    return f"{scale},crop={W}:{H}:{x}:{y}"
+    sw, sh = f"trunc({W}*({z})/2)*2", f"trunc({H}*({z})/2)*2"
+    margin = float(cfg["framing"].get("zoom_margin", 1.25))     # zoom_expr caps the zoom at the margin
+    cw, ch = _even(W * margin) + 2, _even(H * margin) + 2
+    x, y = crop_expr(shot, fx, fy, f"{sw}-{W}", f"{sh}-{H}")
+    return (f"scale=w='{sw}':h='{sh}':eval=frame:flags=bicubic,pad=w={cw}:h={ch}:x=0:y=0:eval=frame,"
+            f"crop={W}:{H}:{x}:{y}")
 
 
 def flash_filters(shot: dict) -> str:

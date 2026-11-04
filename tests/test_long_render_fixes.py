@@ -286,8 +286,7 @@ def test_chunked_slideshow_audio_lasts_as_long_as_the_video(tmp_path, cfg):
         ov = 0.1 if i else 0.0
         segs.append({"dur": frames / FPS, "overlap": ov, "transition": "fade" if i else "cut"})
         total += frames / FPS - ov
-    c = {**cfg, "output": {**cfg["output"], "fps": FPS}, "slideshow": True,
-         "render": {"long_master_sec": 1}}
+    c = {**cfg, "output": {**cfg["output"], "fps": FPS}, "slideshow": True}
     music = tmp_path / "mix.wav"
     subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
                     f"aevalsrc='0.1*sin(2*PI*440*t)|0.1*sin(2*PI*660*t)':d={total + 0.2:.3f}:s=48000", str(music)],

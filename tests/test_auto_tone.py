@@ -123,7 +123,7 @@ def test_strength_zero_and_determinism():
 class _Recorder:
     """Stands in for FfmpegEncoder.encode_frames: keeps the mean of the frames and the crf."""
 
-    def encode_frames(self, frames, n, W, H, fps, out, audio=None, crf=None):
+    def encode_frames(self, frames, n, W, H, fps, out, audio=None, crf=None, draft=False):
         self.mean = float(np.mean([np.frombuffer(f, np.uint8).mean() for f in frames]))
         self.crf = crf
         return out

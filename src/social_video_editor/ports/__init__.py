@@ -36,11 +36,12 @@ class VideoEncoder(Protocol):
         """Renders one video shot from the ORIGINAL source (color, framing, speed, effects, audio)."""
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
-                      audio: dict | None = None, crf: int | None = None) -> Path:
+                      audio: dict | None = None, crf: int | None = None, draft: bool = False) -> Path:
         """Encodes raw RGB frames as a segment like the other shots. Audio: silent, or with `audio`
         {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"} a piece of a source (from
         `start`, source seconds) through the same per-shot audio chain, gain_db lower, faded in/out.
-        crf: x264 quality (None = the drawn shots' default; photos pass render.photo_crf)."""
+        crf: x264 quality (None = the drawn shots' default; photos pass render.photo_crf).
+        draft: encode like a draft video shot (faster, lower quality; `crf` ignored)."""
 
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of a segment (at=None → the last frame)."""
@@ -236,7 +237,8 @@ class PhotoRenderer(Protocol):
     def scan(self, folder: str | Path) -> list[str]:
         """Photos inside a folder and its subfolders, sorted by path."""
 
-    def encode_photo(self, image: Path, shot: dict, cfg: dict, W: int, H: int, fps: int, out: Path) -> Path:
+    def encode_photo(self, image: Path, shot: dict, cfg: dict, W: int, H: int, fps: int, out: Path,
+                     draft: bool = False) -> Path:
         """A segment of exactly shot["dur"] seconds at W×H/fps with a silent audio track (like a drawn
         shot): EXIF orientation applied, framed like a video (blurred background when the aspect differs
         a lot, otherwise cover), smooth Ken Burns (shot "motion", "motion_amount"), optional

@@ -53,6 +53,33 @@ def test_mastering_and_check_measure_the_same_on_short_files(tmp_path, cfg):
 
 
 @requires_ffmpeg
+@pytest.mark.parametrize("expr", [SHORT, SQUARE_CLICKS], ids=["short", "square_clicks"])
+def test_mastering_muxes_the_video_once_whatever_the_number_of_passes(tmp_path, cfg, monkeypatch, expr):
+    """Trial passes encode the AAC alone; the video stream is copied into the output exactly once
+    (square clicks overshoot the true peak after AAC, so they need more than one pass)."""
+    from social_video_editor.adapters.ffmpeg import encoder as enc
+
+    src = premaster(tmp_path, "mux", expr)
+    calls: list[list[str]] = []
+    real_run = enc.run
+
+    def spy(cmd, *a, **k):
+        calls.append([str(x) for x in cmd])
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(enc, "run", spy)
+    res = FfmpegEncoder().master_audio(src, tmp_path / "mux.mp4", cfg)
+    video_muxes = [c for c in calls if "0:v" in c]
+    aac_passes = [c for c in calls if "aac" in c]
+    assert len(video_muxes) == 1 and video_muxes[0][-1] == str(tmp_path / "mux.mp4")
+    assert "copy" in video_muxes[0] and "+faststart" in video_muxes[0]
+    assert aac_passes and all("0:v" not in c for c in aac_passes)
+    assert res["after_lufs"] == pytest.approx(ebur128(tmp_path / "mux.mp4")["integrated"], abs=0.05)
+    assert FfprobeMediaProbe().probe(tmp_path / "mux.mp4")["width"] == 64
+    assert not list(tmp_path.glob("mux_*"))                                        # temporaries removed
+
+
+@requires_ffmpeg
 @pytest.mark.parametrize("expr", [CLICKS, SQUARE_CLICKS], ids=["clicks", "square_clicks"])
 def test_mastering_click_like_audio_reaches_target_below_true_peak(tmp_path, cfg, expr):
     src = premaster(tmp_path, "clicks", expr)

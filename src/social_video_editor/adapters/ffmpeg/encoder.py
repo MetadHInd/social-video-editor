@@ -1,7 +1,6 @@
 """VideoEncoder implemented with FFmpeg."""
 from __future__ import annotations
 
-import itertools
 import math
 import os
 import subprocess
@@ -13,6 +12,8 @@ from pathlib import Path
 from ...domain.effects import freeze_seconds
 from ...domain.models import UserError
 from ...log import log
+from ..files.atomic import publish as _publish
+from ..files.atomic import temp_name as _tmp_for
 from ..system.hwaccel import (decode_args, device_args, draft_encoder_args, final_decoder, proxy_encoder_args,
                               run_with_fallback, with_upload)
 from ..system.tools import FFMPEG, ffmpeg_version
@@ -23,8 +24,7 @@ from .runner import StderrDrain, popen, run
 
 PROXY_SHORT_SIDE = 540
 # long videos (settings render.*): see FfmpegEncoder.compose
-CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "long_master_sec": 600,
-                  "chunk_min_seconds": 300}
+CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "chunk_min_seconds": 300}
 CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers per decoder
 # Shot segments: FFmpeg 7.0 – 8.0 can deadlock when a frame-threaded decoder holds 5+ frames while the
 # audio chain buffers (afftdn) and pads (apad); its default is one thread per core + 1. Fixed in 8.1.
@@ -69,41 +69,7 @@ def should_chunk(n_segments: int, total: float, cfg: dict) -> bool:
     return bool(cfg.get("slideshow")) or float(total) > float(chunk_setting(cfg, "chunk_min_seconds"))
 
 
-_WINDOWS = os.name == "nt"
 FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and stalled this long is killed
-
-
-_TMP_COUNTER = itertools.count()      # next() on a count is atomic in CPython
-
-
-def _tmp_for(out: Path) -> Path:
-    """A temporary name next to `out`, unique per process and call (two shots with the same cache
-    signature may render at the same time; thread ids are reused once a thread ends, hence the
-    counter), keeping the extension FFmpeg picks the muxer from."""
-    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}-{next(_TMP_COUNTER)}.tmp{out.suffix}")
-
-
-def _publish(tmp: Path, out: Path, attempts: int = 6) -> Path:
-    """Atomically moves a finished temporary file to `out` (replacing it). On Windows a file that was
-    just closed can stay locked for a moment (antivirus, indexer, a reader of the old `out`), so
-    PermissionError is retried there with a short back-off (1.55 s in all)."""
-    for k in range(attempts):
-        try:
-            os.replace(tmp, out)
-            return out
-        except PermissionError:
-            if not _WINDOWS or k == attempts - 1:
-                raise
-            time.sleep(0.05 * 2 ** k)
-    return out
-
-
-def _wav_seconds(path: Path) -> float:
-    try:
-        import soundfile as sf
-        return float(sf.info(str(path)).duration)
-    except Exception:                       # unreadable header: treat as short (the regular path)
-        return 0.0
 
 
 class FfmpegEncoder:
@@ -137,10 +103,14 @@ class FfmpegEncoder:
         fps = int(cfg["output"]["fps"])
         v = float(shot.get("speed", 1.0))
         cfg_shot = cfg if not shot.get("color") else {**cfg, "color": {**cfg["color"], **shot["color"]}}
-        vf = [filters.prescale(info, W, H, cfg, shot),
+        # speed + output frame rate FIRST: the frames fps drops (half of a 60 fps source) are never scaled
+        # from 4K, tone-mapped, corrected or zoomed (~40 % faster at 60 fps). The same source frames are
+        # kept; zoom and flash are evaluated at the output frame's time (identical output for 30 / 60 fps
+        # sources at speed 1, a fraction of a frame apart otherwise).
+        vf = [f"setpts=(PTS-STARTPTS)/{v:.4f}", f"fps={fps}",
+              filters.prescale(info, W, H, cfg, shot),
               filters.sdr_chain(info, float(cfg["color"].get("hdr_white", 0.62))),
               filters.correction_chain(stats, cfg_shot["color"]),
-              f"setpts=(PTS-STARTPTS)/{v:.4f}",
               filters.motion(W, H, cfg, shot, shot["dur"], shot["index"]),
               filters.flash_filters(shot)]
         fz = freeze_seconds(shot)
@@ -175,10 +145,11 @@ class FfmpegEncoder:
             tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
-                      audio: dict | None = None, crf: int | None = None) -> Path:
+                      audio: dict | None = None, crf: int | None = None, draft: bool = False) -> Path:
         """Encodes n raw RGB frames (piped to FFmpeg) as a segment like the other shots.
 
         crf: x264 quality (default 12, the drawn shots'); photos pass render.photo_crf.
+        draft: the same speed / quality trade as a draft video shot (ultrafast, CRF 22; `crf` ignored).
 
         audio=None → silence. Otherwise {"info", "start", "shot", "voice", "cfg", "gain_db", "fade"}:
         the source audio from `start` (source seconds) through the same per-shot chain as a video
@@ -199,7 +170,8 @@ class FfmpegEncoder:
                     "-map", "0:v", "-map", f"1:{info['audio_index']}", "-af", af]
         else:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a"]
-        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", str(12 if crf is None else int(crf)),
+        preset, quality = ("ultrafast", 22) if draft else ("fast", 12 if crf is None else int(crf))
+        cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", preset, "-crf", str(quality),
                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
         p = popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         # stderr drained in a thread while frames are written: a full stderr pipe (4 KiB on Windows)
@@ -430,12 +402,6 @@ class FfmpegEncoder:
              "-c:a", "pcm_s24le", out])
         return ebur128(out)
 
-    def _mux_aac(self, src: Path, audio: Path, cfg: dict, out: Path) -> dict:
-        run(["ffmpeg", "-i", src, "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
-             "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
-             "-movflags", "+faststart", out])
-        return ebur128(out)
-
     def _aac_only(self, audio: Path, cfg: dict, out: Path) -> dict:
         run(["ffmpeg", "-i", audio, "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
              out])
@@ -470,7 +436,8 @@ class FfmpegEncoder:
         Measured with EBU R128 (ebur128, the same measurement as `sve check`). Gain + 4x-oversampled
         limiter, ALWAYS applied, the gain capped at audio.master_max_gain_db. Then the AAC file is
         measured: if its true peak is above the target the limiter ceiling is lowered, if its loudness
-        drifted the aim is corrected, and the pass is repeated. Returns
+        drifted the aim is corrected, and the pass is repeated. Every pass encodes the AAC alone; the
+        video is muxed (copied) once, with the final AAC, at the end. Returns
         {"before_lufs", "after_lufs", "true_peak_dbtp", "gain_db", "converged"[, "warning"]}.
         """
         a = cfg["audio"]
@@ -487,9 +454,10 @@ class FfmpegEncoder:
         aac = src.with_name(src.stem + "_master.m4a")
         try:
             run(["ffmpeg", "-i", src, "-map", "0:a", "-c:a", "pcm_s24le", original])
-            # long videos: every trial pass encodes the audio alone (the video is copied ONCE at the end)
-            long = _wav_seconds(original) > float(chunk_setting(cfg, "long_master_sec"))
-            encode = (lambda: self._aac_only(work, cfg, aac)) if long else (lambda: self._mux_aac(src, work, cfg, out))
+
+            def encode() -> dict:
+                return self._aac_only(work, cfg, aac)
+
             ceiling, aim = peak - 1.2, target        # margin for the true peak after AAC encoding
             gain = min(target - before, max_gain)
             for _ in range(MASTER_PASSES):
@@ -506,9 +474,8 @@ class FfmpegEncoder:
                 ceiling -= final["true_peak"] - peak + 3.0
                 self._limited(original, gain, ceiling, work)
                 final = encode()
-            if long:
-                run(["ffmpeg", "-i", src, "-i", aac, "-map", "0:v", "-map", "1:a", "-c", "copy",
-                     "-movflags", "+faststart", out])
+            run(["ffmpeg", "-i", src, "-i", aac, "-map", "0:v", "-map", "1:a", "-c", "copy",
+                 "-movflags", "+faststart", out])
         finally:
             original.unlink(missing_ok=True)
             work.unlink(missing_ok=True)

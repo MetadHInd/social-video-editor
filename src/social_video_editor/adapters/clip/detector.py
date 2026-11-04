@@ -20,6 +20,8 @@ from pathlib import Path
 import numpy as np
 
 from ...log import log
+from ..files.atomic import publish, temp_name
+from ..opencv.capture import open_capture
 
 DEFAULT_MODEL = "sentence-transformers/clip-ViT-B-32"
 DEFAULT_TEXT_MODEL = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
@@ -139,9 +141,12 @@ class ClipVisualDetector:
                     return np.asarray(meta["times"], float), emb.astype(np.float32)
         times, emb = self._embed_video(video, fps, settings)
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
-        tmp = npy.with_suffix(".tmp.npy")
-        np.save(tmp, emb.astype(np.float16))
-        tmp.replace(npy)
+        tmp = temp_name(npy)          # unique: two processes may embed the same video at the same time
+        try:
+            np.save(tmp, emb.astype(np.float16))
+            publish(tmp, npy)
+        finally:
+            tmp.unlink(missing_ok=True)
         meta_p.write_text(json.dumps({"model": model, "fps": fps, "v": CACHE_VERSION,
                                       "times": [round(float(t), 3) for t in times]}), encoding="utf-8")
         return times, emb
@@ -151,7 +156,7 @@ class ClipVisualDetector:
         from PIL import Image
 
         name = self._names(settings)[0]
-        cap = cv2.VideoCapture(video)
+        cap = open_capture(video)
         vfps = cap.get(cv2.CAP_PROP_FPS) or 30
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         step = max(int(round(vfps / fps)), 1)

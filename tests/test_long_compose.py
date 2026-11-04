@@ -62,14 +62,14 @@ def test_chunked_compose_keeps_the_total_duration(tmp_path, cfg):
 
 
 @requires_ffmpeg
-def test_long_mastering_encodes_audio_alone_then_muxes_once(tmp_path, cfg):
+def test_mastering_ignores_the_removed_long_master_setting(tmp_path, cfg):
     src = tmp_path / "pre.mkv"
     subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
                     "-f", "lavfi", "-i", "color=c=gray:s=64x64:d=6:r=30",
                     "-f", "lavfi", "-i", "aevalsrc='0.05*sin(2*PI*440*t)':d=6:s=48000:c=stereo",
                     "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "pcm_s16le", "-shortest", str(src)],
                    check=True)
-    cfg = {**cfg, "render": {"long_master_sec": 1}}
+    cfg = {**cfg, "render": {"long_master_sec": 1}}      # old key (0.5.0 and earlier): harmless
     res = FfmpegEncoder().master_audio(src, tmp_path / "out.mp4", cfg)
     assert res["converged"] is True
     assert res["after_lufs"] == pytest.approx(-14, abs=0.5)
