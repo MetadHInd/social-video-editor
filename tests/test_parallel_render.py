@@ -46,8 +46,8 @@ def test_resolve_jobs(setting, env, cpus, expected):
     assert resolve_jobs(setting, env, cpus) == expected
 
 
-@pytest.mark.parametrize("cpus,expected", [(1, 1), (2, 1), (3, 1), (4, 2), (8, 4), (64, 4)])
-def test_auto_jobs_is_half_the_cpus_between_1_and_4(cpus, expected):
+@pytest.mark.parametrize("cpus,expected", [(1, 1), (2, 1), (3, 1), (4, 2), (6, 3), (8, 3), (64, 3)])
+def test_auto_jobs_is_half_the_cpus_between_1_and_3(cpus, expected):
     assert auto_jobs(cpus) == expected
 
 

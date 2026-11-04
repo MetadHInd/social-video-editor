@@ -527,7 +527,7 @@ with a single song. The beat list of a song is no longer capped at 600 s.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `render.jobs` | `auto` | How many video / photo shots are encoded at the same time (each one is its own FFmpeg process). `auto` = half the CPUs this process may use, between 1 and 4; or a whole number 1–16 (higher values are capped at 16; `1` = one shot after another). Polaroid and collage shots are always drawn one at a time, after the shots they come from. The output (segments, video, `summary.json`) is the same for any number of jobs; only memory use and speed change. |
+| `render.jobs` | `auto` | How many video / photo shots are encoded at the same time (each one is its own FFmpeg process). `auto` = half the CPUs this process may use, between 1 and 3 (on a 10-CPU machine 2 / 3 / 4 jobs were 16 / 17 / 13 % faster than 1, see the 0.5.1 changelog); or a whole number 1–16 (higher values are capped at 16; `1` = one shot after another). Polaroid and collage shots are always drawn one at a time, after the shots they come from. The output (segments, video, `summary.json`) is the same for any number of jobs; only memory use and speed change. |
 | `SVE_JOBS` (environment) | — | Overrides `render.jobs` for one run, e.g. `SVE_JOBS=1 sve render demo`. Same values (`auto` or 1–16); anything else stops the render with an error. |
 
 ### Long videos (`render.…`)
