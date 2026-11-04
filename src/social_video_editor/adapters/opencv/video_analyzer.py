@@ -6,6 +6,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from ...log import log
+from .capture import needs_stream, open_capture
 
 
 class OpenCvVideoAnalyzer:
@@ -13,7 +14,7 @@ class OpenCvVideoAnalyzer:
         """Brightness, sharpness, motion and colorfulness several times per second (on the proxy)."""
         import cv2
 
-        cap = cv2.VideoCapture(video)
+        cap = open_capture(video)
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
         step = max(int(round(fps / per_second)), 1)
         out, prev, i = [], None, 0
@@ -44,17 +45,38 @@ class OpenCvVideoAnalyzer:
     def scenes(self, video: str, threshold: float) -> list[list[float]]:
         try:
             from scenedetect import ContentDetector, detect
-            found = detect(video, ContentDetector(threshold=threshold), show_progress=False)
+            if str(video).isascii():
+                found = detect(video, ContentDetector(threshold=threshold), show_progress=False)
+            else:
+                found = self._scenes_from_capture(video, ContentDetector(threshold=threshold))
             return [[round(a.get_seconds(), 3), round(b.get_seconds(), 3)] for a, b in found]
         except Exception as e:  # noqa: BLE001
             log(f"Warning: scene detection failed ({e}); using a single scene.")
             return []
 
+    @staticmethod
+    def _scenes_from_capture(video: str, detector) -> list:
+        """PySceneDetect reopens the path itself; a non-ASCII path that only opens as a stream
+        (see capture.py) is fed to it through the capture we opened."""
+        from scenedetect import SceneManager, VideoCaptureAdapter, detect
+
+        cap = open_capture(video)
+        try:
+            if not needs_stream(cap):
+                cap.release()
+                return detect(video, detector, show_progress=False)
+            manager = SceneManager()
+            manager.add_detector(detector)
+            manager.detect_scenes(VideoCaptureAdapter(cap.capture), show_progress=False)
+            return manager.get_scene_list()
+        finally:
+            cap.release()
+
     def read_frames(self, video: str, times: Iterable[float]) -> list:
         """BGR frames at the given seconds (frames that cannot be read are skipped)."""
         import cv2
 
-        cap = cv2.VideoCapture(video)
+        cap = open_capture(video)
         frames = []
         for t in times:
             cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
@@ -68,7 +90,7 @@ class OpenCvVideoAnalyzer:
         """A function t → RGB frame (or None), for browsing a video (contact sheets). Call .close() at the end."""
         import cv2
 
-        cap = cv2.VideoCapture(video)
+        cap = open_capture(video)
 
         def read(t: float):
             cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)

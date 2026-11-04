@@ -21,6 +21,7 @@ import numpy as np
 
 from ...log import log
 from ..files.atomic import publish, temp_name
+from ..opencv.capture import open_capture
 
 DEFAULT_MODEL = "sentence-transformers/clip-ViT-B-32"
 DEFAULT_TEXT_MODEL = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
@@ -155,7 +156,7 @@ class ClipVisualDetector:
         from PIL import Image
 
         name = self._names(settings)[0]
-        cap = cv2.VideoCapture(video)
+        cap = open_capture(video)
         vfps = cap.get(cv2.CAP_PROP_FPS) or 30
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         step = max(int(round(vfps / fps)), 1)
