@@ -137,10 +137,14 @@ class FfmpegEncoder:
         fps = int(cfg["output"]["fps"])
         v = float(shot.get("speed", 1.0))
         cfg_shot = cfg if not shot.get("color") else {**cfg, "color": {**cfg["color"], **shot["color"]}}
-        vf = [filters.prescale(info, W, H, cfg, shot),
+        # speed + output frame rate FIRST: the frames fps drops (half of a 60 fps source) are never scaled
+        # from 4K, tone-mapped, corrected or zoomed (~40 % faster at 60 fps). The same source frames are
+        # kept; zoom and flash are evaluated at the output frame's time (identical output for 30 / 60 fps
+        # sources at speed 1, a fraction of a frame apart otherwise).
+        vf = [f"setpts=(PTS-STARTPTS)/{v:.4f}", f"fps={fps}",
+              filters.prescale(info, W, H, cfg, shot),
               filters.sdr_chain(info, float(cfg["color"].get("hdr_white", 0.62))),
               filters.correction_chain(stats, cfg_shot["color"]),
-              f"setpts=(PTS-STARTPTS)/{v:.4f}",
               filters.motion(W, H, cfg, shot, shot["dur"], shot["index"]),
               filters.flash_filters(shot)]
         fz = freeze_seconds(shot)

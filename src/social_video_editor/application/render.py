@@ -48,7 +48,7 @@ from .music import prepare_music
 from .products import visual_search
 from .services import Services
 
-SEGMENT_VERSION = 5
+SEGMENT_VERSION = 6
 STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
 SHOT_SIGNATURE_KEYS = ("source", "start", "end", "speed", "effects", "zoom", "focus_x", "focus_y", "volume_db",
                        "mute", "freeze", "color", "_beats")
