@@ -9,6 +9,12 @@ from ...log import log
 from .capture import needs_stream, open_capture
 
 
+def _seconds(timecode) -> float:
+    """FrameTimecode in seconds: the `seconds` property (PySceneDetect 0.7+) or get_seconds() (0.6)."""
+    s = getattr(timecode, "seconds", None)
+    return float(timecode.get_seconds() if s is None or callable(s) else s)
+
+
 class OpenCvVideoAnalyzer:
     def samples(self, video: str, per_second: float) -> list[dict]:
         """Brightness, sharpness, motion and colorfulness several times per second (on the proxy)."""
@@ -49,7 +55,7 @@ class OpenCvVideoAnalyzer:
                 found = detect(video, ContentDetector(threshold=threshold), show_progress=False)
             else:
                 found = self._scenes_from_capture(video, ContentDetector(threshold=threshold))
-            return [[round(a.get_seconds(), 3), round(b.get_seconds(), 3)] for a, b in found]
+            return [[round(_seconds(a), 3), round(_seconds(b), 3)] for a, b in found]
         except Exception as e:  # noqa: BLE001
             log(f"Warning: scene detection failed ({e}); using a single scene.")
             return []
