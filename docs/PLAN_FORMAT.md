@@ -539,7 +539,6 @@ with a single song. The beat list of a song is no longer capped at 600 s.
 | `render.chunk_size` | 20 | Segments per chunk (bounds the memory of one FFmpeg pass). A chunk ends where the transition into the next chunk begins, and the next chunk renders that transition from the tail of the previous segment, so the final pass reads the chunks one after another (one open input) and transitions at chunk borders look identical. |
 | `render.photo_crf` | 16 | x264 CRF of the cached photo segments (a still photo compresses well). |
 | `render.chunk_crf` | 14 | x264 CRF of the intermediate chunk files (PCM audio). Deleted after the compose. |
-| `render.long_master_sec` | 600 | Longer audio: the mastering's trial passes encode the audio alone and the video is copied once at the end. |
 
 A playlist mix at least as long as the video is not looped (single tracks keep the looping chain).
 `sve check` analyses the audio of renders longer than 600 s block by block (same measurements).

@@ -23,8 +23,7 @@ from .runner import StderrDrain, popen, run
 
 PROXY_SHORT_SIDE = 540
 # long videos (settings render.*): see FfmpegEncoder.compose
-CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "long_master_sec": 600,
-                  "chunk_min_seconds": 300}
+CHUNK_DEFAULTS = {"chunk_threshold": 60, "chunk_size": 20, "chunk_crf": 14, "chunk_min_seconds": 300}
 CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers per decoder
 # Shot segments: FFmpeg 7.0 – 8.0 can deadlock when a frame-threaded decoder holds 5+ frames while the
 # audio chain buffers (afftdn) and pads (apad); its default is one thread per core + 1. Fixed in 8.1.
@@ -96,14 +95,6 @@ def _publish(tmp: Path, out: Path, attempts: int = 6) -> Path:
                 raise
             time.sleep(0.05 * 2 ** k)
     return out
-
-
-def _wav_seconds(path: Path) -> float:
-    try:
-        import soundfile as sf
-        return float(sf.info(str(path)).duration)
-    except Exception:                       # unreadable header: treat as short (the regular path)
-        return 0.0
 
 
 class FfmpegEncoder:
@@ -434,12 +425,6 @@ class FfmpegEncoder:
              "-c:a", "pcm_s24le", out])
         return ebur128(out)
 
-    def _mux_aac(self, src: Path, audio: Path, cfg: dict, out: Path) -> dict:
-        run(["ffmpeg", "-i", src, "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
-             "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
-             "-movflags", "+faststart", out])
-        return ebur128(out)
-
     def _aac_only(self, audio: Path, cfg: dict, out: Path) -> dict:
         run(["ffmpeg", "-i", audio, "-c:a", "aac", "-b:a", f"{int(cfg['export']['audio_kbps'])}k", "-ar", "48000",
              out])
@@ -474,7 +459,8 @@ class FfmpegEncoder:
         Measured with EBU R128 (ebur128, the same measurement as `sve check`). Gain + 4x-oversampled
         limiter, ALWAYS applied, the gain capped at audio.master_max_gain_db. Then the AAC file is
         measured: if its true peak is above the target the limiter ceiling is lowered, if its loudness
-        drifted the aim is corrected, and the pass is repeated. Returns
+        drifted the aim is corrected, and the pass is repeated. Every pass encodes the AAC alone; the
+        video is muxed (copied) once, with the final AAC, at the end. Returns
         {"before_lufs", "after_lufs", "true_peak_dbtp", "gain_db", "converged"[, "warning"]}.
         """
         a = cfg["audio"]
@@ -491,9 +477,10 @@ class FfmpegEncoder:
         aac = src.with_name(src.stem + "_master.m4a")
         try:
             run(["ffmpeg", "-i", src, "-map", "0:a", "-c:a", "pcm_s24le", original])
-            # long videos: every trial pass encodes the audio alone (the video is copied ONCE at the end)
-            long = _wav_seconds(original) > float(chunk_setting(cfg, "long_master_sec"))
-            encode = (lambda: self._aac_only(work, cfg, aac)) if long else (lambda: self._mux_aac(src, work, cfg, out))
+
+            def encode() -> dict:
+                return self._aac_only(work, cfg, aac)
+
             ceiling, aim = peak - 1.2, target        # margin for the true peak after AAC encoding
             gain = min(target - before, max_gain)
             for _ in range(MASTER_PASSES):
@@ -510,9 +497,8 @@ class FfmpegEncoder:
                 ceiling -= final["true_peak"] - peak + 3.0
                 self._limited(original, gain, ceiling, work)
                 final = encode()
-            if long:
-                run(["ffmpeg", "-i", src, "-i", aac, "-map", "0:v", "-map", "1:a", "-c", "copy",
-                     "-movflags", "+faststart", out])
+            run(["ffmpeg", "-i", src, "-i", aac, "-map", "0:v", "-map", "1:a", "-c", "copy",
+                 "-movflags", "+faststart", out])
         finally:
             original.unlink(missing_ok=True)
             work.unlink(missing_ok=True)
