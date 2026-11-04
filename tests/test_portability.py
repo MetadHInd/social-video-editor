@@ -510,7 +510,10 @@ def test_temporary_names_are_unique_per_thread_and_keep_the_extension(tmp_path):
 
 
 def test_publish_retries_a_locked_file_on_windows_only(tmp_path, monkeypatch):
-    from social_video_editor.adapters.ffmpeg import encoder as enc
+    from social_video_editor.adapters.ffmpeg import encoder
+    from social_video_editor.adapters.files import atomic as enc
+
+    assert encoder._publish is enc.publish
 
     real_replace, calls = enc.os.replace, []
 
@@ -526,10 +529,10 @@ def test_publish_retries_a_locked_file_on_windows_only(tmp_path, monkeypatch):
     tmp.write_bytes(b"x")
     monkeypatch.setattr(enc, "_WINDOWS", False)
     with pytest.raises(PermissionError):
-        enc._publish(tmp, out)
+        enc.publish(tmp, out)
     monkeypatch.setattr(enc, "_WINDOWS", True)
     calls.clear()
-    assert enc._publish(tmp, out) == out and out.read_bytes() == b"x" and not tmp.exists() and len(calls) == 3
+    assert enc.publish(tmp, out) == out and out.read_bytes() == b"x" and not tmp.exists() and len(calls) == 3
 
 
 def test_stderr_drain_prevents_the_two_pipe_deadlock():

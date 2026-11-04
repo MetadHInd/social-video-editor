@@ -1,7 +1,6 @@
 """VideoEncoder implemented with FFmpeg."""
 from __future__ import annotations
 
-import itertools
 import math
 import os
 import subprocess
@@ -13,6 +12,8 @@ from pathlib import Path
 from ...domain.effects import freeze_seconds
 from ...domain.models import UserError
 from ...log import log
+from ..files.atomic import publish as _publish
+from ..files.atomic import temp_name as _tmp_for
 from ..system.hwaccel import (decode_args, device_args, draft_encoder_args, final_decoder, proxy_encoder_args,
                               run_with_fallback, with_upload)
 from ..system.tools import FFMPEG, ffmpeg_version
@@ -68,33 +69,7 @@ def should_chunk(n_segments: int, total: float, cfg: dict) -> bool:
     return bool(cfg.get("slideshow")) or float(total) > float(chunk_setting(cfg, "chunk_min_seconds"))
 
 
-_WINDOWS = os.name == "nt"
 FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and stalled this long is killed
-
-
-_TMP_COUNTER = itertools.count()      # next() on a count is atomic in CPython
-
-
-def _tmp_for(out: Path) -> Path:
-    """A temporary name next to `out`, unique per process and call (two shots with the same cache
-    signature may render at the same time; thread ids are reused once a thread ends, hence the
-    counter), keeping the extension FFmpeg picks the muxer from."""
-    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}-{next(_TMP_COUNTER)}.tmp{out.suffix}")
-
-
-def _publish(tmp: Path, out: Path, attempts: int = 6) -> Path:
-    """Atomically moves a finished temporary file to `out` (replacing it). On Windows a file that was
-    just closed can stay locked for a moment (antivirus, indexer, a reader of the old `out`), so
-    PermissionError is retried there with a short back-off (1.55 s in all)."""
-    for k in range(attempts):
-        try:
-            os.replace(tmp, out)
-            return out
-        except PermissionError:
-            if not _WINDOWS or k == attempts - 1:
-                raise
-            time.sleep(0.05 * 2 ** k)
-    return out
 
 
 class FfmpegEncoder:
