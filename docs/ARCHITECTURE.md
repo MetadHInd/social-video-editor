@@ -47,8 +47,18 @@ the `Services` bundle of ports (`application/services.py`); `adapters` implement
 Supporting adapter modules: `adapters/files/legacy_es.py` translates Spanish files written by
 earlier versions **when they are loaded** (the domain only sees English keys; tables in
 [LEGACY_KEYS.md](LEGACY_KEYS.md)); `adapters/files/workspace.py` resolves the workspace
-(`$SVE_WORKSPACE` or the current folder); `adapters/system/` holds FFmpeg paths, font lookup and
-VideoToolbox detection with software fallback.
+(`$SVE_WORKSPACE` or the current folder); `adapters/files/atomic.py` gives unique temporary names
+and atomic publishing for every cached file; `adapters/system/` holds FFmpeg paths, font lookup and
+hardware acceleration (`hwaccel.py`).
+
+Hardware acceleration backends: VideoToolbox (macOS), NVENC (`cuda`), VAAPI and Quick Sync (`qsv`);
+`auto` tries VideoToolbox on macOS, NVENC → VAAPI → Quick Sync on Linux and NVENC → Quick Sync on
+Windows. A backend is used only when FFmpeg lists its hwaccel and encoder **and** a one-frame test
+encode works; a hardware command that still fails is retried in software and hardware stays off for
+the rest of the process. They decode and encode analysis proxies and draft segments only; final
+segments are always libx264, decoded by VideoToolbox when it is available (software elsewhere).
+`SVE_HWACCEL` = `auto` (default) / `videotoolbox` / `nvenc` / `vaapi` / `qsv` / `0` (software only);
+`SVE_VAAPI_DEVICE` = the VAAPI render node (default `/dev/dri/renderD128`).
 
 ## The video as a Composite (`domain/pieces.py`)
 

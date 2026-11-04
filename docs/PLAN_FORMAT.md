@@ -301,7 +301,7 @@ Used by `sve products`, by `search.text`, by `sve plan` when `product_plan` is o
 |---|---|---|
 | `vision.enabled` | `auto` | `auto` = used when installed and already downloaded; `true` = may download the model; `false` = never (`sve products` always uses it). |
 | `vision.model` / `text_model` | `sentence-transformers/clip-ViT-B-32` / `…/clip-ViT-B-32-multilingual-v1` | Image model; text model in the same space (Spanish, English and 50+ languages). |
-| `vision.device` | `cpu` | `cpu`, `mps` (Apple GPU, opt-in; falls back to CPU on invalid values) or `cuda`. |
+| `vision.device` | `cpu` | `cpu` (does not import torch), `auto` (NVIDIA `cuda`, else Apple GPU `mps`, else CPU), `cuda` or `mps`. A GPU that is not available falls back to the CPU (warned once). |
 | `vision.fps` | 2 | Frames per second embedded (from the proxy; cached in `cache/<id>_clip.npy`). |
 | `vision.positive` / `negative` | see `base.yaml` | Prompts describing a product shot / what is not one (`{es: […], en: […]}`). |
 | `vision.weights` | `{prompts: 0.5, objectness: 1.0, novelty: 1.0, sharpness: 0.5}` | Parts of the product score. |
@@ -434,8 +434,8 @@ are skipped (a replaced photo gets a new hash).
 | `photo.auto_tone` | 0 | Gentle automatic exposure fix at render time, 0–1 (0 = off; the `slideshow` recipe uses 0.6). Dark or backlit photos get a smooth lightness lift (CIE Lab: blacks and whites stay put, hue kept) plus a little local contrast; backlit photos (people in shadow before a bright window or sky) get their shadows lifted locally along an edge-aware illumination map, so the bright areas stay as they are; well-exposed photos are left untouched. Applied before framing, so the blurred background matches. A shot may override it with `"auto_tone"`. |
 | `color.warmth` | 0 | Photos only: gentle warm tint, 0–1 (0 = off). |
 | `color.vignette` | `false` | Photos: strength 0–1 (`true` = 0.5); videos keep their on/off vignette. |
-| `enhance.model` | — | Path of the Real-ESRGAN `.pth` file. Default: `$XDG_CACHE_HOME/social-video-editor/models/RealESRGAN_x4plus.pth`, else `~/.cache/social-video-editor/models/RealESRGAN_x4plus.pth` (never downloaded automatically). |
-| `enhance.device` | `auto` | `auto` (Apple GPU `mps` when available, else CPU), `mps`, `cpu` or `cuda`. |
+| `enhance.model` | — | Path of the Real-ESRGAN `.pth` file. Default: `RealESRGAN_x4plus.pth` in the user cache's `models/` folder (`$XDG_CACHE_HOME/social_video_editor/models/`, else `%LOCALAPPDATA%\social_video_editor\models\` on Windows, `~/.cache/social_video_editor/models/` elsewhere), then the earlier `$XDG_CACHE_HOME/social-video-editor/models/` and `~/.cache/social-video-editor/models/` (never downloaded automatically). |
+| `enhance.device` | `auto` | `auto` (NVIDIA `cuda`, else Apple GPU `mps`, else CPU), `cuda`, `mps` or `cpu`. A GPU that is not available, or that fails, falls back to the CPU. |
 | `enhance.tile` | 384 | Tile size in pixels (the model works tile by tile to bound memory). |
 | `enhance.headroom` | 1.25 | Large photos are reduced to this × the output short side. |
 
