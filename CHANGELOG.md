@@ -6,6 +6,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-04
+
+### Added
+- Windows 10 / 11 support: FFmpeg and Rubber Band are found on the `PATH` (`ffmpeg.exe`), fonts in
+  `%WINDIR%\Fonts` and `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (Arial / Segoe UI fallbacks, Segoe UI
+  Emoji), caches in `%LOCALAPPDATA%\social_video_editor` (`XDG_CACHE_HOME` still wins). A missing FFmpeg
+  is a clear error with install hints.
+- CI job on `windows-latest` (Python 3.12, FFmpeg 8.1): ruff, the full test suite and the CLI with
+  redirected (cp1252) output.
+- Parallel rendering: video and photo shots of the same dependency wave are encoded at the same time
+  (`render.jobs`, default `auto` = half the CPUs, 1–4; `SVE_JOBS` overrides it). Polaroid and collage
+  shots stay serial. Output is identical for any number of jobs (decoded frames compared in tests);
+  the speed-up has not been benchmarked yet.
+- Hardware acceleration for analysis proxies and drafts: NVENC, VAAPI and Quick Sync besides
+  VideoToolbox, chosen after a one-frame test encode, with fallback to software (`SVE_HWACCEL`,
+  `SVE_VAAPI_DEVICE`). The final export stays libx264. Untested on real GPUs.
+- `scripts/bench.py`: render benchmark on synthetic 4K HEVC footage (60 s vertical, 10 min slideshow,
+  `--quick`), with `--repeat` and `--compare`; helpers shared with `make_demo.py` in `scripts/_synth.py`.
+- numba's compiled code is cached in the user cache folder (`NUMBA_CACHE_DIR`): the first song analysis
+  of a process took 13 s without it and ~3 s with it.
+- Torch models (Real-ESRGAN, and CLIP with `device: auto`) pick CUDA, then MPS, then CPU.
+
+### Changed
+- Every path inside an FFmpeg filter (LUTs) or concat list is escaped in one place, so drive letters,
+  quotes, colons and spaces work.
+- FFmpeg / ffprobe / yt-dlp / Whisper output is decoded as UTF-8; log lines and the console never crash
+  on a legacy code page.
+- Temporary files have unique names and are published with an atomic replace; failed render folders
+  get a free name and survive Windows file locks.
+
+### Fixed
+- FFmpeg 7.x could abort a chunked (long) render with "Assertion best_input >= 0 failed": each chunk's
+  graph now ends at the chunk border by itself instead of being cut by the output (~2% of runs on 7.1.1
+  under load before; the test that hit it: 0/60 runs after); the runner also retries that abort up
+  to twice.
+- FFmpeg 8.1 could hang forever in `encode_frames` when the encoder failed while frames were piped in;
+  a watchdog now stops it and reports FFmpeg's error.
+- A path with `'` silently broke a LUT filter on every OS; a `C:\…` path broke it on Windows.
+- Missing fonts no longer fall back to Pillow's tiny bitmap font.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added
