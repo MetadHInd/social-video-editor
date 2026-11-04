@@ -320,15 +320,28 @@ class FfmpegEncoder:
                 seg = dict(segments[i])
                 if i == b and not segs:
                     seg.update(overlap=0.0, transition="cut")
+                if i == e - 1:          # the chunk's graph ends at its border by itself (see the run below)
+                    cut = float(seg["dur"]) - (eff[e] if e < n else 0.0)
+                    seg.update(dur=cut, end=cut)
                 segs.append(seg)
                 inputs += ["-threads", CHUNK_DECODER_THREADS, "-i", files[i]]
             dest = folder / f"chunk_{k:03d}.mkv"
             log(f"  chunk {k + 1}/{len(bounds)}: shots {b + 1}–{e} ({frames / fps:.1f} s)")
             joined, v, a = filters.join(segs, fps)
+            # The graph ends at the chunk border by itself: its last input is cut there ("end" above), so
+            # the chunk has exactly `frames` frames and round(frames / fps * 48000) samples. Nothing may
+            # close an output while the inputs still hold data: FFmpeg 7.x (seen with 7.1.1; not with
+            # 8.0.1 / 8.1.2) then sometimes aborts with "Assertion best_input >= 0 failed" (choose_input in
+            # fftools/ffmpeg_filter.c). The old output `-t` stopped every non-final chunk ~0.1 s before its
+            # graph's end and aborted ~2% of the runs of a 21-input chunk under CPU load; a trim at the end
+            # of the graph did the same. No -frames:v either: with it FFmpeg 7.1 cuts the audio to the
+            # start of the last video frame (16 ms short). The trims below are only a cap: they never cut a
+            # graph of the planned length.
+            samples = int(round(frames / fps * 48000))
+            joined += f";{v}trim=end_frame={frames}[vchunk];{a}atrim=end_sample={samples}[achunk]"
             script = folder / f"chunk_{k:03d}.txt"
             script.write_text(joined, encoding="utf-8", newline="\n")
-            run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", v, "-map", a,
-                 "-frames:v", str(frames), "-t", f"{frames / fps:.6f}",
+            run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", "[vchunk]", "-map", "[achunk]",
                  "-r", str(fps), "-c:v", "libx264", "-preset", "ultrafast" if draft else "fast", "-crf", crf,
                  "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", dest])
             script.unlink(missing_ok=True)
