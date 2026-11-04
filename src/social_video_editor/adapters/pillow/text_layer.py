@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from ...domain.text_layout import Caption, Card, CardState, Layer, resolve_style, text_scale, text_width
 from ...domain.text_units import clean
+from ..ffmpeg.escape import concat_path
 from . import rich_text as rt
 from .fonts import load_font
 
@@ -235,9 +236,9 @@ class PillowTextRenderer:
         lst = folder / "layer.ffconcat"
         lines = ["ffconcat version 1.0"]
         for path, d in listing:
-            lines += [f"file '{path.name}'", f"duration {d:.5f}"]
-        lines.append(f"file '{listing[-1][0].name}'")
-        lst.write_text("\n".join(lines) + "\n")
+            lines += [f"file {concat_path(path.name)}", f"duration {d:.5f}"]
+        lines.append(f"file {concat_path(listing[-1][0].name)}")
+        lst.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         if boxes is not None:
             for k, (x0, y0, x1, y1, a, b) in placed.items():
                 kind, text = names.get(k, ("text", ""))

@@ -13,7 +13,7 @@ from ...domain.timebase import mmss
 from ..system.fonts import label_font
 from . import rich_text as rt
 from .drawing import center_crop, drop_shadow, ease_out, rounded, soft_background, to_rgb_bytes
-from .fonts import load_font
+from .fonts import default_font, load_font
 
 
 POLAROID_HEIGHT_RATIO = 1.25 + 0.06 + 0.27   # frame height / photo width (4:5 photo, margin, caption strip)
@@ -78,7 +78,7 @@ def _label_font(size: int):
             return ImageFont.truetype(str(path), size)
     except OSError:
         pass
-    return ImageFont.load_default()
+    return default_font(size)
 
 
 class PillowComposer:

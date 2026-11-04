@@ -1,9 +1,12 @@
 """ImageUpscaler with Real-ESRGAN (RealESRGAN_x4plus) loaded by spandrel and run with torch.
 
-Optional: `pip install -e ".[enhance]"`. The model file is looked up at `enhance.model`, else
-$XDG_CACHE_HOME/social-video-editor/models/RealESRGAN_x4plus.pth, else
-~/.cache/social-video-editor/models/RealESRGAN_x4plus.pth (it is never downloaded automatically).
-Device: `enhance.device` (auto = Apple GPU "mps" when available, else CPU; mps errors fall back to CPU).
+Optional: `pip install -e ".[enhance]"`. The model file is looked up at `enhance.model`, else in
+<user cache>/models/RealESRGAN_x4plus.pth (user cache = $XDG_CACHE_HOME/social_video_editor, else
+%LOCALAPPDATA%\\social_video_editor on Windows, ~/.cache/social_video_editor elsewhere), else in the
+earlier locations $XDG_CACHE_HOME/social-video-editor/models/ and ~/.cache/social-video-editor/models/
+(it is never downloaded automatically).
+Device: `enhance.device` (auto = NVIDIA GPU "cuda", else Apple GPU "mps", else CPU; a GPU that is not
+available, or that fails, falls back to the CPU).
 The photo is processed in overlapping tiles (`enhance.tile`, default 384 px) so memory stays bounded.
 When spandrel, torch or the model are missing, the fallback (Lanczos) is used. No face restoration.
 """
@@ -16,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from ...log import log
+from ..system.tools import user_cache_dir
 from .lanczos import LanczosUpscaler, load_oriented, resize_short, save_jpeg
 
 MODEL_FILE = "RealESRGAN_x4plus.pth"
@@ -26,11 +30,33 @@ OVERLAP = 16
 def model_candidates(settings: dict) -> list[Path]:
     if settings.get("model"):
         return [Path(str(settings["model"])).expanduser()]
-    out = []
+    out = [user_cache_dir() / "models" / MODEL_FILE]
     if os.environ.get("XDG_CACHE_HOME"):
         out.append(Path(os.environ["XDG_CACHE_HOME"]) / "social-video-editor" / "models" / MODEL_FILE)
     out.append(Path.home() / ".cache" / "social-video-editor" / "models" / MODEL_FILE)
     return out
+
+
+_warned_devices: set[str] = set()
+
+
+def pick_device(requested, key: str = "enhance.device") -> str:
+    """torch device for a setting (enhance.device, vision.device): auto → cuda, else mps, else cpu; a GPU
+    that is not available → cpu, warned once per setting. torch is imported only here (it takes seconds)."""
+    import torch
+
+    d = str(requested or "auto").strip().lower()
+    cuda = torch.cuda.is_available()
+    mps_backend = getattr(torch.backends, "mps", None)
+    mps = mps_backend is not None and mps_backend.is_available()
+    if d == "auto":
+        return "cuda" if cuda else "mps" if mps else "cpu"
+    if (d.split(":")[0] == "cuda" and not cuda) or (d == "mps" and not mps):
+        if f"{key} {d}" not in _warned_devices:
+            _warned_devices.add(f"{key} {d}")
+            log(f"Warning: {key} {d} is not available; using the CPU.")
+        return "cpu"
+    return d
 
 
 def find_model(settings: dict) -> Path | None:
@@ -81,18 +107,11 @@ class RealEsrganUpscaler:
         if any(importlib.util.find_spec(m) is None for m in ("spandrel", "torch")):
             return 'spandrel/torch are not installed (pip install -e ".[enhance]")'
         if find_model(settings) is None:
-            return f"model not found: {model_candidates(settings)[-1]}"
+            return f"model not found: {model_candidates(settings)[0]}"
         return None
 
     def device(self, settings: dict) -> str:
-        import torch
-
-        d = str(settings.get("device") or "auto")
-        if d == "auto":
-            return "mps" if torch.backends.mps.is_available() else "cpu"
-        if d == "mps" and not torch.backends.mps.is_available():
-            return "cpu"
-        return d
+        return pick_device(settings.get("device"), "enhance.device")
 
     def describe(self, settings: dict) -> str:
         why = self.ready(settings)

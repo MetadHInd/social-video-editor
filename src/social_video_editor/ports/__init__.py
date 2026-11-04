@@ -66,6 +66,9 @@ class VideoEncoder(Protocol):
     def render_automix(self, paths: list[Path], plan: dict, cache_dir: Path) -> Path:
         """The continuous mix of a playlist (a domain.automix.plan_mix plan) as one WAV (cached)."""
 
+    def parallel_jobs(self, cfg: dict) -> int:
+        """How many shots the render may encode at once (render.jobs / $SVE_JOBS and the CPUs available)."""
+
 
 class VideoAnalyzer(Protocol):
     def samples(self, video: str, per_second: float) -> list[dict]:

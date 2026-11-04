@@ -1,20 +1,25 @@
 """VideoEncoder implemented with FFmpeg."""
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import subprocess
+import threading
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
 from ...domain.effects import freeze_seconds
 from ...domain.models import UserError
 from ...log import log
-from ..system.hwaccel import decode_args, proxy_encoder_args, run_with_fallback
+from ..system.hwaccel import (decode_args, device_args, draft_encoder_args, final_decoder, proxy_encoder_args,
+                              run_with_fallback, with_upload)
 from ..system.tools import FFMPEG, ffmpeg_version
 from . import automix_render, filters
 from .loudness import ebur128
-from .runner import run
+from .escape import concat_path
+from .runner import StderrDrain, popen, run
 
 PROXY_SHORT_SIDE = 540
 # long videos (settings render.*): see FfmpegEncoder.compose
@@ -26,6 +31,7 @@ CHUNK_DECODER_THREADS = "2"     # per input of a chunk pass: fewer frame buffers
 DEADLOCK_VERSIONS = ((7, 0), (8, 1))     # [first affected, first fixed)
 SAFE_DECODER_THREADS = "2"
 DECODER_THREADS_ENV = "SVE_DECODER_THREADS"
+JOBS_ENV = "SVE_JOBS"           # shots rendered at once; overrides render.jobs (see parallel_jobs)
 # trial passes of master_audio (gain + limiter → AAC → measure). Very peaky audio needs a 5th pass with
 # FFmpeg 7.x, whose AAC encoder overshoots the true peak more than newer versions.
 MASTER_PASSES = 6
@@ -63,6 +69,35 @@ def should_chunk(n_segments: int, total: float, cfg: dict) -> bool:
     return bool(cfg.get("slideshow")) or float(total) > float(chunk_setting(cfg, "chunk_min_seconds"))
 
 
+_WINDOWS = os.name == "nt"
+FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and stalled this long is killed
+
+
+_TMP_COUNTER = itertools.count()      # next() on a count is atomic in CPython
+
+
+def _tmp_for(out: Path) -> Path:
+    """A temporary name next to `out`, unique per process and call (two shots with the same cache
+    signature may render at the same time; thread ids are reused once a thread ends, hence the
+    counter), keeping the extension FFmpeg picks the muxer from."""
+    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}-{next(_TMP_COUNTER)}.tmp{out.suffix}")
+
+
+def _publish(tmp: Path, out: Path, attempts: int = 6) -> Path:
+    """Atomically moves a finished temporary file to `out` (replacing it). On Windows a file that was
+    just closed can stay locked for a moment (antivirus, indexer, a reader of the old `out`), so
+    PermissionError is retried there with a short back-off (1.55 s in all)."""
+    for k in range(attempts):
+        try:
+            os.replace(tmp, out)
+            return out
+        except PermissionError:
+            if not _WINDOWS or k == attempts - 1:
+                raise
+            time.sleep(0.05 * 2 ** k)
+    return out
+
+
 def _wav_seconds(path: Path) -> float:
     try:
         import soundfile as sf
@@ -81,11 +116,14 @@ class FfmpegEncoder:
         else:
             h, w = PROXY_SHORT_SIDE, round(PROXY_SHORT_SIDE * info["width"] / info["height"] / 2) * 2
         vf = f"scale={w}:{h}:flags=bicubic,{filters.sdr_chain(info, hdr_white)},fps=30"
-        tmp = out.with_suffix(".tmp.mp4")
-        run_with_fallback(lambda hw: ["ffmpeg", *decode_args(hw), "-i", info["path"], "-map", "0:v:0", "-vf", vf,
-                                      *proxy_encoder_args(hw, "3M"), "-an", tmp], run)
-        tmp.rename(out)
-        return out
+        tmp = _tmp_for(out)
+        try:
+            run_with_fallback(lambda hw: ["ffmpeg", *device_args(hw), *decode_args(hw), "-i", info["path"],
+                                          "-map", "0:v:0", "-vf", with_upload(vf, hw),
+                                          *proxy_encoder_args(hw, "3M"), "-an", tmp], run)
+            return _publish(tmp, out)
+        finally:
+            tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
     def extract_wav(self, info: dict, out: Path) -> Path:
         run(["ffmpeg", "-i", info["path"], "-map", f"0:{info['audio_index']}", "-ac", "1", "-ar", "16000",
@@ -111,26 +149,30 @@ class FfmpegEncoder:
         vf.append(f"fps={fps},format=yuv420p,setsar=1")
         vf = ",".join(x for x in vf if x)
         af = filters.shot_audio_chain(cfg, shot, has_voice, shot["dur"])
-        tmp = out.with_suffix(".tmp.mkv")
+        tmp = _tmp_for(out)
         threads = segment_decoder_threads(ffmpeg_version(), os.environ.get(DECODER_THREADS_ENV))
         threads_args = ["-threads", threads] if threads else []
 
-        def build(hw: bool) -> list:
-            cmd = ["ffmpeg", *decode_args(hw), *threads_args,
+        def build(hw) -> list:
+            # drafts: the hardware backend decodes and encodes; final quality: libx264, VideoToolbox decode only
+            dec, enc = (hw, hw) if draft else (final_decoder(hw), None)
+            cmd = ["ffmpeg", *device_args(dec), *decode_args(dec), *threads_args,
                    "-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}", "-i", info["path"]]
             if info["has_audio"]:
                 audio_map = f"0:{info['audio_index']}"
             else:
                 cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
                 audio_map = "1:a"
-            return cmd + ["-map", "0:v:0", "-map", audio_map, "-vf", vf, "-af", af, "-t", f"{shot['dur']:.4f}",
-                          "-c:v", "libx264", "-preset", "ultrafast" if draft else "fast",
-                          "-crf", "22" if draft else "12", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
-                          "-ar", "48000", tmp]
+            venc = draft_encoder_args(enc) or ["-c:v", "libx264", "-preset", "ultrafast" if draft else "fast",
+                                               "-crf", "22" if draft else "12", "-pix_fmt", "yuv420p"]
+            return cmd + ["-map", "0:v:0", "-map", audio_map, "-vf", with_upload(vf, enc), "-af", af,
+                          "-t", f"{shot['dur']:.4f}", *venc, "-c:a", "pcm_s16le", "-ar", "48000", tmp]
 
-        run_with_fallback(build, run)
-        tmp.rename(out)
-        return out
+        try:
+            run_with_fallback(build, run)
+            return _publish(tmp, out)
+        finally:
+            tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
     def encode_frames(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path,
                       audio: dict | None = None, crf: int | None = None) -> Path:
@@ -143,7 +185,7 @@ class FfmpegEncoder:
         shot (speed, cleanup, compression), `gain_db` lower and faded in/out over `fade` seconds.
         """
         dur = n / fps
-        tmp = out.with_suffix(".tmp.mkv")
+        tmp = _tmp_for(out)
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                "-s", f"{W}x{H}", "-r", str(fps), "-i", "-"]
         info = (audio or {}).get("info") or {}
@@ -159,33 +201,54 @@ class FfmpegEncoder:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a"]
         cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", "fast", "-crf", str(12 if crf is None else int(crf)),
                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
-        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        ok = False
+        p = popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        # stderr drained in a thread while frames are written: a full stderr pipe (4 KiB on Windows)
+        # would block FFmpeg while this loop blocks on a full stdin pipe
+        drain = StderrDrain(p.stderr)
+        progress, finished = [time.monotonic()], threading.Event()
+
+        def watchdog():
+            """FFmpeg 8.1 can stay alive forever, reading nothing, after a fatal error (seen ~2% of the
+            time when the encoder fails to open): an error printed + no progress for FRAMES_STALL_SEC
+            → kill it, so the error below is raised instead of hanging the render."""
+            while not finished.wait(0.5):
+                if drain.has_output() and time.monotonic() - progress[0] > FRAMES_STALL_SEC and p.poll() is None:
+                    p.kill()
+                    return
+
+        threading.Thread(target=watchdog, name="ffmpeg-watchdog", daemon=True).start()
+        ok = broken = False
         try:
-            try:
-                for frame in frames:
+            for frame in frames:                     # the generator's own errors propagate (FFmpeg killed below)
+                try:
                     p.stdin.write(frame)
+                except OSError:     # FFmpeg died (BrokenPipeError; EINVAL on Windows): its stderr says why
+                    broken = True
+                    break
+                progress[0] = time.monotonic()
+            try:
                 p.stdin.close()
-            except BrokenPipeError:                  # FFmpeg died: its stderr says why (raised below)
-                pass
-            err = p.stderr.read()
-            if p.wait() != 0:
+            except OSError:
+                broken = True
+            progress[0] = time.monotonic()
+            if p.wait() != 0 or broken:
                 raise RuntimeError(f"FFmpeg failed encoding {out.name} (exit {p.returncode}): "
-                                   f"{err.decode(errors='replace')[-800:].strip()}")
+                                   f"{drain.text()[-800:].strip()}")
             ok = True
         finally:
+            finished.set()
             if not ok and p.poll() is None:          # e.g. the frame generator raised: stop FFmpeg
                 p.kill()
-            for f in (p.stdin, p.stderr):
-                try:
-                    f.close()
-                except OSError:                      # BrokenPipeError flushing what FFmpeg never read
-                    pass
+            try:
+                p.stdin.close()
+            except OSError:                          # flushing what FFmpeg never read
+                pass
             p.wait()
+            drain.text(timeout=5)                    # the reader thread is done before stderr is closed
+            p.stderr.close()
             if not ok:
                 tmp.unlink(missing_ok=True)
-        tmp.rename(out)
-        return out
+        return _publish(tmp, out)
 
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of an already rendered segment (at=None → the last frame)."""
@@ -263,22 +326,35 @@ class FfmpegEncoder:
                 seg = dict(segments[i])
                 if i == b and not segs:
                     seg.update(overlap=0.0, transition="cut")
+                if i == e - 1:          # the chunk's graph ends at its border by itself (see the run below)
+                    cut = float(seg["dur"]) - (eff[e] if e < n else 0.0)
+                    seg.update(dur=cut, end=cut)
                 segs.append(seg)
                 inputs += ["-threads", CHUNK_DECODER_THREADS, "-i", files[i]]
             dest = folder / f"chunk_{k:03d}.mkv"
             log(f"  chunk {k + 1}/{len(bounds)}: shots {b + 1}–{e} ({frames / fps:.1f} s)")
             joined, v, a = filters.join(segs, fps)
+            # The graph ends at the chunk border by itself: its last input is cut there ("end" above), so
+            # the chunk has exactly `frames` frames and round(frames / fps * 48000) samples. Nothing may
+            # close an output while the inputs still hold data: FFmpeg 7.x (seen with 7.1.1; not with
+            # 8.0.1 / 8.1.2) then sometimes aborts with "Assertion best_input >= 0 failed" (choose_input in
+            # fftools/ffmpeg_filter.c). The old output `-t` stopped every non-final chunk ~0.1 s before its
+            # graph's end and aborted ~2% of the runs of a 21-input chunk under CPU load; a trim at the end
+            # of the graph did the same. No -frames:v either: with it FFmpeg 7.1 cuts the audio to the
+            # start of the last video frame (16 ms short). The trims below are only a cap: they never cut a
+            # graph of the planned length.
+            samples = int(round(frames / fps * 48000))
+            joined += f";{v}trim=end_frame={frames}[vchunk];{a}atrim=end_sample={samples}[achunk]"
             script = folder / f"chunk_{k:03d}.txt"
-            script.write_text(joined)
-            run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", v, "-map", a,
-                 "-frames:v", str(frames), "-t", f"{frames / fps:.6f}",
+            script.write_text(joined, encoding="utf-8", newline="\n")
+            run(["ffmpeg", *inputs, "-/filter_complex", script, "-map", "[vchunk]", "-map", "[achunk]",
                  "-r", str(fps), "-c:v", "libx264", "-preset", "ultrafast" if draft else "fast", "-crf", crf,
                  "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", dest])
             script.unlink(missing_ok=True)
             out_files.append(dest)
-            lines += [f"file {dest.name}", f"duration {frames / fps:.6f}"]
+            lines += [f"file {concat_path(dest.name)}", f"duration {frames / fps:.6f}"]
         listing = folder / "chunks.ffconcat"
-        listing.write_text("\n".join(lines) + "\n")
+        listing.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         return listing, out_files
 
     def _compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
@@ -321,7 +397,7 @@ class FfmpegEncoder:
         mix, am = filters.final_mix(a, total, cfg, idx_music, idx_sfx, has_voice, stems)
         parts.append(mix)
         script = workdir / "_filter.txt"
-        script.write_text(";\n".join(parts))
+        script.write_text(";\n".join(parts), encoding="utf-8", newline="\n")
         extra = []
         if stems:
             Path(stems_dir).mkdir(parents=True, exist_ok=True)
@@ -455,3 +531,24 @@ class FfmpegEncoder:
     def cover(self, video: Path, t: float, out: Path) -> Path:
         run(["ffmpeg", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1", "-q:v", "2", out])
         return out
+
+    # ── parallel shot rendering ──────────────────────────────────────────────
+    def parallel_jobs(self, cfg: dict) -> int:
+        """Shots to encode at once: $SVE_JOBS, else render.jobs (auto = from the CPUs this process may use)."""
+        from ...domain.config import resolve_jobs      # imported here: keeps this addition self-contained
+
+        return resolve_jobs((cfg.get("render") or {}).get("jobs"), os.environ.get(JOBS_ENV),
+                            self.usable_cpus())
+
+    @staticmethod
+    def usable_cpus() -> int:
+        """CPUs this process may run on: os.process_cpu_count() (Python 3.13+, honors affinity and
+        PYTHON_CPU_COUNT), else the scheduler affinity (Linux), else os.cpu_count()."""
+        if hasattr(os, "process_cpu_count"):
+            return os.process_cpu_count() or 1
+        if hasattr(os, "sched_getaffinity"):
+            try:
+                return len(os.sched_getaffinity(0)) or 1
+            except OSError:
+                pass
+        return os.cpu_count() or 1

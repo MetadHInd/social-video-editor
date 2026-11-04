@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,7 @@ import pytest
 import yaml
 
 from conftest import requires_ffmpeg
-from social_video_editor.adapters.ffmpeg import filters
+from social_video_editor.adapters.ffmpeg import escape, filters
 from social_video_editor.adapters.ffmpeg.encoder import FfmpegEncoder
 from social_video_editor.adapters.ffmpeg.luts import hlg_lut_path
 from social_video_editor.adapters.ffmpeg.probe import FfprobeMediaProbe
@@ -57,7 +58,8 @@ def test_sdr_chain_converts_hlg(tmp_path):
     info = FfprobeMediaProbe().probe(hlg)
     assert info["hlg"] and info["hdr"] and not info["has_audio"]
     chain = filters.sdr_chain(info)
-    assert "lut3d=" in chain and str(tmp_path / "user_cache") in chain
+    lut = hlg_lut_path(white=0.62)
+    assert lut.is_relative_to(tmp_path / "user_cache") and f"lut3d=file={escape.filter_path(lut)}:" in chain
     sdr = tmp_path / "sdr.mp4"
     ff("-i", hlg, "-vf", f"scale=270:480,{chain}", "-c:v", "libx264", "-preset", "ultrafast", sdr)
     v = probe(sdr)["streams"][0]
@@ -209,3 +211,111 @@ def test_legacy_spanish_project_renders_the_same_timeline(workspace, monkeypatch
     main(["render", "demo", "--draft", "--sin-musica"])
     assert (d / "v1DraftNoMusic" / "demo_draft_no_music.mp4").exists()
     assert (d / "v1DraftNoMusic" / "demo_draft_no_music_cover.jpg").exists()
+
+
+# ── odd paths, text encodings, pipes (Windows portability, real FFmpeg) ──────
+
+# characters that are special to FFmpeg's filter / option / concat syntaxes; ':' only where a file
+# name may contain it (on Windows the drive letter's colon of tmp_path is exercised instead)
+ODD_FOLDER = "x y'z,[1];" + ("" if sys.platform == "win32" else ":")
+IDENTITY_CUBE = "LUT_3D_SIZE 2\n" + "".join(f"{r} {g} {b}\n" for b in (0, 1) for g in (0, 1) for r in (0, 1))
+TESTSRC = ["-f", "lavfi", "-i", "testsrc2=s=64x64:d=0.2:r=10"]
+
+
+def test_lut3d_opens_a_lut_in_a_folder_with_filter_syntax_characters(tmp_path):
+    folder = tmp_path / ODD_FOLDER
+    folder.mkdir()
+    lut = folder / "it's a look.cube"
+    lut.write_text(IDENTITY_CUBE, encoding="utf-8")
+    chain = filters.creative_chain({"lut": str(lut)})
+    ff(*TESTSRC, "-vf", chain, "-f", "null", "-")                                # as a -vf argument
+    script = folder / "graph.txt"                                                # as a filter script
+    script.write_text(f"[0:v]scale=32:32,{chain}[v]", encoding="utf-8", newline="\n")
+    ff(*TESTSRC, "-/filter_complex", script, "-map", "[v]", "-f", "null", "-")
+    missing = filters.creative_chain({"lut": str(folder / "missing.cube")})    # a wrong path does fail
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", *TESTSRC, "-vf", missing, "-f", "null", "-"],
+                       check=True, capture_output=True)
+
+
+def test_hlg_lut_in_a_user_cache_with_filter_syntax_characters(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / ODD_FOLDER))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / ODD_FOLDER))               # Windows cache root
+    chain = filters.sdr_chain({"hlg": True}, white=0.5)
+    assert ODD_FOLDER in str(hlg_lut_path(white=0.5))
+    ff(*TESTSRC, "-vf", chain, "-f", "null", "-")
+
+
+def test_concat_list_names_clips_with_quotes_and_spaces(tmp_path):
+    folder = tmp_path / ODD_FOLDER
+    folder.mkdir()
+    clip = folder / "a'b c.mkv"
+    ff("-f", "lavfi", "-i", "testsrc2=s=64x64:d=0.5:r=10", "-c:v", "ffv1", clip)
+    listing = folder / "list.ffconcat"                       # by name (as the engine writes) and by full path
+    listing.write_text(f"ffconcat version 1.0\nfile {escape.concat_path(clip.name)}\n"
+                       f"file {escape.concat_path(clip)}\n", encoding="utf-8", newline="\n")
+    out = tmp_path / "joined.mkv"
+    ff("-f", "concat", "-safe", "0", "-i", listing, "-c", "copy", out)
+    assert float(probe(out)["format"]["duration"]) == pytest.approx(1.0, abs=0.15)
+
+
+def test_text_layer_list_in_an_odd_folder_is_read_by_ffmpeg(tmp_path, cfg):
+    from social_video_editor.adapters.pillow.text_layer import PillowTextRenderer
+
+    texts = [{"text": "it's ✓", "start": 0.0, "end": 0.6, "style": "label"}]
+    lst, _ = PillowTextRenderer().render_layer(texts, [], cfg, 120, 200, 1.0, tmp_path / ODD_FOLDER)
+    assert b"\r" not in lst.read_bytes()                                 # LF only, also on Windows
+    out = tmp_path / "layer.mkv"
+    ff("-f", "concat", "-safe", "0", "-i", lst, "-c:v", "ffv1", out)
+    assert float(probe(out)["format"]["duration"]) == pytest.approx(1.0, abs=0.2)
+
+
+def test_probe_reads_utf8_names_and_metadata(tmp_path):
+    clip = tmp_path / "ünï ✓ 👀.mp4"
+    ff(*TESTSRC, "-metadata", "title=Café ✓ 👀", "-c:v", "libx264", "-preset", "ultrafast", clip)
+    media = FfprobeMediaProbe()
+    assert media._run(clip)["format"]["tags"]["title"] == "Café ✓ 👀"
+    assert media.probe(clip)["duration"] == pytest.approx(0.2, abs=0.1)
+
+
+def test_encode_frames_reports_ffmpeg_errors_without_hanging(tmp_path):
+    """FFmpeg refuses the frames (odd width for yuv420p) while frames are still being written: the
+    broken pipe ends the loop, the error carries FFmpeg's own message, no temporary file is left."""
+    W, H, n = 33, 32, 400
+    out = tmp_path / "seg.mkv"
+    with pytest.raises(RuntimeError, match=r"seg\.mkv \(exit \d+\): ") as e:
+        FfmpegEncoder().encode_frames((bytes(W * H * 3) for _ in range(n)), n, W, H, 10, out)
+    assert "libx264" in str(e.value)                                     # FFmpeg's own words
+    assert list(tmp_path.glob("seg*")) == []
+
+
+def test_encode_frames_in_parallel_threads_never_share_a_temporary_file(tmp_path):
+    import threading
+
+    W, H, n = 32, 32, 10
+    out, errors = tmp_path / "same.mkv", []
+
+    def encode(level: int):
+        try:
+            FfmpegEncoder().encode_frames((bytes([level]) * (W * H * 3) for _ in range(n)), n, W, H, 10, out)
+        except Exception as e:                    # reported below
+            errors.append(e)
+
+    threads = [threading.Thread(target=encode, args=(k * 60,)) for k in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
+    assert errors == []
+    assert float(probe(out)["format"]["duration"]) == pytest.approx(1.0, abs=0.15)
+    assert [p.name for p in tmp_path.iterdir() if ".tmp" in p.name] == []
+
+
+def test_audio_blocks_failure_carries_ffmpeg_stderr(tmp_path):
+    from social_video_editor.adapters.ffmpeg.inspector import FfmpegRenderInspector
+
+    bad = tmp_path / "bad.wav"
+    bad.write_bytes(b"RIFF not really a wav" * 50)
+    with pytest.raises(subprocess.CalledProcessError) as e:
+        list(FfmpegRenderInspector().audio_blocks(bad))
+    assert e.value.stderr.strip()

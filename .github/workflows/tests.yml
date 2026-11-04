@@ -65,6 +65,122 @@ jobs:
       - name: Tests (unit + integration)
         run: python -m pytest -q -rs
 
+  windows:
+    name: pytest (Windows, Python 3.12, FFmpeg 7+)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # No PYTHONUTF8 / PYTHONIOENCODING on purpose: Windows Python writes redirected or piped output in
+    # the ANSI code page (cp1252 on the runners), and the engine must work with that default, which is
+    # what most users have. Setting either variable would hide console-encoding bugs.
+    # Rubber Band is not installed on purpose either: this job exercises the FFmpeg atempo fallback.
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      HF_HUB_OFFLINE: "1"          # never download Whisper / CLIP models: those tests skip or degrade
+    defaults:
+      run:
+        # pwsh fails a step only on the last command's exit code: multi-command steps check $LASTEXITCODE
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # BtbN publishes versioned static builds under the rolling "latest" tag. Asset names change over
+      # time (there is no n7.1 / n8.0 asset any more), so the URLs are tried in order: the n8.1 release
+      # branch (reports "ffmpeg version n8.1…"), then gyan.dev's release essentials, then Chocolatey.
+      - name: Install FFmpeg (static build, Chocolatey fallback)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with a progress bar
+          $urls = @(
+            'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-8.1.zip',
+            'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          )
+          $dest = Join-Path $env:RUNNER_TEMP 'ffmpeg'
+          $bin = $null
+          foreach ($url in $urls) {
+            try {
+              Write-Host "Downloading $url"
+              if (Test-Path $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+              $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
+              Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRetryCount 3 -RetryIntervalSec 5
+              Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force
+              Remove-Item -LiteralPath $zip -Force
+              $exe = Get-ChildItem -Path $dest -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+              if ($exe) { $bin = $exe.DirectoryName; break }
+              Write-Warning "no ffmpeg.exe inside $url"
+            } catch {
+              Write-Warning "download failed: $url ($_)"
+            }
+          }
+          if (-not $bin) {
+            Write-Warning 'falling back to Chocolatey'
+            choco install ffmpeg -y --no-progress
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $bin = 'C:\ProgramData\chocolatey\bin'   # choco's shims folder
+          }
+          Write-Host "FFmpeg bin folder: $bin"
+          # Prepended to PATH for the next steps, so it wins over any ffmpeg preinstalled on the image
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          & (Join-Path $bin 'ffmpeg.exe') -hide_banner -version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      # Only the base package + dev tools: the heavy extras (torch, spandrel, sentence-transformers)
+      # are not installed and their tests skip.
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # The engine requires FFmpeg >= 7. ffmpeg_version() returns None for builds without a release
+      # number (git/master snapshots "N-12345-g…"); then the libavcodec major is used instead
+      # (61 = FFmpeg 7.x, 62 = 8.x) and the step fails only if a version older than 7 is found.
+      - name: Check FFmpeg version (>= 7)
+        shell: python
+        run: |
+          import re, shutil, subprocess
+          from social_video_editor.adapters.system.tools import FFMPEG, ffmpeg_version
+          assert shutil.which("ffmpeg"), "ffmpeg is not on PATH"
+          print("engine uses:", FFMPEG)
+          v = ffmpeg_version()
+          print("release:", v)
+          if v is not None:
+              assert v >= (7, 0), f"FFmpeg {v} is older than 7.0"
+          else:
+              out = subprocess.run([FFMPEG, "-hide_banner", "-version"], capture_output=True, text=True).stdout
+              print(out.splitlines()[0] if out else "(no output)")
+              m = re.search(r"libavcodec\s+(\d+)\.", out)
+              if m:
+                  assert int(m[1]) >= 61, f"libavcodec {m[1]} means FFmpeg older than 7.0"
+              else:
+                  print("::warning::FFmpeg reports neither a release number nor a libavcodec version")
+
+      - name: Lint (rules in pyproject.toml)
+        run: ruff check --output-format=github .
+
+      - name: Tests (unit + integration)
+        run: python -m pytest -q -rs
+
+      # Redirected output is not a console: Python then encodes stdout with the ANSI code page (cp1252),
+      # and any character it cannot encode crashes the command with UnicodeEncodeError.
+      - name: CLI with redirected output (console encoding)
+        run: |
+          function Show-Head([string]$path) {
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $path))
+            if ($bytes.Length -eq 0) { throw "$path is empty" }
+            Write-Host "$path : $($bytes.Length) bytes; first 64:"
+            Write-Host (($bytes | Select-Object -First 64 | ForEach-Object { $_.ToString('x2') }) -join ' ')
+            Get-Content -LiteralPath $path -TotalCount 5
+          }
+          sve recipes > recipes.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Show-Head recipes.txt
+          python -m social_video_editor --help > help.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Show-Head help.txt
+
   docker:
     name: docker image
     runs-on: ubuntu-latest

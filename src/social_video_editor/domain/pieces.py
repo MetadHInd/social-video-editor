@@ -411,9 +411,26 @@ class Sequence(Piece):
     def render_order(self) -> list[int]:
         """Shot indices in an order where every shot comes after the shots it is drawn from.
 
-        Shots without dependencies first (story order), then those drawn from them, and so on.
-        Raises PlanError for references to missing shots or circular references.
+        Shots without dependencies first (story order), then those drawn from them, and so on
+        (render_waves flattened). Raises PlanError for references to missing shots or circular references.
         """
+        return [i for wave in self.render_waves() for i in wave]
+
+    def render_waves(self) -> list[list[int]]:
+        """Shot indices grouped by dependency depth, story order inside each group.
+
+        Wave 0 holds the shots that need no other shot (video, photo), wave k the shots drawn only from
+        shots of earlier waves: the shots of one wave never depend on each other, so a renderer may
+        encode them concurrently. Raises PlanError like render_order.
+        """
+        depth = self._depths()
+        waves: list[list[int]] = [[] for _ in range(max(depth.values(), default=-1) + 1)]
+        for i in range(len(depth)):
+            waves[depth[i]].append(i)
+        return waves
+
+    def _depths(self) -> dict[int, int]:
+        """Dependency depth of every shot (0 = no dependencies); validates the references."""
         shots = self.shots()
         n = len(shots)
         for s in shots:
@@ -440,4 +457,4 @@ class Sequence(Piece):
 
         for i in range(n):
             visit(i, [])
-        return sorted(range(n), key=lambda i: (depth[i], i))
+        return depth

@@ -23,6 +23,8 @@ import argparse
 import json
 
 from .adapters.files.legacy_es import profile_name
+from .adapters.system.console import configure_console
+from .adapters.system.tools import configure_numba_cache
 from .application.analyze import prepare_sources
 from .application.music import download_music
 from .application.plan import make_plan
@@ -169,5 +171,9 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None):
+    # before anything prints or librosa/numba load: safe console encoding (Windows code pages) and a
+    # writable numba cache
+    configure_console()
+    configure_numba_cache()
     a = parser().parse_args(argv)
     a.f(build_services(), a)

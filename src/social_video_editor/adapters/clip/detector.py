@@ -58,13 +58,13 @@ class ClipVisualDetector:
 
     @staticmethod
     def _device(settings: dict) -> str:
-        device = str(settings.get("device") or "cpu")
-        if device == "mps":
-            import torch
-            if not torch.backends.mps.is_available():
-                log("Warning: vision.device mps is not available; using the CPU.")
-                return "cpu"
-        return device
+        """vision.device: cpu (default; does not import torch), auto (cuda, else mps, else cpu), cuda or
+        mps; a GPU that is not available → cpu (warned once)."""
+        device = str(settings.get("device") or "cpu").strip().lower()
+        if device == "cpu":
+            return device
+        from ..upscale.realesrgan import pick_device
+        return pick_device(device, "vision.device")
 
     def _model(self, name: str, settings: dict, download: bool):
         device = self._device(settings)

@@ -4,12 +4,11 @@ Shots passed here are timeline dicts: the plan shot plus "index", "dur", "overla
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from ...domain import color_math
 from ...domain.effects import effects_of
 from ...domain.transitions import get_transition
 from ...log import log
+from .escape import filter_path
 from .luts import hlg_lut_path
 
 # transition name → xfade transition (None = hard cut). https://trac.ffmpeg.org/wiki/Xfade
@@ -38,7 +37,7 @@ def sdr_chain(info: dict, white: float = 0.62) -> str:
         return (
             "format=yuv420p10le,"
             "scale=in_color_matrix=bt2020:in_range=tv,format=gbrp16le,"
-            f"lut3d=file='{lut}':interp=tetrahedral,"
+            f"lut3d=file={filter_path(lut)}:interp=tetrahedral,"
             "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
             "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"
         )
@@ -55,7 +54,7 @@ def creative_chain(p: dict) -> str:
     if "temperature" in p:
         f.append(f"colortemperature=temperature={p['temperature']}:mix=0.35")
     if "lut" in p:
-        f.append(f"lut3d=file='{Path(p['lut']).expanduser()}'")
+        f.append(f"lut3d=file={filter_path(p['lut'])}")          # ~ expanded, any folder name
     if "sharpen" in p:
         f.append(f"cas=strength={p['sharpen']:.2f}")
     if p.get("vignette"):
@@ -305,7 +304,10 @@ def join(segments: list[dict], fps: int) -> tuple[str, str, str]:
     optional "skip" (seconds) drops the start of that input (a chunk border, see encoder._chunks);
     "renumber": timestamps rebuilt from the frame / sample count (the chunk list of a long video);
     "exact_audio": the input's audio padded / cut to exactly "dur" (48 kHz) — a segment whose audio
-    stopped at the last whole codec frame (up to 21 ms short) would shorten every crossfade after it.
+    stopped at the last whole codec frame (up to 21 ms short) would shorten every crossfade after it;
+    "end" (seconds, after any skip): the input is cut there, its video after round(end * fps) frames
+    and its audio after round(end * 48000) samples, so the graph itself stops at a chunk border
+    instead of the output options closing it early (see encoder._chunks).
     Returns (filter, video_label, audio_label).
     """
     # normalized inputs (same time base: xfade requires it). Timestamps start at 0 BEFORE fps: setpts
@@ -318,18 +320,31 @@ def join(segments: list[dict], fps: int) -> tuple[str, str, str]:
         if s.get("skip"):           # half a frame early: the container's millisecond timestamps
             vs = f"trim=start={max(float(s['skip']) - 0.5 / fps, 0):.6f},setpts=PTS-STARTPTS,"
             as_ = f"atrim=start={float(s['skip']):.6f},"
-        pad = ""
+        pad = cut = ""
+        end = s.get("end")
+        if end is not None:         # counted after fps: exact whatever the container's timestamps
+            cut = f",trim=end_frame={max(int(round(float(end) * fps)), 1)}"
         if s.get("exact_audio"):
-            samples = int(round(float(s["dur"]) * 48000))
+            samples = int(round(float(s["dur"] if end is None else min(float(s["dur"]), float(end))) * 48000))
             pad = f",apad=whole_len={samples},atrim=end_sample={samples}"
-        parts.append(f"[{i}:v]{vs}fps={fps},settb=AVTB[sv{i}];"
+        elif end is not None:
+            pad = f",atrim=end_sample={max(int(round(float(end) * 48000)), 1)}"
+        parts.append(f"[{i}:v]{vs}fps={fps}{cut},settb=AVTB[sv{i}];"
                      f"[{i}:a]{as_}asetpts=PTS-STARTPTS{pad}[sa{i}]")
     v, a = "[sv0]", "[sa0]"
     length = segments[0]["dur"]
+    exact = bool(segments[0].get("exact_audio"))     # the joined audio so far is exactly as long as planned
     for i, s in enumerate(segments[1:], start=1):
         xf = xfade_name(s["transition"])
         nv, na = f"[v{i}]", f"[a{i}]"
-        if xf is None or s["overlap"] <= 0:
+        exact = exact and bool(s.get("exact_audio"))
+        if (xf is None or s["overlap"] <= 0) and exact:
+            # exact audio on both sides: picture and sound joined apart. A joint concat pads the audio to
+            # the video's microsecond timestamps (a few samples per cut, 6 in 10 cuts of 0.5 s at 30 fps)
+            parts.append(f"{v}[sv{i}]concat=n=2:v=1:a=0[cv{i}];{a}[sa{i}]concat=n=2:v=0:a=1{na};"
+                         f"[cv{i}]settb=AVTB{nv}")
+            length += s["dur"]
+        elif xf is None or s["overlap"] <= 0:
             parts.append(f"{v}{a}[sv{i}][sa{i}]concat=n=2:v=1:a=1[cv{i}]{na};[cv{i}]settb=AVTB{nv}")
             length += s["dur"]
         else:

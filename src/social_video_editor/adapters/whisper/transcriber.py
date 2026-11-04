@@ -21,9 +21,11 @@ class WhisperTranscriber:
         cfg_p, out_p = workdir / "_whisper_config.json", workdir / (Path(wav).stem + "_words.json")
         cfg_p.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
         # the subprocess finds the package even when it is not installed
-        env = {**os.environ, "PYTHONPATH": os.pathsep.join(x for x in (str(PACKAGE_ROOT), os.environ.get("PYTHONPATH")) if x)}
+        # (UTF-8 both ways, so error messages survive the Windows code page)
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8",
+               "PYTHONPATH": os.pathsep.join(x for x in (str(PACKAGE_ROOT), os.environ.get("PYTHONPATH")) if x)}
         r = subprocess.run([sys.executable, "-m", "social_video_editor.adapters.whisper.worker", wav, str(cfg_p), str(out_p)],
-                           capture_output=True, text=True, env=env)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         if r.returncode != 0:
             log("Warning: transcription failed; continuing without automatic subtitles.\n" + r.stderr[-800:])
             return []

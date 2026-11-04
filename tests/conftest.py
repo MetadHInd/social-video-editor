@@ -10,6 +10,17 @@ from social_video_editor.adapters.files.recipes import YamlRecipeRepository
 from social_video_editor.adapters.system.tools import FFMPEG
 
 
+@pytest.fixture(autouse=True, scope="session")
+def numba_cache(tmp_path_factory) -> Path:
+    """cli.main() points NUMBA_CACHE_DIR to the user cache unless it is set; tests call main() in-process,
+    so it is set once here: numba never writes into a test's user cache (or the real one)."""
+    mp = pytest.MonkeyPatch()
+    folder = tmp_path_factory.mktemp("numba_cache")
+    mp.setenv("NUMBA_CACHE_DIR", str(folder))
+    yield folder
+    mp.undo()
+
+
 @pytest.fixture(autouse=True)
 def workspace(tmp_path, monkeypatch) -> Path:
     """Isolated workspace and user cache inside tmp_path."""

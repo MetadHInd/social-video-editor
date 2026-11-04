@@ -86,21 +86,37 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   default).
 - **Fonts** are looked up by file name (no extension): on macOS in `~/Library/Fonts`,
   `/Library/Fonts`, `/System/Library/Fonts/Supplemental` and `/System/Library/Fonts`; on Linux in
-  `~/.local/share/fonts`, `~/.fonts`, `/usr/local/share/fonts` and `/usr/share/fonts`, sub-folders
-  included. The default styles use [Inter / Inter Display](https://rsms.me/inter/) (macOS: install
+  `~/.local/share/fonts`, `~/.fonts`, `/usr/local/share/fonts` and `/usr/share/fonts`; on Windows in
+  `%WINDIR%\Fonts` and `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (sub-folders included, names
+  case-insensitive). The default styles use [Inter / Inter Display](https://rsms.me/inter/) (macOS: install
   the `.otf`/`.ttf` files; Debian/Ubuntu: `fonts-inter`) and *Bradley Hand Bold* (ships with macOS).
-  A missing font falls back to an installed bold sans-serif (Arial Black, Inter, DejaVu Sans, Noto
-  Sans, Liberation Sans).
-- **Color emoji** are drawn with *Apple Color Emoji* on macOS and *Noto Color Emoji* on Linux
-  (`fonts-noto-color-emoji`); without an emoji font they are left out.
+  A missing font falls back to an installed bold sans-serif (Arial Black, Inter, Segoe UI, DejaVu
+  Sans, Noto Sans, Liberation Sans).
+- **Color emoji** are drawn with *Apple Color Emoji* on macOS, *Noto Color Emoji* on Linux
+  (`fonts-noto-color-emoji`) and *Segoe UI Emoji* on Windows; without an emoji font, or when Pillow
+  cannot draw it in color, they are left out.
 - **Optional:** [Rubber Band](https://breakfastquay.com/rubberband/) (`rubberband` on the `PATH`;
-  `brew install rubberband` / `apt install rubberband-cli`) for AutoMix tempo matching; FFmpeg
-  `atempo` is used without it.
-- **macOS:** **VideoToolbox** (hardware decoding, and encoding of the small analysis proxies) is
-  used automatically when FFmpeg supports it, with automatic fallback to software; `SVE_HWACCEL=0`
-  forces software. The final export always uses libx264.
+  `brew install rubberband` / `apt install rubberband-cli`; on Windows the command-line build from
+  the Rubber Band site, added to the `PATH`) for AutoMix tempo matching; FFmpeg `atempo` is used
+  without it.
+- **Hardware acceleration** (analysis proxies and drafts only; the final export always uses
+  libx264): VideoToolbox on macOS, NVENC, VAAPI or Quick Sync on Linux and NVENC or Quick Sync on
+  Windows, picked automatically after a one-frame test encode, with fallback to software.
+  `SVE_HWACCEL=0` forces software; `SVE_HWACCEL=nvenc|vaapi|qsv|videotoolbox` picks one
+  (`SVE_VAAPI_DEVICE` sets the VAAPI device). Only VideoToolbox decodes final-quality shots.
+  NVENC, VAAPI and Quick Sync are tested with mocked FFmpeg output only (no GPU in CI).
 - **Linux:** CI runs the whole suite on Debian 13 (FFmpeg 7.1), and the [Docker image](#docker)
-  ships everything above. OpenCV needs `libgl1` and `libglib2.0-0`. Windows is untested.
+  ships everything above. OpenCV needs `libgl1` and `libglib2.0-0`.
+- **Windows 10 / 11:** install Python 3.11+ and FFmpeg 7 or newer (`winget install --id Gyan.FFmpeg
+  -e`, `choco install ffmpeg` or `scoop install ffmpeg`; open a new terminal and check
+  `ffmpeg -version`), then `pip install -e .` as below. Caches go to
+  `%LOCALAPPDATA%\social_video_editor` (`XDG_CACHE_HOME` wins when set). CI runs the whole suite on
+  `windows-latest` (FFmpeg 8.1, no GPU, Rubber Band not installed).
+- **Speed:** video and photo shots render in parallel (`render.jobs`, default `auto` = half the
+  CPUs, 1–4; `SVE_JOBS=1` renders one at a time), and numba's compiled librosa code is cached in
+  the user cache folder (`NUMBA_CACHE_DIR`): the first song analysis of a new process took 13 s
+  without it and ~3 s with it (measured on 4 cores). `python scripts/bench.py` measures render
+  speed on synthetic 4K footage.
 
 ## Install
 

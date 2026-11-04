@@ -172,6 +172,10 @@ export:
   cover: true            # also export a cover image (<name>_portada.jpg / <name>_cover.jpg)
   cover_at: 1.6          # second the cover is taken from (when the hook is already typed)
 
+# render:               # (defaults in code; long videos, photo_crf…: see docs/PLAN_FORMAT.md)
+#   jobs: auto           # video / photo shots encoded at once: auto (half the CPUs, 1-4) or 1-16; $SVE_JOBS
+#                        # wins. Only the speed changes: the video is the same with any number of jobs.
+
 check:                   # sve check <project>: automatic review of a render (thresholds)
   loudness_tolerance_lu: 1.0     # integrated loudness within ± this of audio.loudness (else error)
   silence_db: -50                # quieter than this (dBFS) …
