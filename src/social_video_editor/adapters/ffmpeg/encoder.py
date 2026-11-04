@@ -1,6 +1,7 @@
 """VideoEncoder implemented with FFmpeg."""
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import subprocess
@@ -72,10 +73,14 @@ _WINDOWS = os.name == "nt"
 FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and stalled this long is killed
 
 
+_TMP_COUNTER = itertools.count()      # next() on a count is atomic in CPython
+
+
 def _tmp_for(out: Path) -> Path:
-    """A temporary name next to `out`, unique per process and thread (two shots with the same cache
-    signature may render at the same time), keeping the extension FFmpeg picks the muxer from."""
-    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}.tmp{out.suffix}")
+    """A temporary name next to `out`, unique per process and call (two shots with the same cache
+    signature may render at the same time; thread ids are reused once a thread ends, hence the
+    counter), keeping the extension FFmpeg picks the muxer from."""
+    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}-{next(_TMP_COUNTER)}.tmp{out.suffix}")
 
 
 def _publish(tmp: Path, out: Path, attempts: int = 6) -> Path:

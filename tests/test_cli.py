@@ -16,7 +16,7 @@ def _run(*args, cwd, workspace=None):
     if workspace:
         env["SVE_WORKSPACE"] = str(workspace)
     return subprocess.run([sys.executable, "-m", "social_video_editor", *args], cwd=cwd, env=env,
-                          capture_output=True, text=True, check=True).stdout
+                          capture_output=True, encoding="utf-8", check=True).stdout   # the CLI writes UTF-8 to pipes
 
 
 def test_recipes_from_current_folder(tmp_path):
