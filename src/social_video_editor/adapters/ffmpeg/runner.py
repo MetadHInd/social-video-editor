@@ -12,6 +12,7 @@ import threading
 from collections import deque
 
 from ...domain.models import UserError
+from ...log import log
 from ..system.tools import FFMPEG
 
 try:                                    # the platform layer's install hint, when it provides one
@@ -22,6 +23,11 @@ except ImportError:                     # pragma: no cover - older tools.py
                       "macOS: `brew install ffmpeg`; Linux: your package manager).")
 
 TEXT = {"text": True, "encoding": "utf-8", "errors": "replace"}
+# FFmpeg 7.x sometimes aborts a multi-input filter graph with this assertion (choose_input in
+# fftools/ffmpeg_filter.c), e.g. when an output closes while inputs still hold data. It is a race, not
+# a property of the command, so the same command is retried. Seen with 7.1.1; not with 8.0.1 / 8.1.2.
+SCHEDULER_ABORT = "Assertion best_input >= 0 failed"
+SCHEDULER_RETRIES = 2
 
 
 def not_found(binary) -> UserError:
@@ -93,6 +99,12 @@ def run(cmd: list, quiet: bool = True) -> subprocess.CompletedProcess:
         if quiet:
             cmd[1:1] = ["-loglevel", "error"]
     r = call(cmd, capture_output=True, **TEXT)
+    for _ in range(SCHEDULER_RETRIES):
+        if r.returncode == 0 or SCHEDULER_ABORT not in (r.stderr or ""):
+            break
+        log("Warning: FFmpeg 7.x aborted with its scheduler assertion (a known FFmpeg bug, fixed in 8.0); "
+            "running the same command again.")
+        r = call(cmd, capture_output=True, **TEXT)
     if r.returncode != 0:
         sys.stderr.write("\n".join(r.stderr.splitlines()[-25:]) + "\n")
         raise RuntimeError(f"Failed: {' '.join(cmd[:6])} …")
