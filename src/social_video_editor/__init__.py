@@ -8,4 +8,4 @@ Layout (hexagonal / ports & adapters):
   container.py  wires ports to adapters; cli.py is the command line
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"

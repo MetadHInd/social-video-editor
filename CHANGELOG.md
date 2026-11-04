@@ -6,6 +6,77 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-04
+
+Measured with `scripts/bench.py` on a 10-CPU Apple M1 Pro (16 GB), FFmpeg 9.0.2, Python 3.13; median
+of 3 runs after a warm-up. Changes that did not pass their criteria were left out (see "Not adopted").
+
+| scenario | 0.5.0 (s) | 0.5.1 (s) | change | shot stage | finish stage | max RSS (MB) |
+|---|---:|---:|---:|---:|---:|---:|
+| `vertical60` (60 s, 4K HEVC 30 / 60 fps) | 128.8 | 101.2 | −21.4 % | −25.6 % | −13.8 % | 2625 → 3066 |
+| `slideshow600` (10 min of photos) | 493.5 | 472.0 | −4.3 % | −3.9 % | −4.2 % | 2862 → 2896 |
+
+### Changed
+- Shot segments apply speed and the output frame rate before any scaling: the frames a 60 fps source
+  drops are no longer scaled from 4K, tone-mapped, corrected and zoomed. 38–44 % faster per 60 fps 4K
+  shot, no change at 30 fps; the segment is identical for 30 / 60 fps sources at speed 1 (a fraction
+  of a frame apart otherwise, because the zoom is evaluated at the output frame's time).
+  `SEGMENT_VERSION` 6: cached segments are rebuilt once.
+- `render.jobs: auto` is now half the CPUs between 1 and 3 (was 1–4). On `vertical60`:
+
+  | jobs | wall (s) | vs 1 job | max RSS (GB) |
+  |---|---|---|---|
+  | 1 | 148.2 | — | 2.70 |
+  | 2 | 124.3 | −16.1 % | 2.66 |
+  | 3 | 122.6 | −17.3 % | 2.28 |
+  | 4 (0.5.0's auto here) | 128.8 | −13.1 % | 2.63 |
+
+- Audio mastering encodes only the AAC in each loudness pass and muxes the video once at the end
+  (`-c copy -movflags +faststart`); `render.long_master_sec` is gone (it is ignored if set).
+- Draft renders encode photo and drawn shots (polaroid, collage, text cards) with the draft settings
+  (ultrafast, CRF 22) like video shots; `draft` is part of their cache signature.
+- Temporary file names and atomic publishing are shared (`adapters/files/atomic.py`); the Real-ESRGAN
+  JPEG and the CLIP embedding cache use them too.
+- `scripts/bench.py` decodes its subprocess output as UTF-8.
+- Scene times are read through PySceneDetect 0.7's `seconds` property (`get_seconds()` is deprecated
+  there; 0.6 still works).
+
+### Fixed
+- Zooms grew from the top-left corner: the subject drifted down and right, and `focus_x` / `focus_y`
+  and the shake did nothing while a zoom was running (since before 0.4.0). The zoomed frame is now
+  padded onto a fixed canvas and cropped about the focus point. Same speed and sharpness (Laplacian
+  variance within −2 %); shots with a zoom look different (better framed) than in 0.5.0 (SSIM(Y)
+  0.87–0.89 against its off-centre output), and a shake now moves the frame during a zoom too.
+- OpenCV readers and scene detection open videos in folders with non-ASCII names when OpenCV cannot
+  open the path itself (some Windows builds): the file is handed to OpenCV as a stream.
+
+### Documentation
+- ARCHITECTURE: hardware backends (NVENC, VAAPI, Quick Sync, VideoToolbox), the `auto` order,
+  `SVE_HWACCEL`, `SVE_VAAPI_DEVICE`.
+- PLAN_FORMAT: `vision.device` accepts `auto`; `enhance.device: auto` = CUDA → MPS → CPU; where the
+  Real-ESRGAN model is looked up.
+
+### Not adopted (measured)
+Per 4K shot, relative to 0.5.0's filters (A/C/D 60 fps sources, B/E 30 fps):
+
+| change | time | sharpness (Laplacian var.) | SSIM(Y) | why not |
+|---|---|---|---|---|
+| `cas` after the zoom (M4) | −17 to −23 % | +25 to +34 % | 0.988–0.998 | below the 25 % bar; sharpness off by far more than ±5 % |
+| `perspective` zoom (M2) | +1 to +18 % | −30 to −44 % | 0.875–0.893 | slower and blurrier |
+| `perspective` zoom, input counter (M3) | +12 to +38 % | −19 to −35 % | 0.872–0.893 | slower and blurrier |
+| `zoompan` | — | — | — | whole-pixel steps (visible stair-stepping) and blur |
+| fps-first + M3 + M4 | −30 to +23 % | −15 to +4 % | 0.865–0.891 | slower at 30 fps, SSIM |
+
+Intermediate preset `fast` → `veryfast` (CRF 12, shot segments, photo / drawn shots and long-render
+chunks): final export −9.6 % (`vertical60`, 101.2 → 91.5 s) and −9.7 % (`slideshow600`, 472.0 →
+426.4 s), below the 10 % bar, and the final export moved by more than 0.001 SSIM (SSIM(Y) between the two
+exports 0.9930 and 0.9979). Kept `fast`.
+
+### Not tested
+- FFmpeg 7.x and 8.1 locally (only 9.0.2 installed here; CI covers 8.1 on Windows).
+- NVENC, VAAPI and Quick Sync on real GPUs.
+- Windows other than through CI.
+
 ## [0.5.0] - 2026-11-04
 
 ### Added
