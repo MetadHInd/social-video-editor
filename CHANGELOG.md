@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- `sve plan` shortens long pauses inside every shot with voice, in every recipe (`pauses.*`: on by
+  default, 0.9 s pauses kept at 0.45 s; `storytime` tighter), joined with the new `soft_cut`
+  transition (0.12 s crossfade of sound and picture). Pieces carry `pause_cut` and are never moved
+  to the beat. Existing plans are unchanged.
+- `talk` recipe (meetings, classes, screen recordings): the whole recording in order with only the
+  long pauses shortened; neutral per-shot processing so nothing jumps at a cut.
+  Spanish keys: `charla`, `pausas` (`pausa_minima`, `pausa_dejada`, `silencio_db`, `tramo_minimo`,
+  `activo`, `transicion`).
+- `haul` recipe: a calm "aesthetic" unboxing (real speed, plain cuts, every product, one title and a
+  closing call to action, steady music over the ASMR sounds).
+- Product plan options: `vision.cards`, `vision.counters`, `vision.collage`, `vision.product_effect`,
+  `vision.opening_max`; `hook.text_duration`; a closing `cta` text (`cta.text`, `cta.duration`).
+- Text styles without a background take `stroke` and `stroke_color` (outlined text in any color).
+- `vision.unpacked` / `vision.packaging`: the product plan shows each product out of its box or wrapper
+  instead of the packaging (on in `haul`).
+- `color.reference`: copy the color look of a reference video (brightness, black/white points,
+  saturation, color cast), with `color.reference_strength`.
+- Color look: `color.fade` (lifted blacks, softer whites) and `color.tint` (green ↔ magenta).
+
 ## [0.5.1] - 2026-11-04
 
 Measured with `scripts/bench.py` on a 10-CPU Apple M1 Pro (16 GB), FFmpeg 9.0.2, Python 3.13; median

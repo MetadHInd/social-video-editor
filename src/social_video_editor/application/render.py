@@ -31,7 +31,7 @@ import numpy as np
 
 from ..domain import color_math
 from ..domain.config import EXPORT_PROFILES, labels, output_name, variant_suffix
-from ..domain.models import Project
+from ..domain.models import Project, UserError
 from ..domain.models import PlanError
 from ..domain.photos import auto_tone_setting, photo_crf, photo_settings, resolve_photo_ref
 from ..domain.pieces import CollageShot, PhotoShot, PolaroidShot, Sequence, VideoShot
@@ -293,12 +293,42 @@ def _master_gain(lufs: dict) -> float | None:
         return None
 
 
+REFERENCE_FRAMES = 24
+REFERENCE_SPAN = (0.04, 0.85)     # skip the very start and the end card a downloaded clip often has
+
+
+def reference_path(svc: Services, project: Project, value: str) -> Path:
+    """A color.reference path: absolute, ~, relative to the project folder or to the workspace."""
+    p = Path(value).expanduser()
+    for c in ([p] if p.is_absolute() else [project.dir / p, Path.cwd() / p]):
+        if svc.probe.fingerprint(c).get("size") is not None:
+            return c
+    raise UserError(f"color.reference: file not found: {value}")
+
+
+def apply_color_reference(svc: Services, project: Project, cfg: dict) -> None:
+    """With color.reference, measures that video once and stores its look in cfg["color"]["_reference"]."""
+    ref = cfg["color"].get("reference")
+    if not ref or cfg["color"].get("_reference"):
+        return
+    path = reference_path(svc, project, str(ref))
+    dur = svc.probe.duration(path)
+    times = np.linspace(dur * REFERENCE_SPAN[0], dur * REFERENCE_SPAN[1], REFERENCE_FRAMES)
+    stats = color_math.measure(svc.video.read_frames(str(path), times))
+    if not stats:
+        raise UserError(f"color.reference: could not read frames of {path}")
+    cfg["color"]["_reference"] = {k: round(v, 4) for k, v in stats.items()}
+    log(f"Color: matching the look of {path.name} (brightness {stats['luma']:.2f}, "
+        f"blacks {stats['p02']:.2f}, whites {stats['p98']:.2f}, saturation {stats['sat']:.2f})")
+
+
 def prepare_edit(svc: Services, project: Project, plan: dict, cfg: dict, no_music: bool = False):
     """What render does before encoding: resolve "search" windows, music + beat alignment, timeline.
 
     Returns (plan, infos, analyses, music, timeline); plan and cfg are modified in place.
     """
     infos, analyses = prepare_sources(svc, project, cfg)
+    apply_color_reference(svc, project, cfg)
     resolve_ranges(plan, analyses, visual_search(svc, project, infos, analyses, plan, cfg))
     for s in plan["shots"]:           # resolved: plan_used.json keeps the final times
         if "search" in s:

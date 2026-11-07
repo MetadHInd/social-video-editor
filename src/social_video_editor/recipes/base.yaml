@@ -25,11 +25,24 @@ pacing:
   min_gap: 0.6           # two shots from the same source never overlap
   speed_without_voice: 1.0   # 1.2 = shots without speech at 120 % speed
 
+pauses:                  # sve plan: long pauses inside every shot with voice are shortened (domain/pauses.py)
+  enabled: true
+  min_pause: 0.9         # seconds: shorter pauses (breaths between sentences) are never cut
+  keep_pause: 0.45       # seconds of pause left where a long one was cut
+  silence_db: auto       # quieter than this (dBFS) is a pause; auto = 12 dB under the source median (≤ -25)
+  min_span: 0.5          # no piece of speech shorter than this (the pause before it is kept instead)
+  transition: soft_cut   # 0.12 s crossfade of sound and picture: the cut is neither heard nor seen
+
 hook:
   strategy: teaser       # teaser = show the best moment first (1-2 s), then tell the story | start = begin at the beginning
   duration: 1.6
   text: null             # big on-screen text during the first seconds (recommended). E.g. "Was it worth it? 😳"
+  text_duration: null    # seconds the hook text stays on screen (null = only during the hook)
   transition: flash      # how the hook hands over to the story
+
+cta:                     # closing call to action (product plans), drawn with the "cta" text style
+  text: null             # e.g. "Link in bio 💕"
+  duration: 6            # seconds at the end of the video
 
 selection:               # how every moment of the footage is scored
   weights:
@@ -68,9 +81,13 @@ color:
   saturation: 1.10
   vibrance: 0.12
   temperature: null      # e.g. 6000 = warmer
+  fade: 0                # 0.1-0.2 = soft "matte" look: lifted blacks, softer whites
+  tint: 0                # + = pink/magenta, - = green (-1…1; 0.3 = subtle)
   sharpen: 0.35          # CAS (0 = none)
   lut: null              # path to an optional creative .cube LUT
   vignette: false
+  reference: null        # a video whose look to copy (path; relative to the project or workspace): brightness, blacks/whites, saturation, tint
+  reference_strength: 1.0   # 0…1: how much of the reference look
 
 framing:
   mode: auto             # auto | crop | blur (fills the borders with the same image blurred)
@@ -82,7 +99,7 @@ framing:
 transitions:
   rotation: [cut, cut, zoom, cut, whip, cut]   # used in this order
   duration: 0.22
-  # catalog: cut | fade | fade_black | flash | zoom | whip | slide_up | slide_left | circle | pixel | blur | radial | curtain
+  # catalog: cut | fade | soft_cut | fade_black | flash | zoom | whip | slide_up | slide_left | circle | pixel | blur | radial | curtain
 
 effects:
   zoom_on_peaks: true    # zoom punch on a loud sound (emphasis)
@@ -235,8 +252,15 @@ vision:                  # local CLIP model: recognizes products by itself (opti
   max_duration: 25.0     # a product segment never grows longer
   same_product: 0.82     # two stretches this similar (and < 20 s apart) are the same product: merged
   window: 2.0            # seconds of the best moment of each product
+  unpacked: 0            # >0 (e.g. 2): prefer the moment the product is out of its box/wrapper
+  packaging: ["a cardboard product box", "a clear plastic wrapper with a barcode label"]   # what packaging looks like (English: CLIP)
   max_products: 15
   stars: 3               # the most confidently recognized products get a fast→slow ramp + polaroid
+  cards: true            # product plan: a card with each product's proposed name
+  counters: true         # product plan: an n/N counter on each product
+  collage: true          # product plan: a collage of every product at the end
+  product_effect: beat_pulse   # effect on each product shot (null = none)
+  opening_max: null      # seconds of the package-opening shot (null = pacing.shot_max)
   vocabulary: null       # null = packaged list of ~80 small products (es/en); or your own list of names
   product_plan: false    # plan = one shot per detected product (the unboxing recipe turns it on)
   product_search: false  # true = "search" with criterion "product" uses the vision model (changes the windows

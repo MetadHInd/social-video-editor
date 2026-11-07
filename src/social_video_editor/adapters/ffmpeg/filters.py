@@ -16,7 +16,7 @@ XFADE = {
     "cut": None, "fade": "fade", "fade_black": "fadeblack", "flash": "fadewhite", "zoom": "zoomin",
     "whip": "smoothleft", "slide_up": "slideup", "slide_left": "slideleft", "circle": "circleopen",
     "pixel": "pixelize", "blur": "hblur", "radial": "radial", "curtain": "vertopen",
-    "soft_slide": "smoothleft", "soft_zoom": "zoomin",
+    "soft_slide": "smoothleft", "soft_zoom": "zoomin", "soft_cut": "fade",
 }
 
 
@@ -53,6 +53,13 @@ def creative_chain(p: dict) -> str:
         f.append(f"vibrance=intensity={p['vibrance']:.2f}")
     if "temperature" in p:
         f.append(f"colortemperature=temperature={p['temperature']}:mix=0.35")
+    if "tint" in p:                      # less green = magenta/pink (more in shadows and midtones)
+        t = p["tint"]
+        f.append(f"colorbalance=gs={-0.10 * t:.3f}:gm={-0.10 * t:.3f}:gh={-0.06 * t:.3f}")
+    if "fade" in p:                      # output range [fade, 1 - fade/2]: lifted blacks, softer whites
+        lo, hi = p["fade"], 1 - p["fade"] / 2
+        f.append(f"colorlevels=romin={lo:.3f}:gomin={lo:.3f}:bomin={lo:.3f}:"
+                 f"romax={hi:.3f}:gomax={hi:.3f}:bomax={hi:.3f}")
     if "lut" in p:
         f.append(f"lut3d=file={filter_path(p['lut'])}")          # ~ expanded, any folder name
     if "sharpen" in p:
@@ -77,6 +84,12 @@ def correction_chain(stats: dict, color_cfg: dict) -> str:
         r, g, b = p["gains"]
         filters.append(f"colorchannelmixer=rr={r:.3f}:gg={g:.3f}:bb={b:.3f}")
     filters.append(f"eq=gamma={p['gamma']:.3f}:saturation={p['saturation']:.3f}:contrast={p['contrast']:.3f}")
+    if p.get("linear"):                            # reference look: its black and white points
+        il, ih, ol, oh = p["linear"]
+        filters.append(f"colorlevels=rimin={il:.3f}:gimin={il:.3f}:bimin={il:.3f}:"
+                       f"rimax={ih:.3f}:gimax={ih:.3f}:bimax={ih:.3f}:"
+                       f"romin={ol:.3f}:gomin={ol:.3f}:bomin={ol:.3f}:"
+                       f"romax={oh:.3f}:gomax={oh:.3f}:bomax={oh:.3f}")
     return ",".join(filters + ([creative] if creative else []))
 
 

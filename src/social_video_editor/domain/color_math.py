@@ -60,10 +60,22 @@ def measure(frames: list[np.ndarray]) -> dict:
     return {
         "luma": float(luma.mean()),
         "p02": float(np.percentile(luma, 2)),
+        "p05": float(np.percentile(luma, 5)),
+        "p95": float(np.percentile(luma, 95)),
         "p98": float(np.percentile(luma, 98)),
+        **_highlights(arr, luma),
         "r": float(r), "g": float(g), "b": float(b),
         "sat": float(sat),
     }
+
+
+def _highlights(arr: np.ndarray, luma: np.ndarray) -> dict:
+    """Mean color of the brightest 20 % of pixels (walls, white objects: the light's color, not the products')."""
+    sel = luma >= np.percentile(luma, 80)
+    if not sel.any():
+        return {}
+    return {"hr": float(arr[..., 2][sel].mean()), "hg": float(arr[..., 1][sel].mean()),
+            "hb": float(arr[..., 0][sel].mean())}
 
 
 def correction(stats: dict, color_cfg: dict) -> dict | None:
@@ -74,6 +86,8 @@ def correction(stats: dict, color_cfg: dict) -> dict | None:
     c = color_cfg
     if not c.get("auto", True) or not stats:
         return None
+    if c.get("_reference"):
+        return match_reference(stats, c["_reference"], float(c.get("reference_strength", 1.0)))
     out: dict = {"levels": None, "gains": None}
     if c.get("levels", True):                     # stretch the useful range without clipping
         lo = min(max(stats["p02"] - 0.01, 0.0), 0.12)
@@ -99,6 +113,38 @@ def correction(stats: dict, color_cfg: dict) -> dict | None:
     return out
 
 
+def match_reference(stats: dict, ref: dict, strength: float = 1.0) -> dict:
+    """Correction that brings one shot to the look of a reference video (its measured statistics).
+
+    Color cast → the reference's channel ratios in the highlights (gains); then gamma and a linear map ("linear":
+    input/output black and white levels) chosen so that the shot's 5 % / 95 % brightness points and
+    its mean land on the reference's (lifted blacks, soft whites, same exposure); saturation scaled to
+    the reference's. strength 0…1 blends every parameter with "no change".
+    """
+    k = min(max(strength, 0.0), 1.0)
+    ch = ("hr", "hg", "hb") if all(c in stats and c in ref for c in ("hr", "hg", "hb")) else ("r", "g", "b")
+    s_mean = sum(stats[c] for c in ch) / 3       # the light's color: from the highlights when measured
+    r_mean = sum(ref[c] for c in ch) / 3
+    gains = tuple(1 + k * (min(max((ref[c] / max(r_mean, 1e-3)) / max(stats[c] / max(s_mean, 1e-3), 1e-3),
+                                   0.9), 1.1) - 1) for c in ch)   # ±10 %: keeps product colors
+    s05, s95 = stats.get("p05", stats["p02"]), stats.get("p95", stats["p98"])
+    r05, r95 = ref.get("p05", ref["p02"]), ref.get("p95", ref["p98"])
+    luma = min(max(stats["luma"], 0.03), 0.97)
+    g, a, b = 1.0, 0.0, 1.0
+    for _ in range(4):                            # gamma and linear map depend on each other: iterate
+        p05, p95 = (max(s05, 1e-3) ** (1 / g), max(s95, 1e-3) ** (1 / g))
+        b = (r95 - r05) / max(p95 - p05, 0.05)
+        a = r05 - b * p05
+        t = min(max((ref["luma"] - a) / max(b, 1e-3), 0.05), 0.95)
+        g = min(max(float(np.log(luma) / np.log(t)), 0.6), 1.8)
+    a, b, g = k * a, 1 + k * (b - 1), 1 + k * (g - 1)
+    i_lo = max(-a / b, 0.0) if b > 0 else 0.0     # where the output reaches 0 / 1 (clipped there)
+    i_hi = min((1 - a) / b, 1.0) if b > 0 else 1.0
+    linear = (i_lo, i_hi, max(a + b * i_lo, 0.0), min(a + b * i_hi, 1.0))
+    sat = 1 + k * (min(max(ref["sat"] / max(stats["sat"], 0.05) * (1 + 0.6 * max(a, 0)), 0.5), 1.6) - 1)
+    return {"levels": None, "gains": gains, "gamma": g, "saturation": sat, "contrast": 1.0, "linear": linear}
+
+
 def creative(color_cfg: dict) -> dict:
     """Optional look applied after the correction (only the enabled parts)."""
     c = color_cfg
@@ -107,6 +153,10 @@ def creative(color_cfg: dict) -> dict:
         out["vibrance"] = float(c["vibrance"])
     if c.get("temperature"):
         out["temperature"] = int(c["temperature"])
+    if c.get("fade"):                    # soft "matte" look: lifted blacks, softer whites
+        out["fade"] = min(max(float(c["fade"]), 0.0), 0.4)
+    if c.get("tint"):                    # + = pink/magenta, - = green
+        out["tint"] = min(max(float(c["tint"]), -1.0), 1.0)
     if c.get("lut"):
         out["lut"] = str(c["lut"])
     if c.get("sharpen", 0):

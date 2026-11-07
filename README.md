@@ -67,8 +67,10 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   re-encoded.
 - **Versions** — every render goes to a new folder (`v1`, `v2`…); variants keep the number of the
   latest version (`v3SinMusica` / `v3NoMusic`, `v3Borrador` / `v3Draft`, `v3Youtube`…).
+- **Pauses in speech** — `sve plan` shortens long pauses inside every shot with voice (breaths
+  are kept) and joins them with a near-invisible 0.12 s crossfade.
 - **Recipes** — layered YAML defaults per video type (unboxing, tutorial, review, vlog,
-  before/after, storytime) that a project can override.
+  before/after, storytime, slideshow, talk) that a project can override.
 - **Cheap project overview** — `sve report` prints one screen (or JSON) with everything an editor
   or an AI agent needs to know about a project.
 - **Product recognition (optional)** — a local CLIP model finds the products shown in the footage
@@ -214,11 +216,13 @@ commented). Each recipe only overrides what it changes; a project overrides the 
 |---|---|
 | `base` | Generic defaults: 30 s target, teaser hook, 0.8–3.2 s shots. |
 | `unboxing` | Hook with the result → opening with ASMR sounds → reveal with zoom → reaction / price → loop ending. |
+| `haul` | Calm "aesthetic" unboxing: package opening → every product at real speed with plain cuts, one title at the start and a soft call to action at the end, steady music over the ASMR sounds. |
 | `tutorial` | Final result first → short numbered steps (waiting sped up) → result again; progress bar. |
 | `review` | Verdict or question → the good → the bad → verdict + question to the audience. |
 | `vlog` | Most striking moment → fast chronological sequence on the beat → emotional/funny ending. |
 | `before_after` | The "after" in 1 s → "before" → sped-up process → reveal with flash/zoom. |
 | `storytime` | Strongest line first → story without silences, big subtitles, almost no effects. |
+| `talk` | Meeting, class or screen recording (landscape, long-form): the whole recording in order, only long pauses shortened, joined with a 0.12 s crossfade; neutral look and sound, no music, no texts. |
 | `slideshow` | Photo slideshow (landscape): every photo in chronological order, gentle Ken Burns, soft crossfades, warm look, gentle exposure fix, a playlist blended back to back. |
 
 Put `recipes/<name>.yaml` in your workspace to add a recipe or replace a packaged one. The first
@@ -279,7 +283,9 @@ before. What uses it:
 - **Unboxing plans** — the `unboxing` recipe sets `vision.product_plan: true`: with the model
   available, `sve plan` proposes one shot per detected product (a card with its proposed name and
   an `n/N` counter; the most confident `vision.stars` products get a fast → slow ramp and a
-  polaroid; a collage at the end). Without the model, the regular plan is made.
+  polaroid; a collage at the end). Without the model, the regular plan is made. The `haul` recipe
+  uses the same plan without cards, counters, ramps, effects or collage (`vision.cards`,
+  `counters`, `collage`, `product_effect`, `stars: 0`), plus `hook.text_duration` and `cta.text`.
 - **CLIP product criterion (opt-in)** — with `vision.product_search: true`, a `search` with
   `criterion: product` scores frames with the model instead of the sharpness/color heuristic.
   It is off by default because it changes the windows of existing plans.

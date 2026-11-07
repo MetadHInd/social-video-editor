@@ -48,8 +48,15 @@ DEFAULTS = {
     "same_product": 0.82,    # two segments this similar (mean embeddings) are the same product…
     "same_product_within": 20.0,   # …if they are less than this many seconds apart (they are merged)
     "window": 2.0,           # duration of the best sub-window of each product
+    "unpacked": 0.0,         # >0: inside each product, prefer frames that look least like its packaging
+    "packaging": ["a cardboard product box", "a clear plastic wrapper with a barcode label"],
     "max_products": 15,
     "stars": 3,
+    "cards": True,           # product plan: a card with the proposed name on each product…
+    "counters": True,        # …an n/N counter…
+    "collage": True,         # …a collage of every product at the end…
+    "product_effect": "beat_pulse",   # …and this effect on each product shot (null = none)
+    "opening_max": None,     # seconds of the package-opening shot (null = pacing.shot_max)
     "vocabulary": None,
     "product_plan": False,
     "product_search": False,
@@ -61,7 +68,7 @@ def settings(vision_cfg: dict | None, language: str = "es") -> dict:
     """Vision settings with defaults (weights merged key by key; {es, en} values picked by language)."""
     v = dict(DEFAULTS)
     for k, x in (vision_cfg or {}).items():
-        if x is None and k != "vocabulary":
+        if x is None and k not in ("vocabulary", "product_effect"):
             continue
         v[k] = {**DEFAULTS["weights"], **x} if k == "weights" and isinstance(x, dict) else x
     for k in ("positive", "negative"):
@@ -286,12 +293,33 @@ def zero_shot_label(frames: np.ndarray, vocabulary: np.ndarray, labels: list[str
     return labels[int(order[0])], round(float(margin), 3)
 
 
+def zscore(x: np.ndarray) -> np.ndarray:
+    return (x - x.mean()) / (x.std() + 1e-6) if len(x) else x
+
+
+def unpacked_series(emb: np.ndarray, packaging: np.ndarray, n: int) -> np.ndarray:
+    """How little each frame looks like packaging (− mean similarity to the packaging prompts), smoothed."""
+    return smooth(-(emb @ packaging.T).mean(1), n)
+
+
+def window_scores(score: np.ndarray, unpacked: np.ndarray | None, weight: float) -> np.ndarray:
+    """Score used to pick the best window inside ONE product segment.
+
+    With `weight` > 0, frames that look like packaging (a box, a wrapper) count less, so the shot
+    shows the product out of its box (both parts standardized inside the segment).
+    """
+    if not weight or unpacked is None or not len(score):
+        return score
+    return zscore(score) + weight * zscore(unpacked)
+
+
 def detect_products(sources: list[dict], positive: np.ndarray, negative: np.ndarray, vocabulary: np.ndarray,
-                    labels: list[str], cfg: dict | None = None) -> list[dict]:
+                    labels: list[str], cfg: dict | None = None, packaging: np.ndarray | None = None) -> list[dict]:
     """Products of every source, in story order.
 
     → [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}, …]
     `vocabulary` (embeddings) and `labels` (names in the output language) are aligned.
+    `packaging`: embeddings of the packaging prompts (used when vision.unpacked > 0).
     """
     v = settings(cfg)
     scores = product_scores(sources, positive, negative, vocabulary, v)
@@ -301,11 +329,15 @@ def detect_products(sources: list[dict], positive: np.ndarray, negative: np.ndar
         if len(t) < 2:
             continue
         segs = segment_products(t, src["emb"], sc, v)
+        weight = float(v["unpacked"] or 0)
+        unpacked = (unpacked_series(src["emb"], packaging, max(int(round(float(v["smooth"]) * _rate(t))), 1))
+                    if weight and packaging is not None and len(packaging) else None)
         baseline = label_baseline(src["emb"], vocabulary) if len(vocabulary) else None
         for s in segs:
             dur = min(float(v["window"]), s["end"] - s["start"])
             inside = (t >= s["start"]) & (t <= s["end"])
-            a = best_start(t[inside], sc[inside], s["start"], s["end"], dur)
+            a = best_start(t[inside], window_scores(sc[inside], None if unpacked is None else unpacked[inside],
+                                                    weight), s["start"], s["end"], dur)
             best = [round(a, 2), round(min(a + dur, s["end"]), 2)]
             sel = (t >= best[0]) & (t <= best[1])
             label, conf = zero_shot_label(src["emb"][s["i0"]:s["i1"] + 1], vocabulary, labels, baseline,
@@ -317,6 +349,17 @@ def detect_products(sources: list[dict], positive: np.ndarray, negative: np.ndar
 
 # ── automatic plan with one shot per product ─────────────────────────────────
 
+def closing_shot(shots: list[dict], seconds: float) -> int:
+    """First shot of the last `seconds` of the plan (video shots: source time / speed; others: their dur)."""
+    total = 0.0
+    for k in range(len(shots) - 1, -1, -1):
+        s = shots[k]
+        total += (s["end"] - s["start"]) / float(s.get("speed") or 1.0) if "start" in s else float(s.get("dur", 2.0))
+        if total >= seconds:
+            return k
+    return 0
+
+
 STAR_FAST_SPEED = 1.8
 STAR_SLOW_SPEED = 0.6
 STAR_SLOW_SECONDS = 0.85
@@ -326,7 +369,9 @@ def product_plan(products: list[dict], cfg: dict, opening: tuple[int, float, flo
     """Edit plan of an unboxing: hook → (opening) → one shot per product → collage.
 
     At most `max_products` (the best-scoring ones). The `stars` products with the highest confidence get a fast → slow ramp and a polaroid with
-    their name. Every product gets a card with its proposed name and a counter (n/N).
+    their name. Every product gets a card with its proposed name and a counter (n/N). vision.cards / counters /
+    collage / product_effect turn those parts off (calm "haul" style); hook.text_duration keeps the hook text on
+    screen for that many seconds and cta.text adds a closing text over the last cta.duration seconds.
     opening: optional (source, start, end) shown before the first product (the package being opened).
     """
     v = settings(cfg.get("vision"))
@@ -352,11 +397,13 @@ def product_plan(products: list[dict], cfg: dict, opening: tuple[int, float, flo
         si, a, b = opening
         shots.append({"source": si, "start": a, "end": b, "speed": cfg["pacing"]["speed_without_voice"],
                       "role": "opening", "transition": "cut", "effects": [], "note": "opening"})
+    effect_type = v["product_effect"]
     collage_from: list[int] = []
     k_rot = 0
     for n, p in enumerate(products, start=1):
         a, b = p["best"]
         first = len(shots)
+        effect = [{"type": effect_type}] if effect_type else []
         transition = rot[k_rot % len(rot)]
         k_rot += 1
         title = p["label"][:1].upper() + p["label"][1:] if p["label"] else f"#{n}"
@@ -374,20 +421,30 @@ def product_plan(products: list[dict], cfg: dict, opening: tuple[int, float, flo
             last_video = len(shots) - 2
         else:
             shots.append({"source": p["source"], "start": a, "end": b, "speed": 1.0, "role": "product",
-                          "transition": transition, "effects": [{"type": "beat_pulse"}],
+                          "transition": transition, "effects": effect,
                           "note": f"{p['label']} ({p['confidence']:.2f})"})
             last_video = len(shots) - 1
         collage_from.append(last_video)
-        plan_texts.append({"text": title, "shot": first, "until_shot": last_video, "style": "card"})
-        plan_texts.append({"text": f"{n}/{len(products)}", "shot": first, "until_shot": last_video,
-                           "style": "counter"})
-    if len(collage_from) >= 3:
+        if v["cards"]:
+            plan_texts.append({"text": title, "shot": first, "until_shot": last_video, "style": "card"})
+        if v["counters"]:
+            plan_texts.append({"text": f"{n}/{len(products)}", "shot": first, "until_shot": last_video,
+                               "style": "counter"})
+    if v["collage"] and len(collage_from) >= 3:
         shots.append({"type": "collage", "from_shots": collage_from, "background_from": collage_from[-1],
                       "transition": "zoom", "role": "collage"})
     if len(shots) > 1 and hook_cfg["strategy"] == "teaser" and shots[0]["role"] == "hook":
         shots[1]["transition"] = hook_cfg.get("transition", "flash")
     if hook_cfg.get("text") and shots:
-        plan_texts.insert(0, {"text": hook_cfg["text"], "shot": 0, "style": "hook"})
+        if hook_cfg.get("text_duration"):
+            plan_texts.insert(0, {"text": hook_cfg["text"], "start": 0.0,
+                                  "end": float(hook_cfg["text_duration"]), "style": "hook"})
+        else:
+            plan_texts.insert(0, {"text": hook_cfg["text"], "shot": 0, "style": "hook"})
+    cta = cfg.get("cta") or {}
+    if cta.get("text") and shots:
+        plan_texts.append({"text": cta["text"], "shot": closing_shot(shots, float(cta.get("duration") or 6)),
+                           "until_shot": len(shots) - 1, "style": "cta"})
     return {
         "note": "Editable plan (one shot per detected product). Shot times = seconds inside each source; "
                 "check the proposed product names in the cards. Render again with: sve render <project>",

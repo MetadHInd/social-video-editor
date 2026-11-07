@@ -88,7 +88,8 @@ PROFILES = {"cuadrado": "square"}                    # unchanged: tiktok, reels,
 COLOR = Ctx(keys={"hdr_blanco": "hdr_white", "niveles": "levels", "balance_blancos": "white_balance",
                   "luma_objetivo": "target_luma", "contraste": "contrast", "saturacion": "saturation",
                   "temperatura": "temperature", "nitidez": "sharpen", "vineta": "vignette",
-                  "calidez": "warmth"})
+                  "calidez": "warmth", "desvanecido": "fade", "tinte": "tint",
+                  "referencia": "reference", "fuerza_referencia": "reference_strength"})
 # unchanged: auto, gamma_min, gamma_max, vibrance, lut
 
 TEXT_STYLE_KEYS = {"tam": "size", "fuente": "font", "fondo": "background", "mayusculas": "uppercase",
@@ -104,7 +105,9 @@ VISION = Ctx(
           "continuidad": "continuity", "duracion_min": "min_duration", "duracion_max": "max_duration",
           "mismo_producto": "same_product", "ventana": "window", "max_productos": "max_products",
           "estrellas": "stars", "vocabulario": "vocabulary", "plan_productos": "product_plan",
-          "busqueda_producto": "product_search"},
+          "busqueda_producto": "product_search", "tarjetas": "cards", "contadores": "counters",
+          "efecto_producto": "product_effect", "apertura_max": "opening_max",
+          "sin_empaque": "unpacked", "empaques": "packaging"},
     # unchanged: fps
     children={"weights": Ctx(keys={"indicaciones": "prompts", "objeto": "objectness", "novedad": "novelty",
                                    "nitidez": "sharpness"})},
@@ -123,15 +126,20 @@ CONFIG = Ctx(
           "transcripcion": "transcription", "encuadre": "framing", "transiciones": "transitions",
           "efectos": "effects", "musica": "music", "subtitulos": "subtitles", "textos": "texts",
           "exportar": "export", "verificacion": "check", "visión": "vision", "foto": "photo",
-          "presentacion": "slideshow"},
+          "presentacion": "slideshow", "llamada": "cta", "charla": "talk", "pausas": "pauses"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
+        "cta": Ctx(keys={"texto": "text", "duracion": "duration"}),
+        "pauses": Ctx(keys={"pausa_minima": "min_pause", "pausa_dejada": "keep_pause",
+                            "silencio_db": "silence_db", "tramo_minimo": "min_span",
+                            "activo": "enabled", "transicion": "transition"},
+                      values={"transition": TRANSITIONS}),
         "duration": Ctx(keys={"objetivo": "target", "maximo": "max"}, removed=frozenset({"minimo"})),
         "pacing": Ctx(keys={"toma_min": "shot_min", "toma_max": "shot_max", "frase_max": "phrase_max",
                             "separacion_min": "min_gap", "acelerar_sin_voz": "speed_without_voice"}),
         "hook": Ctx(keys={"estrategia": "strategy", "duracion": "duration", "texto": "text",
-                          "transicion": "transition"},
+                          "transicion": "transition", "duracion_texto": "text_duration"},
                     values={"strategy": HOOK_STRATEGIES, "transition": TRANSITIONS}),
         "selection": Ctx(
             keys={"pesos": "weights", "palabras_clave": "keywords", "luz_minima": "min_brightness",
