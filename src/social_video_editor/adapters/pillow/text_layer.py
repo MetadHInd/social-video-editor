@@ -88,14 +88,15 @@ class TextBlock:
         self.width = max((rt.width(ln, self.font, size) for ln in self.lines), default=0)
         self.height = self.line_h * len(self.lines)
 
-    def draw(self, img, cx: float, y0: float, visible: int, cursor: bool, stroke: int = 0):
+    def draw(self, img, cx: float, y0: float, visible: int, cursor: bool, stroke: int = 0,
+             stroke_color=(0, 0, 0, 255)):
         """Draws the first `visible` units centered on cx, with a cursor after the last visible one."""
         rest, cursor_at = visible, None
         for i, ln in enumerate(self.lines):
             x = cx - rt.width(ln, self.font, self.size) / 2
             y = y0 + i * self.line_h
             part = ln[:max(rest, 0)]
-            xf = rt.draw(img, x, y, part, self.font, self.size, self.color, stroke) if part else x
+            xf = rt.draw(img, x, y, part, self.font, self.size, self.color, stroke, stroke_color) if part else x
             if rest <= len(ln) and cursor_at is None:
                 cursor_at = (xf, y)
             rest -= len(ln)
@@ -137,12 +138,13 @@ def card_image(title: TextBlock, desc: TextBlock | None, style: dict, n_t: int, 
         img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(9)))
         ImageDraw.Draw(img).rounded_rectangle([m, m, m + width, m + height], radius=radius, fill=bg,
                                               outline=rgba(style.get("outline")), width=3 if style.get("outline") else 0)
-    stroke = 0 if bg else max(int(size / 10), 4)
+    stroke = 0 if bg else int(style.get("stroke") or max(int(size / 10), 4))   # outlined text without a box
+    stroke_color = rgba(style.get("stroke_color")) or (0, 0, 0, 255)
     cx = m + width / 2
     y = m + pad_y - int(title.asc * 0.08)
-    title.draw(img, cx, y, n_t, cursor == "t", stroke)
+    title.draw(img, cx, y, n_t, cursor == "t", stroke, stroke_color)
     if desc:
-        desc.draw(img, cx, y + title.height + sep, n_d, cursor == "d", 0 if bg else max(stroke // 2, 3))
+        desc.draw(img, cx, y + title.height + sep, n_d, cursor == "d", 0 if bg else max(stroke // 2, 3), stroke_color)
     return img
 
 

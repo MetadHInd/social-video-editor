@@ -30,6 +30,7 @@ class Transition:
 TRANSITIONS: dict[str, Transition] = {t.name: t for t in (
     Transition("cut", 0.0),
     Transition("fade", 0.35, fixed=True),
+    Transition("soft_cut", 0.12, fixed=True),     # near-invisible crossfade: shortened pauses in speech
     Transition("fade_black", 0.4, fixed=True),
     Transition("flash", 0.18, sound="flash"),
     Transition("zoom", 0.25, sound="whoosh"),

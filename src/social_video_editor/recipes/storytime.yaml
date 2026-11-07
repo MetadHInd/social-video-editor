@@ -10,5 +10,6 @@ selection:
 framing: {slow_push: 0.06}
 transitions: {rotation: [cut]}
 effects: {zoom_on_peaks: false}
+pauses: {min_pause: 0.6, keep_pause: 0.3}   # "story without silences": tighter than the base
 subtitles: {size: 88, max_words: 2}
 sfx: {enabled: false}

@@ -81,7 +81,8 @@ class Vision:
         sources = [self.source(i) for i in range(len(self.infos))]
         pos, neg = self.prompts()
         vocab, labels = self.vocabulary()
-        return dp.detect_products(sources, pos, neg, vocab, labels, self.v)
+        packaging = self.texts(self.v["packaging"]) if self.v.get("unpacked") and self.v.get("packaging") else None
+        return dp.detect_products(sources, pos, neg, vocab, labels, self.v, packaging)
 
     def search_series(self, source: int, search: dict) -> dict | None:
         """Vision score series of one source for a plan "search" (text similarity or product score)."""
@@ -160,8 +161,9 @@ def product_plan_or_none(svc: Services, project: Project, infos: list[dict], ana
     opening = None
     first = found[0]
     pacing = cfg["pacing"]
+    opening_max = float(dp.settings(cfg.get("vision"))["opening_max"] or pacing["shot_max"])
     if first["start"] >= pacing["shot_min"] + 0.5:          # the package being opened, before the first product
         a, b = best_window(analyses[first["source"]], [0.0, first["start"] - 0.2],
-                           min(float(pacing["shot_max"]), first["start"] - 0.2), "action")
+                           min(opening_max, first["start"] - 0.2), "action")
         opening = (first["source"], a, b)
     return dp.product_plan(found, cfg, opening)

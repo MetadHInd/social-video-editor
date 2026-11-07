@@ -117,6 +117,9 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `visión` | `vision` |
 | `foto` | `photo` |
 | `presentacion` | `slideshow` |
+| `llamada` | `cta` |
+| `charla` | `talk` |
+| `pausas` | `pauses` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -128,6 +131,24 @@ Removed (dropped on load) in `config`: `cierre`
 | `alto` | `height` |
 
 Removed (dropped on load) in `config.output`: `perfiles`
+
+### Keys of `config.cta`
+
+| Spanish | English |
+|---|---|
+| `texto` | `text` |
+| `duracion` | `duration` |
+
+### Keys of `config.pauses`
+
+| Spanish | English |
+|---|---|
+| `pausa_minima` | `min_pause` |
+| `pausa_dejada` | `keep_pause` |
+| `silencio_db` | `silence_db` |
+| `tramo_minimo` | `min_span` |
+| `activo` | `enabled` |
+| `transicion` | `transition` |
 
 ### Keys of `config.duration`
 
@@ -156,6 +177,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `duracion` | `duration` |
 | `texto` | `text` |
 | `transicion` | `transition` |
+| `duracion_texto` | `text_duration` |
 
 ### Values of `config.hook.strategy`
 
@@ -227,6 +249,10 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `nitidez` | `sharpen` |
 | `vineta` | `vignette` |
 | `calidez` | `warmth` |
+| `desvanecido` | `fade` |
+| `tinte` | `tint` |
+| `referencia` | `reference` |
+| `fuerza_referencia` | `reference_strength` |
 
 ### Keys of `config.framing`
 
@@ -454,6 +480,12 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `vocabulario` | `vocabulary` |
 | `plan_productos` | `product_plan` |
 | `busqueda_producto` | `product_search` |
+| `tarjetas` | `cards` |
+| `contadores` | `counters` |
+| `efecto_producto` | `product_effect` |
+| `apertura_max` | `opening_max` |
+| `sin_empaque` | `unpacked` |
+| `empaques` | `packaging` |
 
 ### Keys of `config.vision.weights`
 

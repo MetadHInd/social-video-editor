@@ -141,6 +141,22 @@ def test_detect_products_end_to_end_synthetic():
                               np.zeros((0, D)), np.zeros((0, D)), vocab, ["a", "b", "c", "d"]) == []
 
 
+def test_unpacked_prefers_the_product_out_of_its_box():
+    t, emb, vocab, an = footage()
+    box = axis(5)
+    first = (t >= 30) & (t < 32.5)                    # product B still in its box, then out of it
+    emb[first] = np.stack([dp.unit(dp.unit(e) + 0.6 * box) for e in emb[first]])
+    sources = [{"t": t, "emb": emb, "analysis": an}]
+    args = (sources, np.zeros((0, D)), np.zeros((0, D)), vocab, ["mug", "earrings", "bottle", "hat"])
+    plain = dp.detect_products(*args, {"min_score": 0.5})
+    unpacked = dp.detect_products(*args, {"min_score": 0.5, "unpacked": 2.0}, packaging=np.stack([box]))
+    (b0,), (b1,) = [[f for f in r if f["label"] == "bottle"] for r in (plain, unpacked)]
+    assert b1["best"][0] >= 32.4 and b1["best"][0] > b0["best"][0]
+    assert [f["start"] for f in plain] == [f["start"] for f in unpacked]           # same segments
+    s = np.array([1.0, 2.0, 3.0])
+    assert dp.window_scores(s, None, 2.0) is s and dp.window_scores(s, np.zeros(3), 0) is s
+
+
 # ── plan ─────────────────────────────────────────────────────────────────────
 
 def _products(n=5):
@@ -181,6 +197,26 @@ def test_product_plan_limit_keeps_story_order_and_spanish_plan_translates(cfg):
     starts = [s["start"] for s in plan["shots"] if s.get("role") == "product"]
     assert starts == [21.0, 31.0] and not any(s.get("role") == "star" for s in plan["shots"])
     assert "collage" not in [s.get("role") for s in plan["shots"]]        # fewer than 3 products
+
+
+def test_haul_recipe_makes_a_calm_product_plan():
+    cfg = YamlRecipeRepository().load("haul", {"hook": {"text": "Haul 🎀"}, "cta": {"text": "Link in bio 💕"}})
+    plan = dp.product_plan(_products(18), cfg, opening=(0, 0.5, 3.0))
+    shots, texts = plan["shots"], plan["texts"]
+    roles = [s.get("role") for s in shots]
+    assert roles == ["opening"] + ["product"] * 18                       # all products, no teaser/stars/collage
+    assert all(s["speed"] == 1.0 and s["effects"] == [] and s["transition"] == "cut" for s in shots)
+    assert [x["style"] for x in texts] == ["hook", "cta"]                 # no cards or counters
+    assert texts[0] == {"text": "Haul 🎀", "start": 0.0, "end": 10.0, "style": "hook"}
+    assert texts[1]["until_shot"] == len(shots) - 1 and texts[1]["shot"] == len(shots) - 3   # last ~6 s
+    tl = compute_timeline(Sequence.from_plan(plan), cfg)
+    hook, cta = absolute_texts(plan, tl)
+    assert hook["end"] == 10.0 and cta["end"] == pytest.approx(tl.total) and tl.total - cta["start"] >= 5.5
+
+
+def test_closing_shot_counts_from_the_end():
+    shots = [{"start": 0, "end": 4}, {"start": 0, "end": 2, "speed": 0.5}, {"type": "collage", "dur": 3}]
+    assert dp.closing_shot(shots, 2) == 2 and dp.closing_shot(shots, 6) == 1 and dp.closing_shot(shots, 99) == 0
 
 
 # ── search by text / product criterion ──────────────────────────────────────

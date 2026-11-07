@@ -74,6 +74,7 @@ Every shot has a `type` (default `video`). Common keys:
 | `start`, `end` | seconds | required unless `search` | Window inside the source. |
 | `search` | object | — | Let the engine pick the window at render time: `{"range": [a, b], "dur": 1.8, "criterion": "product"}`. `range` defaults to the whole source, `dur` to 1.8 s. `criterion`: `product` (sharp, colorful, still image) or `action` (motion + loudness); with `vision.product_search: true` the `product` criterion is scored by the CLIP model. `text` (e.g. `{"text": "phone case", "range": [40, 60]}`) picks the window that best matches a description using the vision model whenever it is available (otherwise the `product` heuristic, with a warning). Recomputed on every render; the resolved window is kept as `_searched` in `plan_used.json`. |
 | `speed` | float | `1.0` | Playback speed (audio is time-stretched). |
+| `pause_cut` | bool | `false` | Written by the planner on a piece that continues the previous one after a shortened pause: its cut is never moved to the beat (`music.cuts_on_beat`). |
 | `continuous` | bool | `false` | With beat alignment: start exactly where the previous shot (same source) ended — for fast→slow ramps. |
 | `effects` | list | `[]` | Camera effects (see below). |
 | `freeze` | seconds | `0` | Hold the last frame this long (adds to the duration). |
@@ -109,6 +110,7 @@ with a flash and a shutter sound:
 |---|---|---|
 | `cut` | 0 | — |
 | `fade` | 0.35 s (fixed) | — |
+| `soft_cut` | 0.12 s (fixed) | — (near-invisible crossfade; the planner uses it for shortened pauses) |
 | `fade_black` | 0.4 s (fixed) | — |
 | `flash` | `transitions.duration` | flash |
 | `zoom`, `whip`, `slide_up`, `slide_left` | `transitions.duration` | whoosh |
@@ -192,7 +194,15 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `strategy` | `teaser` | `teaser` = open with the best moment, then tell the story; `start` = begin at the beginning. |
 | `duration` | 1.6 | Seconds of the teaser. |
 | `text` | `null` | If set, the planner adds it as a `hook`-style text at 0 s. |
+| `text_duration` | `null` | Seconds the hook text stays on screen (`null` = only during the hook). |
 | `transition` | `flash` | Transition from the hook to the story. |
+
+### `cta`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `text` | `null` | Closing call to action added by the product plan (style `cta`), e.g. `"Link in bio 💕"`. |
+| `duration` | 6 | Seconds at the end of the video it covers (rounded to whole shots). |
 
 ### `selection`, `analysis`, `transcription`
 
@@ -223,6 +233,10 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `color.gamma_min` / `gamma_max` | 0.8 / 1.5 | Limits of the brightness correction. |
 | `color.contrast` / `saturation` / `vibrance` | 1.05 / 1.10 / 0.12 | Creative look. |
 | `color.temperature` | `null` | Kelvin, e.g. 6000 = warmer. |
+| `color.reference` | `null` | A video whose look to copy (path, relative to the project or the workspace). `render` measures ~24 frames of it and brings every shot to its brightness, black/white points, saturation and color cast (replaces the automatic levels/white balance/exposure). |
+| `color.reference_strength` | 1.0 | 0…1: how much of the reference look. |
+| `color.fade` | 0 | Soft "matte" look: blacks lifted to this level, whites lowered by half of it (0.1–0.2 typical). |
+| `color.tint` | 0 | Green ↔ magenta: + = pink/magenta, − = green (−1…1; 0.3 is subtle). |
 | `color.sharpen` | 0.35 | CAS sharpening (0 = none). |
 | `color.lut` | `null` | Path to a creative `.cube` LUT. |
 | `color.vignette` | false | Add a vignette. |
@@ -279,7 +293,7 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `subtitles.uppercase`, `font`, `size`, `color`, `highlight`, `stroke`, `stroke_color`, `shadow` | true, Inter-Black, 82, white, `#FFE14D`, 9, black, true | Look (active word in `highlight`). |
 | `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). |
 | `subtitles.animation` | `pop` | `pop` or `none`. |
-| `texts.styles.<name>` | see `base.yaml` | `size`, `font`, `color`, `background` (`#RRGGBBAA`), `x`, `y`, `max_width`, `uppercase`, `radius`, `outline`, `animation`, `speed`, `desc_font`, `desc_size`, `desc_color`. Sizes are for a 1080-px-wide output and scale with it. |
+| `texts.styles.<name>` | see `base.yaml` | `size`, `font`, `color`, `background` (`#RRGGBBAA`), `x`, `y`, `max_width`, `uppercase`, `radius`, `outline`, `animation`, `speed`, `desc_font`, `desc_size`, `desc_color`; without a `background` the text is outlined with `stroke` px (default size/10) in `stroke_color` (default black). Sizes are for a 1080-px-wide output and scale with it. |
 
 ### `export`, `polaroid`, `collage`
 
@@ -312,6 +326,11 @@ Used by `sve products`, by `search.text`, by `sve plan` when `product_plan` is o
 | `vision.window` | 2.0 | Seconds of the best moment of each product (`best` in `products.json`). |
 | `vision.max_products` | 15 | At most this many products (the best-scoring ones, kept in story order). |
 | `vision.stars` | 3 | The most confident products get a fast → slow ramp and a polaroid in the product plan. |
+| `vision.cards` / `counters` / `collage` | true | Product plan parts: a card with each product's name, an `n/N` counter, a collage at the end. |
+| `vision.product_effect` | `beat_pulse` | Effect on each product shot of the product plan (`null` = none). |
+| `vision.unpacked` | 0 (`haul`: 2) | Inside each product, prefer the frames that look least like its packaging (`vision.packaging` prompts), so the shot shows the product out of its box. |
+| `vision.packaging` | box, wrapper with barcode | English prompts describing packaging (used by `unpacked`). |
+| `vision.opening_max` | null | Seconds of the package-opening shot of the product plan (`null` = `pacing.shot_max`). |
 | `vision.vocabulary` | null | null = packaged list of ~80 small products (es/en); or your own list of names. |
 | `vision.product_plan` | false (`unboxing`: true) | `sve plan` makes one shot per detected product (card with its name + `n/N` counter, collage at the end). |
 | `vision.product_search` | false | Opt-in: `search` with `criterion: product` uses the vision model (changes the windows of existing plans). `search.text` uses it regardless. |
@@ -353,6 +372,33 @@ Written by other commands:
 
 
 ---
+
+## Pauses in speech
+
+`sve plan` shortens the long pauses inside every shot with voice, in every recipe (`pauses.enabled`).
+A shot is split at each pause of at least `pauses.min_pause` seconds; the pause keeps
+`pauses.keep_pause` seconds (half on each side of the cut) and the new piece enters with
+`pauses.transition` (`soft_cut`: a 0.12 s crossfade of sound and picture, added on top so the pause
+heard is still `keep_pause`). Shorter pauses (breaths between sentences) are never cut. Pauses come
+from the cached audio levels of the source (`cache/<id>_analysis.json`, every 0.1 s); a quiet stretch
+with a transcribed word inside is not a pause. Left alone: the hook, beat-locked shots (`beats`),
+sped-up shots, drawn shots, and shots without voice. Shot indices in texts, polaroids and collages are
+renumbered. Existing plans are not changed (only `sve plan` does this).
+
+With `talk: true` (the `talk` recipe: meetings, classes, screen recordings) every video source is
+kept whole and in order, and only its pauses are shortened (leading and trailing silence keep half
+of `keep_pause`). The recipe also keeps every shot's look and sound the same (`color.auto: false`,
+no per-shot denoise or compressor), since per-shot processing would change at every cut.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `talk` | `false` | `sve plan` keeps every source whole (talk plan). |
+| `pauses.enabled` | `true` | Shorten long pauses in shots with voice. |
+| `pauses.min_pause` | 0.9 | Seconds: only pauses at least this long are shortened (`storytime`: 0.6). Lower = tighter, more cuts. |
+| `pauses.keep_pause` | 0.45 | Seconds of pause left where a long one was cut (`storytime`: 0.3). |
+| `pauses.silence_db` | `auto` | Quieter than this (dBFS) is a pause. `auto` = 12 dB under the source's median level, at most -25 (`talk`: -35). |
+| `pauses.min_span` | 0.5 | No piece of speech shorter than this (the pause before it is kept instead). |
+| `pauses.transition` | `soft_cut` | How the two sides of a shortened pause are joined (`cut` = plain jump cut). |
 
 ## Photos and slideshows
 

@@ -1,0 +1,75 @@
+# RECIPE: HAUL / AESTHETIC UNBOXING (slow, calm, "satisfying")
+# Formula: the package being opened → every product held in the hands at real speed, plain cuts →
+#          one title at the start and a soft call to action at the end. Music at a steady level
+#          with the packaging sounds (ASMR) underneath. No cards, counters, ramps or collage.
+# Only what differs from base.yaml.
+
+duration:
+  target: 58
+  max: 62
+
+pacing:
+  shot_max: 4.0
+  speed_without_voice: 1.0   # real speed: the calm look comes from letting each product breathe
+
+hook:
+  strategy: start            # begins with the package, no teaser
+  text_duration: 10          # the title stays for the first 10 s
+
+cta:
+  duration: 6
+
+selection:
+  weights:
+    peaks: 1.1
+    color: 0.6
+  keywords:
+    es: [wow, guau, mira, miren, qué, lindo, linda, bonito, bonita, hermoso, hermosa,
+         precio, llegó, llegaron, abrir, abramos, increíble, amo, encanta, perfecto, calidad, regalo]
+    en: [wow, look, cute, pretty, beautiful, gorgeous, price, arrived, open, opening,
+         amazing, love, obsessed, omg, perfect, quality, gift, finally]
+
+transcription:
+  context:
+    es: "Unboxing de un pedido en línea. Abriendo paquetes y mostrando productos."
+    en: "Unboxing an online order. Opening packages and showing products."
+
+framing:
+  slow_push: 0               # no automatic zoom
+
+transitions:
+  rotation: [cut]
+
+effects:
+  zoom_on_peaks: false
+  flash_on_reveal: false
+
+audio:
+  asmr: true                 # crinkles and packaging with presence
+  gain_without_voice_db: 5
+
+music:
+  ducking: false             # steady music level
+  ducking_asmr: false
+
+sfx:
+  enabled: false
+
+texts:
+  styles:
+    hook: {size: 80, font: InterDisplay-Black, color: "#FF5FA2", background: null, stroke_color: "#FFFFFF", stroke: 5,
+           y: 0.45, max_width: 0.86, animation: pop}
+    cta:  {size: 46, font: InterDisplay-Bold, color: "#FF5FA2", background: null, stroke_color: "#FFFFFF", stroke: 4,
+           y: 0.80, max_width: 0.7, animation: pop}
+
+vision:
+  product_plan: true
+  stars: 0                   # no fast→slow ramps or polaroids
+  cards: false
+  counters: false
+  collage: false
+  product_effect: null
+  window: 2.8                # seconds of each product
+  unpacked: 2.0              # show each product out of its box, not the box
+  max_products: 0            # 0 = every detected product
+  opening_max: 4.0

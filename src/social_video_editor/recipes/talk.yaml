@@ -1,0 +1,22 @@
+# RECIPE: TALK / MEETING / CLASS / SCREEN RECORDING (landscape, long-form)
+# Formula: the whole recording in order; only long pauses are shortened (pauses: in base.yaml), joined
+# with a 0.12 s crossfade (soft_cut) so the cuts are not heard or seen. Neutral look and sound:
+# every shot gets the same processing, so nothing jumps at a cut. No hook, no music, no texts, no zooms.
+talk: true
+pauses:
+  silence_db: -35        # clean meeting audio: a fixed level (min_pause / keep_pause: base.yaml)
+output: {width: 1920, height: 1080, fps: 30}
+duration: {target: 0, max: 0}          # 0 = no limit: the recording decides the length
+hook: {strategy: start, duration: 0, text: null}
+framing: {slow_push: 0}
+effects: {zoom_on_peaks: false, zoom_ratio: 0}
+color: {auto: false, sharpen: 0, contrast: 1.0, saturation: 1.0, vibrance: 0}   # same look in every shot
+audio:
+  denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)
+  compressor: false
+  voice_eq: false
+  gain_without_voice_db: 0
+music: {file: none, cuts_on_beat: false}
+sfx: {enabled: false}
+subtitles: {auto: false}
+export: {cover: false}

@@ -117,6 +117,8 @@ def snap_cuts_to_beats(plan: dict, beats: list[float], cfg: dict, source_duratio
     moved = 0
     shots = Sequence.from_plan(plan).shots()
     for i in range(1, len(shots)):
+        if shots[i].data.get("pause_cut"):          # a shortened pause: moving it could clip a word
+            continue
         tl = compute_timeline(plan, cfg)
         cut = tl[i].out_start + tl[i].overlap / 2
         j = int(np.argmin(np.abs(b - cut)))

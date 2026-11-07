@@ -260,7 +260,8 @@ def build_plan(analyses: list[dict], cfg: dict, report: Callable[[str], None] | 
 
     texts = []
     if h.get("text"):
-        texts.append({"text": h["text"], "start": 0.0, "end": max(h["duration"] + 0.8, 2.2), "style": "hook"})
+        end = float(h.get("text_duration") or max(h["duration"] + 0.8, 2.2))
+        texts.append({"text": h["text"], "start": 0.0, "end": end, "style": "hook"})
     return {
         "note": "Editable plan. Shot times = seconds inside each source; text times = seconds of the "
                 "final video. Render again with: sve render <project>",
