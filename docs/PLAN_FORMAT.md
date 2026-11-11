@@ -58,7 +58,7 @@ Every shot has a `type` (default `video`). Common keys:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `type` | `video` \| `polaroid` \| `collage` | `video` | Kind of shot. |
+| `type` | `video` \| `polaroid` \| `collage` \| `photo` \| `graphic` | `video` | Kind of shot. |
 | `transition` | name | `cut` | How the shot **enters** (see catalog). Ignored on the first shot. |
 | `role` | text | — | Free label shown by `view` / `report` and in `summary.json`. The planner uses `hook`, `story`, `reveal`; others in use: `opening`, `product`, `star`, `outro`. |
 | `beats` | int | — | Make the shot last exactly N music beats. If **any** shot has `beats`, every cut is placed exactly on a beat (shots without it get the nearest whole number of beats). |
@@ -103,6 +103,24 @@ with a flash and a shutter sound:
 | `columns` | `collage.columns` (4) | Grid columns. |
 | `subdivision` | `collage.subdivision` (2) | Photos appear every 1/N beat. |
 | `dur` | `0.6 × beats` | Duration in seconds. |
+
+**Graphic** (`type: graphic`) — an animated graphic drawn from data (needs the `graphics` extra):
+
+```json
+{"type": "graphic", "template": "bars", "title": "Battery to open an app",
+ "data": "Cold start:100, Asleep:20", "unit": "%", "dur": 3.5}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram` or `lower_third` (or one a pack adds). |
+| *the template's keys* | — | What it shows: every template and its keys are in [GRAPHICS.md](GRAPHICS.md). |
+| `dur` | the template's (2.2–5 s) | Seconds on screen. |
+| `caption` | — | What is being said, drawn in the narration box under the graphic. |
+
+A graphic shot is silent; its whoosh and pops go to the sound-effects track. Its look comes from the
+`graphics` settings: `pack` (a channel's look, `<workspace>/packs/<name>/`) and `theme` (overrides).
+Preview one without rendering: `sve graphic <project> --shot N`.
 
 ### Transitions
 

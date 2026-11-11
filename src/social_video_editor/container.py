@@ -8,6 +8,7 @@ from .adapters.ffmpeg.photo_encoder import FfmpegPhotoEncoder
 from .adapters.ffmpeg.probe import FfprobeMediaProbe
 from .adapters.ffmpeg.sfx import FfmpegSoundEffects
 from .adapters.files.cache import JsonCacheStore
+from .adapters.files.packs import FilePackRepository
 from .adapters.files.projects import YamlProjectRepository
 from .adapters.files.recipes import YamlRecipeRepository
 from .adapters.files.workspace import subdir
@@ -15,6 +16,7 @@ from .adapters.librosa.audio_analyzer import LibrosaAudioAnalyzer
 from .adapters.opencv.video_analyzer import OpenCvVideoAnalyzer
 from .adapters.pillow.composer import PillowComposer
 from .adapters.pillow.text_layer import PillowTextRenderer
+from .adapters.skia.renderer import SkiaGraphicRenderer
 from .adapters.upscale.lanczos import LanczosUpscaler
 from .adapters.upscale.realesrgan import RealEsrganUpscaler
 from .adapters.whisper.transcriber import WhisperTranscriber
@@ -42,4 +44,6 @@ def build_services() -> Services:
         inspector=FfmpegRenderInspector(),
         photos=FfmpegPhotoEncoder(encoder),
         upscaler=RealEsrganUpscaler(fallback=LanczosUpscaler()),   # lazy: torch only loaded by sve enhance
+        graphics=SkiaGraphicRenderer(),  # lazy: skia only loaded when a graphic is drawn
+        packs=FilePackRepository(),
     )

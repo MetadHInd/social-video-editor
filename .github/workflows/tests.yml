@@ -44,7 +44,7 @@ jobs:
       - name: System packages (FFmpeg, Rubber Band, OpenCV libs, fonts)
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git ffmpeg rubberband-cli libgl1 libglib2.0-0 \
+          apt-get install -y --no-install-recommends git ffmpeg rubberband-cli libgl1 libegl1 libglib2.0-0 \
             fonts-inter fonts-dejavu-core fonts-liberation2 fonts-noto-color-emoji fontconfig
           ffmpeg -hide_banner -version | head -n 1
 
@@ -57,10 +57,10 @@ jobs:
           key: pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: pip-${{ matrix.python-version }}-
 
-      # Only the base package + dev tools: the heavy extras (torch, spandrel, sentence-transformers)
-      # are not installed and their tests skip.
+      # The base package + dev tools + the graphics extra (skia-python, a small wheel). The heavy extras
+      # (torch, spandrel, sentence-transformers) are not installed and their tests skip.
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,graphics]"
 
       - name: Tests (unit + integration)
         run: python -m pytest -q -rs
@@ -129,10 +129,10 @@ jobs:
           & (Join-Path $bin 'ffmpeg.exe') -hide_banner -version
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-      # Only the base package + dev tools: the heavy extras (torch, spandrel, sentence-transformers)
-      # are not installed and their tests skip.
+      # The base package + dev tools + the graphics extra (skia-python, a small wheel). The heavy extras
+      # (torch, spandrel, sentence-transformers) are not installed and their tests skip.
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,graphics]"
 
       # The engine requires FFmpeg >= 7. ffmpeg_version() returns None for builds without a release
       # number (git/master snapshots "N-12345-g…"); then the libavcodec major is used instead

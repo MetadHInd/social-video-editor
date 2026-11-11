@@ -88,6 +88,8 @@ def _shot_entry(clip) -> dict:
         e.update(source=piece.source, start=d.get("start"), end=d.get("end"), speed=d.get("speed", 1))
         if d.get("search"):
             e["search"] = d["search"].get("range")
+    elif piece.kind == "graphic":
+        e["template"] = d.get("template")
     else:
         e["from"] = sorted(piece.dependencies())
     if d.get("effects"):
@@ -259,7 +261,8 @@ def _shot_token(e: dict) -> str:
         if e.get("speed", 1) not in (1, 1.0):
             parts.append(f"x{e['speed']}")
     else:
-        parts.append(f"{e['type']}<{','.join(map(str, e.get('from', [])))}")
+        parts.append(f"graphic:{e.get('template')}" if e["type"] == "graphic"
+                     else f"{e['type']}<{','.join(map(str, e.get('from', [])))}")
     parts.append(f"{e['dur']:.1f}s")
     if e.get("transition") and e["transition"] != "cut":
         parts.append(f"/{e['transition']}")

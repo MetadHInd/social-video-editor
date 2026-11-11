@@ -9,9 +9,10 @@ src/social_video_editor/
 │                  shot selection, transitions/effects catalogs, text layout, color math,
 │                  render checks, product detection math (products.py), still photos (photos.py:
 │                  capture time, Ken Burns, slideshow plan, auto-tone curve), playlist mixing
-│                  (automix.py) and photo durations fitted to the music (slideshow_timing.py)
+│                  (automix.py), photo durations fitted to the music (slideshow_timing.py) and
+│                  animated graphics (graphics/: specs, theme, scenes, templates, illustrations)
 ├── ports/         typing.Protocol interfaces the application needs
-├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/, upscale/
+├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/, upscale/, skia/
 ├── application/   use cases: analyze, plan, render, thumbs, view, report, check, products, music, enhance, project
 ├── container.py   composition root: wires every port to its adapter (build_services)
 ├── cli.py         argparse front end (`sve …`)
@@ -36,6 +37,8 @@ the `Services` bundle of ports (`application/services.py`); `adapters` implement
 | `ImageComposer` | `adapters/pillow/composer.py` · `PillowComposer` | Polaroid and collage frames, contact sheets (video frames, or the photos themselves: `photo_sheets`). |
 | `PhotoRenderer` | `adapters/ffmpeg/photo_encoder.py` · `FfmpegPhotoEncoder` | Still photos: finding them (folders), and one photo → a segment (EXIF orientation, `photo.auto_tone` exposure fix with local shadow recovery for backlit photos, cover or blurred-background framing, sub-pixel Ken Burns, warmth / vignette, `render.photo_crf`). Tone curve math in `domain/photos.py`. |
 | `ImageUpscaler` | `adapters/upscale/realesrgan.py` · `RealEsrganUpscaler` (fallback `lanczos.py` · `LanczosUpscaler`) | `sve enhance`: small photos enlarged ×4 (torch loaded lazily), big ones reduced, into `cache/photos/`. |
+| `GraphicRenderer` | `adapters/skia/renderer.py` · `SkiaGraphicRenderer` | Animated graphics (optional `[graphics]` extra, skia imported lazily): the `Stage` with real text measuring, frames / overlay frames / stills of a `Scene`, contact sheets. Draws each distinct state of a scene once. |
+| `PackRepository` | `adapters/files/packs.py` · `FilePackRepository` | Packs (`<workspace>/packs/<name>/`): a channel's theme and its Python module of elements, templates and illustrations. |
 | `SoundEffects` | `adapters/ffmpeg/sfx.py` · `FfmpegSoundEffects` | Mixes all sound effects into one track; synthesizes missing `sfx/*.wav`. |
 | `RecipeRepository` | `adapters/files/recipes.py` · `YamlRecipeRepository` | `base → recipe → settings` merge and language resolution. |
 | `ProjectRepository` | `adapters/files/projects.py` · `YamlProjectRepository` | project.yaml, plan.json, version folders, outputs, music lookup (one track, or `music.playlist`: `find_playlist`). |
@@ -104,6 +107,30 @@ the cuts into a list of still frames with durations, which the Pillow adapter dr
 Typing speed adapts so a card is always fully typed with time left to read (≤ 75 % of its
 duration). Units come from `domain/text_units.py` (a composed emoji is one unit).
 
+## Animated graphics (`domain/graphics/`)
+
+```
+spec (cue / plan shot)  ──make_scene──▶  Scene (a template, laid out on a Stage for the frame and theme)
+                                           │  frame_state(t) → (state key, time to draw)
+                                           ▼
+                        GraphicRenderer ──▶ frames (one drawing per distinct state) ──▶ encode_frames ──▶ segment
+```
+
+- `spec.py` reads cues, pairs, lists and numbers; `theme.py` holds the look as data (default ← pack ←
+  project); `scene.py` has `Stage` (frame size, unit, safe zone, text measuring), `Scene` (layout once
+  at the largest scale that fits, draw any instant) and the registries of templates and elements.
+- Templates (`templates.py`) and illustrations (`icons.py`) draw through the small `Canvas` protocol
+  (`canvas.py`), with shared house-style helpers (`kit.py`: shapes with outline / halo / off-register
+  fill, dotted shadows, printed text, posters, tags, scenery, glow, sparkles, marching dashes) and
+  timing curves (`motion.py`). No drawing library is imported in the domain: tests run them on a
+  `RecordingCanvas`.
+- Time is quantized where the theme asks (objects on twos); after the entrances a scene is a loop of
+  `motion.LOOP_TICKS` states (ambient motion and stroke wobble are periodic in it), so the renderer
+  draws at most that many more pictures however long the graphic stays.
+- A `GraphicShot` (`domain/pieces.py`) is a drawn shot without dependencies; `ShotRenderer.visit_graphic`
+  builds the scene, records its sound effects on the shot (`_sounds`) and encodes the frames like a
+  polaroid or collage. The segment is cached by spec + theme + size.
+
 ## Data flow
 
 ```
@@ -165,6 +192,7 @@ profiles are defined there too.
 |---|---|
 | **A transition** | `domain/transitions.py:TRANSITIONS` (duration, fixed, sound) and `adapters/ffmpeg/filters.py:XFADE` (FFmpeg xfade name). Optional Spanish alias in `legacy_es.TRANSITIONS` + `docs/LEGACY_KEYS.md` (a test checks they match). |
 | **A shot effect** | `domain/effects.py:EFFECT_TYPES` and its drawing in `adapters/ffmpeg/filters.py` (`zoom_expr`, `motion`, `flash_filters`…). If it adds a shot key that changes the picture, add it to `SHOT_SIGNATURE_KEYS` in `application/render.py`. |
+| **A graphic template / illustration / element** | `@template("name")` on a `Scene` subclass in `domain/graphics/templates.py`, `@icon("name", words=…)` in `icons.py`, `@element("name")` in `kit.py` — or the same decorators in a pack's `elements.py` (no engine change). Document it in [GRAPHICS.md](GRAPHICS.md). |
 | **A shot type** | Subclass `DrawnShot` (or `Shot`) in `domain/pieces.py`, register it in `SHOT_TYPES`, add `visit_<kind>` to `PieceVisitor` and `ShotRenderer`, and the drawing method to the `ImageComposer` port + Pillow adapter. |
 | **A text style** | `texts.styles` in `recipes/base.yaml` (or in a recipe / project settings). |
 | **A recipe** | `<workspace>/recipes/<name>.yaml` (or `src/social_video_editor/recipes/` to ship it). Only write what differs from `base.yaml` (a key nothing reads is silently ignored). |

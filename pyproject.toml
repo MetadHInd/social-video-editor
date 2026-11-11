@@ -23,6 +23,7 @@ dependencies = [
 vision = ["sentence-transformers"]
 music = ["yt-dlp"]
 enhance = ["spandrel", "torch"]
+graphics = ["skia-python"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]

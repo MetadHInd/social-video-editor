@@ -7,6 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- **Animated graphics drawn from data** (`graphic` shots, optional `[graphics]` extra with skia-python):
+  templates `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram` and `lower_third`,
+  each written as a few key/value pairs (or a one-line cue), laid out for vertical or landscape at the
+  largest size that fits the safe zone, with their sound effects. Diagram nodes with a known name are
+  drawn as illustrations (phone, router, globe, cloud, server, laptop, chip, ram, disk, battery, tower,
+  app, user, lock; matched in Spanish and English). Every graphic sits on scenery (grid, circuit traces
+  with pulses, chips, twinkling bits) and keeps moving after it has come in. See `docs/GRAPHICS.md`.
+- Graphics themes and **packs** (`<workspace>/packs/<name>/`): a channel's colors, inks with a fixed
+  meaning, fonts (variable-font instances), "printed" look (ink outlines, halftone shadows, registration
+  offsets, text that prints, objects on twos, stroke wobble, paper grain) and its own elements,
+  templates and illustrations in Python. Settings: `graphics.pack`, `graphics.theme`.
+- `sve graphic` (`--proof`, `--shot N`, `--cue '…'`, `--pack`, `--video`): previews graphics in seconds
+  without rendering the video.
+- `sve doctor`: checks FFmpeg (version, filters, encoders), fonts, optional parts and the workspace.
+- `sve report` shows graphic shots by template.
 - `sve plan` shortens long pauses inside every shot with voice, in every recipe (`pauses.*`: on by
   default, 0.9 s pauses kept at 0.45 s; `storytime` tighter), joined with the new `soft_cut`
   transition (0.12 s crossfade of sound and picture). Pieces carry `pause_cut` and are never moved

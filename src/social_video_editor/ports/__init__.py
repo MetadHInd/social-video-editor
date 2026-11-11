@@ -256,3 +256,39 @@ class ImageUpscaler(Protocol):
         """Writes `src` (EXIF orientation applied) to `out` as JPEG (quality 95) with its short side equal
         to `short_side`. upscale=True first enlarges it with the model (×4), then reduces it with
         Lanczos. Returns the method used ("realesrgan" | "lanczos")."""
+
+
+class GraphicRenderer(Protocol):
+    """Draws animated graphics (domain/graphics): a Scene laid out on a Stage → frames."""
+
+    def ready(self) -> str | None:
+        """None when graphics can be drawn; otherwise the reason (e.g. the drawing library is missing)."""
+
+    def stage(self, W: int, H: int, theme: dict, language: str = "es"):
+        """The Stage for a frame size and theme, measuring text with the theme's real fonts."""
+
+    def frames(self, scene, fps: int, n: int) -> Iterable[bytes]:
+        """n raw RGB frames (rgb24, W×H of the scene's stage)."""
+
+    def overlay_frames(self, scene, fps: int, n: int) -> Iterable:
+        """n RGBA pictures (H×W×4 arrays, straight alpha) on a transparent background."""
+
+    def still(self, scene, t: float):
+        """The frame at `t` seconds as an RGB array (H×W×3)."""
+
+    def save_sheet(self, pictures: list, out: Path, columns: int, tile_width: int) -> Path:
+        """A contact sheet (PNG) of RGB pictures, `columns` per row."""
+
+    def save_picture(self, picture, out: Path) -> Path: ...
+
+    def sample_image(self, out: Path) -> Path:
+        """A stand-in product picture (PNG cut-out) for the style proof."""
+
+
+class PackRepository(Protocol):
+    """Packs: the look and reusable drawings of a channel (<workspace>/packs/<name>/)."""
+
+    def available(self) -> list[str]: ...
+
+    def load(self, name: str) -> dict:
+        """{"name", "dir", "theme"}; registers the pack's templates and elements."""

@@ -89,6 +89,10 @@ class ClipVisualDetector:
         folder = Path(self.cache_folder) if self.cache_folder else hub_cache()
         return (folder / ("models--" + name.replace("/", "--")) / "snapshots").is_dir()
 
+    def downloaded(self, settings: dict) -> bool:
+        """True when both models are already on disk (nothing is imported or loaded)."""
+        return all(self._downloaded(n) for n in self._names(settings))
+
     def ready(self, settings: dict, download: bool = False) -> str | None:
         """None when the models can be used; otherwise the reason (for a friendly message)."""
         if importlib.util.find_spec("sentence_transformers") is None:
