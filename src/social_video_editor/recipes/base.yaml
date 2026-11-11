@@ -265,3 +265,7 @@ vision:                  # local CLIP model: recognizes products by itself (opti
   product_plan: false    # plan = one shot per detected product (the unboxing recipe turns it on)
   product_search: false  # true = "search" with criterion "product" uses the vision model (changes the windows
                          # of existing plans, so it is opt-in); "search" by "text" always uses it
+
+graphics:                # shots {"type": "graphic", "template": "bars", …} — animated graphics drawn from data
+  pack: null             # name of a pack (<workspace>/packs/<name>/pack.yaml): a channel's look and drawings
+  theme: {}              # overrides of the theme on top of the pack (colors, fonts, strokes… see docs/GRAPHICS.md)

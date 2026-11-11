@@ -14,7 +14,7 @@ from social_video_editor.adapters.upscale import realesrgan
 
 SRC = str(Path(social_video_editor.__file__).resolve().parents[1])     # works without an installed package
 HEAVY = ("torch", "spandrel", "sentence_transformers", "transformers", "librosa", "numba", "scipy", "cv2",
-         "scenedetect", "faster_whisper", "ctranslate2", "av", "soundfile", "yt_dlp")
+         "scenedetect", "faster_whisper", "ctranslate2", "av", "soundfile", "yt_dlp", "skia")
 
 
 def test_engine_modules_import_without_heavy_libraries():

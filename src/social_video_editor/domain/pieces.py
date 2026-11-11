@@ -16,7 +16,7 @@ sound effects they trigger and how to describe themselves; rendering dispatches 
 
 A shot wraps the plan's dict (no copy): changes made by the beat alignment land in the plan.
 Plan shot keys (English): source, start, end, speed, role, transition, effects, beats, continuous,
-search, type (video | polaroid | collage | photo), from_shot, from_shots, background_from, text, tilt,
+search, type (video | polaroid | collage | photo | graphic), template, from_shot, from_shots, background_from, text, tilt,
 columns, subdivision, zoom, focus_x, focus_y, volume_db, mute, freeze, color, note, group, dur,
 duration, motion, motion_amount, framing.
 """
@@ -43,6 +43,7 @@ class PieceVisitor(Protocol):
     def visit_polaroid(self, shot: PolaroidShot): ...
     def visit_collage(self, shot: CollageShot): ...
     def visit_photo(self, shot: PhotoShot): ...
+    def visit_graphic(self, shot: GraphicShot): ...
 
 
 class Piece(ABC):
@@ -332,8 +333,43 @@ class PhotoShot(Shot):
         return visitor.visit_photo(self)
 
 
+class GraphicShot(DrawnShot):
+    """An animated graphic drawn from data (domain/graphics): bars, a big number, a diagram…
+
+    Plan keys: "template" plus the template's own keys, and "dur" (seconds; each template has a default)."""
+
+    kind = "graphic"
+    DEFAULT_SECONDS = 3.5
+
+    @property
+    def template(self) -> str:
+        if not self.data.get("template"):
+            raise PlanError(f"Shot {self.index} (graphic) needs 'template'")
+        return str(self.data["template"])
+
+    def base_duration(self) -> float:
+        return float(self.data.get("dur") or self.DEFAULT_SECONDS)
+
+    def spec(self) -> dict:
+        """What the graphic shows: the shot without the keys that only place it in the video."""
+        return {k: v for k, v in self.data.items() if k not in GRAPHIC_PLACEMENT_KEYS and not k.startswith("_")}
+
+    def sound_events(self, out_start, dur, base_db, cfg):
+        return [(name, out_start + at, base_db - 2) for name, at in self.data.get("_sounds", []) if at < dur]
+
+    def summary(self) -> dict:
+        return {**super().summary(), "template": self.data.get("template")}
+
+    def describe(self) -> str:
+        return f"graphic {self.data.get('template', '?'):<20}"
+
+    def accept(self, visitor):
+        return visitor.visit_graphic(self)
+
+
+GRAPHIC_PLACEMENT_KEYS = ("type", "transition", "role", "beats", "group", "note", "score", "peak", "voice")
 SHOT_TYPES: dict[str, type[Shot]] = {"video": VideoShot, "polaroid": PolaroidShot, "collage": CollageShot,
-                                     "photo": PhotoShot}
+                                     "photo": PhotoShot, "graphic": GraphicShot}
 
 
 def make_shot(data: dict, index: int) -> Shot:

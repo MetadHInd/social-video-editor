@@ -34,7 +34,7 @@ from ..domain.config import EXPORT_PROFILES, labels, output_name, variant_suffix
 from ..domain.models import Project, UserError
 from ..domain.models import PlanError
 from ..domain.photos import auto_tone_setting, photo_crf, photo_settings, resolve_photo_ref
-from ..domain.pieces import CollageShot, PhotoShot, PolaroidShot, Sequence, VideoShot
+from ..domain.pieces import CollageShot, GraphicShot, PhotoShot, PolaroidShot, Sequence, VideoShot
 from ..domain.selection import has_voice, resolve_ranges
 from ..domain.text_layout import srt_text, subtitle_groups, text_animation
 from ..domain.timebase import mmss
@@ -44,6 +44,7 @@ from ..domain.transitions import get_transition
 from ..log import log
 from .analyze import prepare_sources
 from .enhance import enhanced_or_none
+from .graphic import build_scene, graphics_theme
 from .music import prepare_music
 from .products import visual_search
 from .services import Services
@@ -76,6 +77,7 @@ class ShotRenderer:
         self._claims: dict[Path, threading.Lock] = {}
         self._claims_guard = threading.Lock()
         self._stop = threading.Event()                # set when a pooled shot fails: the pending ones are skipped
+        self._theme: dict | None = None               # graphics theme, built on the first graphic shot
 
     def render(self, waves: list[list[int]]) -> list[Path]:
         """Renders the shots wave by wave (Sequence.render_waves: a wave only needs earlier waves).
@@ -216,6 +218,29 @@ class ShotRenderer:
         finally:
             for p in pngs:
                 self.svc.cache.discard(p)
+
+    # ── graphics ─────────────────────────────────────────────────────────────
+    def visit_graphic(self, shot: GraphicShot) -> Path:
+        """An animated graphic drawn from its data (domain/graphics). Silent; its sound effects are
+        recorded on the shot ("_sounds") for the effects track."""
+        d = self.tl[shot.index].as_dict()
+        if self._theme is None:
+            self._theme = graphics_theme(self.svc, self.cfg)
+        spec = {**shot.spec(), "dur": d["dur"]}
+        try:
+            scene = build_scene(self.svc, self.cfg, spec, self.W, self.H, self._theme)
+        except PlanError as e:
+            raise PlanError(f"Shot {shot.index} (graphic {shot.template}): {e}") from None
+        shot.data["_sounds"] = [[name, round(at, 3)] for name, at in scene.sounds()]
+        log(f"{self._header(shot)} graphic {shot.template} ({d['dur']:.2f} s) [{d.get('transition')}]")
+        path = self._segment_path({"spec": spec, "theme": self._theme, "W": self.W, "H": self.H, "fps": self.fps,
+                                   "language": self.cfg.get("language"), "draft": self.draft, "v": SEGMENT_VERSION},
+                                  prefix="graphic_", n=14)
+        if self.svc.cache.has(path):
+            return path
+        n = int(round(d["dur"] * self.fps))
+        return self.svc.encoder.encode_frames(self.svc.graphics.frames(scene, self.fps, n), n, self.W, self.H,
+                                              self.fps, path, draft=self.draft)
 
     # ── still photos ─────────────────────────────────────────────────────────
     def visit_photo(self, shot: PhotoShot) -> Path:

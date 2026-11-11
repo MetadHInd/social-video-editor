@@ -44,6 +44,10 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
 - **Beat-synced editing** — music beat grid and "drop" detection; the song can start so its drop
   lands at a chosen second; cuts snap to the nearest beat, or every cut lands exactly on a beat
   (`"beats": N` per shot); `beat_pulse` zooms on every beat.
+- **Animated graphics from data** — bars, big numbers, product cards, titles, headlines, lists and
+  step-by-step diagrams with illustrations (phone, router, server, chip…), written as a few
+  key/value pairs and drawn locally: laid out for vertical or landscape, alive (scenery, blinking
+  lights, a marker that travels), themeable per channel with packs. See [docs/GRAPHICS.md](docs/GRAPHICS.md).
 - **Pieces** — video shots (speed ramps, freeze frames, zoom punch, push-in/pull-out, shake, flash),
   **polaroid** shots (last frame of a shot dropped in as an instant photo with a shutter sound),
   **collage** shots (frames of several shots popping in on the beat), and groups of shots.
@@ -127,6 +131,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .              # the engine and the `sve` command
 pip install -e ".[music]"     # + yt-dlp, for `sve music`
 pip install -e ".[vision]"    # + sentence-transformers: local CLIP product recognition (optional)
+pip install -e ".[graphics]"  # + skia-python: animated graphics (optional)
 pip install -e ".[dev]"       # + pytest and ruff
 ```
 
@@ -180,6 +185,8 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve music "<artist song or URL>"` | `musica` | Download a track with yt-dlp into `music/` and analyze its tempo, beats and drop. |
 | `sve products <project>` | `productos` | Recognize the products shown in the sources with the local CLIP model (optional `[vision]` extra; downloaded on first use) and print them; writes `cache/products.json`. See [Product recognition](#product-recognition-optional). |
 | `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
+| `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
+| `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music) and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):
 

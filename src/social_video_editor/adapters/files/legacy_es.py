@@ -65,7 +65,16 @@ TRANSITIONS = {"corte": "cut", "fundido": "fade", "negro": "fade_black", "slide_
 EFFECT_TYPES = {"zoom_golpe": "zoom_punch", "empuje": "push_in", "alejar": "pull_out", "sacudida": "shake",
                 "congelar": "freeze", "pulso_ritmo": "beat_pulse"}
 # unchanged: flash
-SHOT_TYPES: dict[str, str] = {}                      # polaroid, collage: same in both languages
+SHOT_TYPES: dict[str, str] = {"grafico": "graphic"}  # polaroid, collage: same in both languages
+# graphic shots / cues (docs/GRAPHICS.md): template names and their keys
+GRAPHIC_TEMPLATES = {"barras": "bars", "cifra": "number", "ficha": "product_card", "cartel": "title",
+                     "titular": "headline", "lista": "list", "rotulo": "lower_third", "diagrama": "diagram"}
+GRAPHIC_KEYS = {"plantilla": "template", "titulo": "title", "datos": "data", "unidad": "unit", "prefijo": "prefix",
+                "resaltar": "highlight", "maximo": "max", "valor": "value", "etiqueta": "label", "icono": "icon",
+                "debajo": "sub", "desde": "from", "contar": "count", "nombre": "name", "imagen": "image",
+                "caracteristicas": "specs", "precio": "price", "antetitulo": "kicker", "medio": "outlet",
+                "fecha": "date", "elementos": "items", "marcas": "marks", "nodos": "nodes", "iconos": "icons",
+                "flechas": "edges", "subtitulo": "caption"}
 ROLES = {"gancho": "hook", "historia": "story", "revelacion": "reveal", "cierre": "outro",
          "apertura": "opening", "producto": "product", "estrella": "star"}
 # unchanged: polaroid, collage; any other role (free text) is kept
@@ -126,7 +135,8 @@ CONFIG = Ctx(
           "transcripcion": "transcription", "encuadre": "framing", "transiciones": "transitions",
           "efectos": "effects", "musica": "music", "subtitulos": "subtitles", "textos": "texts",
           "exportar": "export", "verificacion": "check", "visión": "vision", "foto": "photo",
-          "presentacion": "slideshow", "llamada": "cta", "charla": "talk", "pausas": "pauses"},
+          "presentacion": "slideshow", "llamada": "cta", "charla": "talk", "pausas": "pauses",
+          "graficos": "graphics"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
@@ -198,6 +208,7 @@ CONFIG = Ctx(
                            "escuchar_max": "listen_max", "escuchar_seg": "listen_sec"}),
         "vision": VISION,
         "photo": PHOTO,
+        "graphics": Ctx(keys={"paquete": "pack", "tema": "theme"}),      # the theme's own keys are English only
     },
 )
 
@@ -215,9 +226,9 @@ SHOT = Ctx(
           "columnas": "columns", "enfoque_x": "focus_x", "enfoque_y": "focus_y", "volumen_db": "volume_db",
           "silenciar": "mute", "congelar": "freeze", "nota": "note", "puntaje": "score", "pico": "peak",
           "voz": "voice", "grupo": "group", "_golpes": "_beats", "duracion": "duration",
-          "movimiento": "motion", "cantidad_movimiento": "motion_amount", "tono_auto": "auto_tone"},
+          "movimiento": "motion", "cantidad_movimiento": "motion_amount", "tono_auto": "auto_tone", **GRAPHIC_KEYS},
     # unchanged: dur, zoom, subdivision, color (its keys use the color table)
-    values={"role": ROLES, "transition": TRANSITIONS, "type": SHOT_TYPES},
+    values={"role": ROLES, "transition": TRANSITIONS, "type": SHOT_TYPES, "template": GRAPHIC_TEMPLATES},
     children={"effects": EFFECT, "search": SEARCH, "_searched": SEARCH, "color": COLOR},
     removed=frozenset({"_apariciones"}),
 )
@@ -312,3 +323,8 @@ def profile_name(name: str | None) -> str | None:
 
 def legacy_sfx_name(name: str) -> str | None:
     return next((es for es, en in SFX_NAMES.items() if en == name), None)
+
+
+def graphic(spec: dict) -> dict:
+    """A graphic cue / shot with Spanish keys and template name → English ("barras" → "bars")."""
+    return translate(spec, SHOT)

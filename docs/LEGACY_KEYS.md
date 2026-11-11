@@ -120,6 +120,7 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `llamada` | `cta` |
 | `charla` | `talk` |
 | `pausas` | `pauses` |
+| `graficos` | `graphics` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -432,6 +433,15 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 |---|---|
 | `columnas` | `columns` |
 
+### Keys of `config.graphics`
+
+| Spanish | English |
+|---|---|
+| `paquete` | `pack` |
+| `tema` | `theme` |
+
+The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPHICS.md](GRAPHICS.md).
+
 ### Keys of `config.check`
 
 | Spanish | English |
@@ -584,6 +594,56 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `movimiento` | `motion` |
 | `cantidad_movimiento` | `motion_amount` |
 | `tono_auto` | `auto_tone` |
+
+Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GRAPHICS.md](GRAPHICS.md)):
+
+| Spanish | English |
+|---|---|
+| `plantilla` | `template` |
+| `titulo` | `title` |
+| `datos` | `data` |
+| `unidad` | `unit` |
+| `prefijo` | `prefix` |
+| `resaltar` | `highlight` |
+| `maximo` | `max` |
+| `valor` | `value` |
+| `etiqueta` | `label` |
+| `icono` | `icon` |
+| `debajo` | `sub` |
+| `desde` | `from` |
+| `contar` | `count` |
+| `nombre` | `name` |
+| `imagen` | `image` |
+| `caracteristicas` | `specs` |
+| `precio` | `price` |
+| `antetitulo` | `kicker` |
+| `medio` | `outlet` |
+| `fecha` | `date` |
+| `elementos` | `items` |
+| `marcas` | `marks` |
+| `nodos` | `nodes` |
+| `iconos` | `icons` |
+| `flechas` | `edges` |
+| `subtitulo` | `caption` |
+
+### Values of `plan.shots.type`
+
+| Spanish | English |
+|---|---|
+| `grafico` | `graphic` |
+
+### Values of `plan.shots.template`
+
+| Spanish | English |
+|---|---|
+| `barras` | `bars` |
+| `cifra` | `number` |
+| `ficha` | `product_card` |
+| `cartel` | `title` |
+| `titular` | `headline` |
+| `lista` | `list` |
+| `rotulo` | `lower_third` |
+| `diagrama` | `diagram` |
 
 ### Values of `plan.shots.role`
 

@@ -13,15 +13,19 @@
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
   sve products <project>                   (products recognized by the vision model → cache/products.json)
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
+  sve graphic [<project>] --proof | --shot N | --cue '…'   (preview animated graphics; --pack NAME, --video)
+  sve doctor                               (checks FFmpeg, fonts, models and optional parts)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
-productos, mejorar and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
+productos, mejorar, grafico and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
 """
 from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
+from .adapters.files.legacy_es import graphic as legacy_es_graphic
 from .adapters.files.legacy_es import profile_name
 from .adapters.system.console import configure_console
 from .adapters.system.tools import configure_numba_cache
@@ -114,6 +118,42 @@ def cmd_enhance(svc, a):
     enhance_photos(svc, _project(svc, a.project), force=a.force)
 
 
+def cmd_graphic(svc, a):
+    from .adapters.files.workspace import workspace
+    from .application import graphic
+    from .domain.models import UserError
+
+    if a.project:
+        project = _project(svc, a.project)
+        cfg, base = project.cfg, project.cache / "graphics"
+    else:
+        project, cfg, base = None, svc.recipes.load("base"), workspace() / "cache" / "graphics"
+    if a.pack:
+        cfg = {**cfg, "graphics": {**(cfg.get("graphics") or {}), "pack": a.pack}}
+    out = Path(a.out) if a.out else base
+    if a.proof:
+        paths = graphic.proof(svc, cfg, out / "proof", video=a.video)
+    elif a.cue:
+        paths = graphic.preview(svc, cfg, legacy_es_graphic(graphic.cue_spec(a.cue)), out, name="cue")
+    elif a.shot is not None:
+        if project is None:
+            raise UserError("--shot needs a project (sve graphic <project> --shot N)")
+        paths = graphic.preview(svc, cfg, graphic.plan_graphic(load_plan(svc, project), a.shot), out, name=f"shot{a.shot}")
+    else:
+        raise UserError("Say what to draw: --proof, --shot N or --cue 'bars data=\"A:1, B:2\"'")
+    for p in paths:
+        print(p)
+
+
+def cmd_doctor(svc, a):
+    from .adapters.system.doctor import diagnose, doctor_lines
+
+    checks = diagnose(svc, svc.recipes.load("base"))
+    print("\n".join(doctor_lines(checks)))
+    if any(status == "missing" for status, _, _ in checks):
+        raise SystemExit(1)
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="sve", description="Vertical video editing engine for social media")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -167,6 +207,16 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("project")
     s.add_argument("--force", "--forzar", action="store_true", help="redo photos already enhanced")
     s.set_defaults(f=cmd_enhance)
+    s = sub.add_parser("graphic", aliases=["grafico"], help="preview animated graphics (style proof, a plan shot, a cue)")
+    s.add_argument("project", nargs="?")
+    s.add_argument("--proof", "--prueba", action="store_true", help="every template on one sheet, vertical and landscape")
+    s.add_argument("--shot", "--toma", type=int, help="graphic shot N of the plan (1 = the first graphic)")
+    s.add_argument("--cue", "--marca", help="a graphic written as a cue: 'bars data=\"A:15, B:40\" unit=\"%%\"'")
+    s.add_argument("--pack", "--paquete", help="draw with this pack (packs/<name>/)")
+    s.add_argument("--video", action="store_true", help="with --proof: also a clip of every template in a row")
+    s.add_argument("--out", "--salida", help="folder for the pictures (default: cache/graphics)")
+    s.set_defaults(f=cmd_graphic)
+    sub.add_parser("doctor", help="check FFmpeg, fonts, models and optional parts").set_defaults(f=cmd_doctor)
     return ap
 
 
