@@ -39,6 +39,8 @@ SAMPLES = {
         {"template": "callouts", "items": "Celular; Router; Internet; 240 ms", "times": "0.2, 0.8, 1.4, 2.0"},
         {"template": "bullets", "items": "Sale de tu celular; Cruza el océano; Vuelve en un parpadeo", "times": "0.2, 1.0, 1.8"},
         {"template": "pip_frame", "rect": "0.48, 0.52, 0.36, 0.25"},
+        {"template": "scene", "action": "swipe", "subject": "app", "text": "Al cerrarla, empieza de cero"},
+        {"template": "scene", "action": "drain", "subject": "app", "text": "Gasta batería sin usarla"},
     ],
     "en": [
         {"template": "title", "text": "How does a message travel?", "kicker": "Chapter 1", "icon": "phone"},
@@ -58,6 +60,8 @@ SAMPLES = {
         {"template": "callouts", "items": "Phone; Router; Internet; 240 ms", "times": "0.2, 0.8, 1.4, 2.0"},
         {"template": "bullets", "items": "It leaves your phone; It crosses the ocean; It is back in a blink", "times": "0.2, 1.0, 1.8"},
         {"template": "pip_frame", "rect": "0.48, 0.52, 0.36, 0.25"},
+        {"template": "scene", "action": "swipe", "subject": "app", "text": "Close it and it starts from zero"},
+        {"template": "scene", "action": "drain", "subject": "app", "text": "It drains the battery doing nothing"},
     ],
 }
 

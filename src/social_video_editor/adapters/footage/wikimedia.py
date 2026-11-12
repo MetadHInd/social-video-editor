@@ -14,6 +14,7 @@ from . import http
 API = "https://commons.wikimedia.org/w/api.php"
 ENOUGH = 1080
 MAX_AUTHOR = 80
+THUMB_WIDTH = 480           # the still of each video asked for, to look at it before downloading
 
 
 def pick_file(info: dict, max_bytes: int) -> dict | None:
@@ -47,7 +48,7 @@ class WikimediaSource:
         data = http.get_json(API, {
             "action": "query", "format": "json", "formatversion": 2, "generator": "search",
             "gsrsearch": f"filetype:video {query}", "gsrnamespace": 6, "gsrlimit": max(1, min(int(limit), 50)),
-            "prop": "videoinfo", "viprop": "url|size|mime|derivatives|extmetadata"})
+            "prop": "videoinfo", "viprop": "url|size|mime|derivatives|extmetadata", "viurlwidth": THUMB_WIDTH})
         pages = sorted((data.get("query") or {}).get("pages") or [], key=lambda p: p.get("index", 0))
         out = []
         for p in pages:
@@ -60,11 +61,15 @@ class WikimediaSource:
             shown = plain(meta.get("LicenseShortName")) or plain(meta.get("License"))
             out.append({"source": self.name, "kind": self.kind, "id": str(p.get("pageid") or name),
                         "title": plain(meta.get("ObjectName")) or Path(name).stem, "query": query, "url": f["url"],
+                        "thumb": info.get("thumburl"),
                         "page": info.get("descriptionurl"), "author": plain(meta.get("Artist"))[:MAX_AUTHOR],
                         "license": shown, "license_code": license_code(meta.get("License")) or license_code(shown),
                         "license_url": meta.get("LicenseUrl"), "width": f["width"], "height": f["height"],
                         "duration": float(info.get("duration") or 0)})
         return out
+
+    def preview(self, candidate: dict, dest: Path) -> Path | None:
+        return http.fetch(candidate["thumb"], Path(dest).with_suffix(".jpg"), max_bytes=5 << 20) if candidate.get("thumb") else None
 
     def download(self, candidate: dict, dest: Path, piece: tuple[float, float] | None = None,
                  preview: bool = False) -> Path:

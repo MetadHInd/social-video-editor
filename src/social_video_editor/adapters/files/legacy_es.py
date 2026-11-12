@@ -69,13 +69,14 @@ SHOT_TYPES: dict[str, str] = {"grafico": "graphic"}  # polaroid, collage: same i
 # graphic shots / cues (docs/GRAPHICS.md): template names and their keys
 GRAPHIC_TEMPLATES = {"barras": "bars", "cifra": "number", "ficha": "product_card", "cartel": "title",
                      "titular": "headline", "lista": "list", "rotulo": "lower_third", "diagrama": "diagram",
-                     "apuntes": "callouts", "vinetas": "bullets", "marco_ventana": "pip_frame"}
+                     "apuntes": "callouts", "vinetas": "bullets", "marco_ventana": "pip_frame", "escena": "scene"}
 GRAPHIC_KEYS = {"plantilla": "template", "titulo": "title", "datos": "data", "unidad": "unit", "prefijo": "prefix",
                 "resaltar": "highlight", "maximo": "max", "valor": "value", "etiqueta": "label", "icono": "icon",
                 "debajo": "sub", "desde": "from", "contar": "count", "nombre": "name", "imagen": "image",
                 "caracteristicas": "specs", "precio": "price", "antetitulo": "kicker", "medio": "outlet",
                 "fecha": "date", "elementos": "items", "marcas": "marks", "nodos": "nodes", "iconos": "icons",
-                "flechas": "edges", "subtitulo": "caption", "tiempos": "times", "enlazar": "link"}
+                "flechas": "edges", "subtitulo": "caption", "tiempos": "times", "enlazar": "link",
+                "accion": "action", "sujeto": "subject", "destino": "target"}
 # script cues (script.md): the cue names that are not graphic templates, and their keys
 CUE_KINDS = {"camara": "camera", "foto": "photo", "toma": "broll"}
 CUE_KEYS = {"segundos": "seconds", "archivo": "file", "consulta": "query", "ventana": "pip", "marca": "brand",
@@ -234,7 +235,8 @@ CONFIG = Ctx(
                            "segundos_credito": "credit_seconds", "alto_min": "min_height", "megas_max": "max_megabytes",
                            "licencias": "licenses", "encuadre": "framing", "minutos_vista_previa": "preview_minutes",
                            "marcas": "brands", "texto": "text", "parecido_min": "min_match",
-                           "tarjeta_reserva": "fallback_card"},
+                           "tarjeta_reserva": "fallback_card", "interes_min": "min_interest",
+                           "miniaturas": "thumbnails", "vivas": "lively", "aburridas": "dull"},
                      values={"framing": FRAMING_MODES, "sources": FOOTAGE_KINDS},
                      children={"max_seconds": Ctx(keys=FOOTAGE_KINDS), "max_share": Ctx(keys=FOOTAGE_KINDS),
                                "brands": Ctx(keys={"nombre": "name", "canal": "channel_id", "alias": "aliases"})}),
@@ -271,7 +273,8 @@ TEXT = Ctx(
 CUTAWAY = Ctx(
     keys={"tipo": "type", "en_frase": "at_sentence", "hasta_frase": "until_sentence", "ini": "start", "fin": "end",
           "nota": "note", "texto": "text", "movimiento": "motion", "cantidad_movimiento": "motion_amount",
-          "desde_palabra": "from_word", "encaje": "fit",
+          "desde_palabra": "from_word", "encaje": "fit", "dicho": "said", "consulta_local": "query_local",
+          "idioma_consulta": "query_lang", "reserva": "fallback",
           "enfoque_x": "focus_x", "enfoque_y": "focus_y", **CUE_KEYS, **GRAPHIC_KEYS},
     values={"type": {**SHOT_TYPES, **CUE_KINDS}, "template": {**GRAPHIC_TEMPLATES, **CUE_KINDS}, "framing": FRAMING_MODES,
             "source": FOOTAGE_KINDS},

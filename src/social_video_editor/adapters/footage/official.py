@@ -75,6 +75,9 @@ class OfficialChannelSource:
             raise FootageError("yt-dlp's answer was not JSON") from None
         return candidates(listing, brand, query)
 
+    def preview(self, candidate: dict, dest: Path) -> Path | None:
+        return None                         # a channel search gives no still: the low preview video is looked at instead
+
     def download(self, candidate: dict, dest: Path, piece: tuple[float, float] | None = None,
                  preview: bool = False) -> Path:
         channel = candidate.get("channel_id")

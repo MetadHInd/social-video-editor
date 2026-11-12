@@ -373,3 +373,40 @@ def test_plan_with_graphics_orders_and_previews():
     assert plan_graphic(plan, 2) == {"template": "number", "value": 3}
     with pytest.raises(UserError, match="2 graphic shots"):
         plan_graphic(plan, 3)
+
+
+# ── illustrated scenes ───────────────────────────────────────────────────────
+from social_video_editor.domain.graphics.scenes import ACTIONS, action_of  # noqa: E402
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize("size", [VERTICAL, LANDSCAPE])
+def test_every_scene_action_draws_from_the_first_frame_and_keeps_living(action, size):
+    scene = make_scene({"template": "scene", "action": action, "text": "Una frase corta"}, stage(size, PRINTED))
+    assert scene.fits() and scene.settle < scene.dur
+    first, middle, late = drawn(scene, 0.0), drawn(scene, 0.9), drawn(scene, scene.dur - 0.1)
+    assert first.texts() and len(first.calls) > 20                        # the words and the illustration from the start
+    assert len(middle.calls) > 20 and len(late.calls) > 20
+    keys = {scene.frame_state(scene.settle + k / 15)[0] for k in range(40)}
+    assert len(keys) > 1                                                # after the action it is a loop, not a still
+
+
+def test_scene_reads_its_subject_and_rejects_bad_specs():
+    scene = make_scene({"template": "scene", "action": "store", "subject": "Tu celular", "target": "memoria"}, stage())
+    assert (scene.subject, scene.target) == ("phone", "ram")
+    assert make_scene({"template": "scene", "action": "drain"}, stage()).subject == "battery"
+    with pytest.raises(PlanError, match="action must be one of"):
+        make_scene({"template": "scene", "action": "dance"}, stage())
+    with pytest.raises(PlanError, match="no illustration called"):
+        make_scene({"template": "scene", "action": "sleep", "subject": "unicorn"}, stage())
+
+
+@pytest.mark.parametrize("words, action", [
+    ("Si las cierras empiezan de cero", "swipe"), ("No están abiertas, están dormidas", "sleep"),
+    ("Gasta batería sin usarla", "drain"), ("Tu mensaje viaja bajo el mar", "send"),
+    ("Se van a la bodega", "store"), ("Cuando se congela", "freeze"), ("Close it and open it again", "swipe"),
+    ("El cielo es azul", None),
+])
+def test_the_action_comes_from_a_verb(words, action):
+    found = action_of(words.split())
+    assert (found[0] if found else None) == action

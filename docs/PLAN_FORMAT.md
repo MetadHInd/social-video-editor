@@ -568,7 +568,8 @@ sentence would take it past `script.opening` (2.5 s, the face first at the start
 after the limit that names something, or the closest one when that would leave less than
 `script.auto_min` = 1.8 s) and lasts to its end. Its `query` comes from what is said (a word with an
 illustration — phone, battery, memory… — gives a stock-friendly English search, in turns; else the
-script's topic) and it carries a `fallback` card. The last sentence (the closing) stays on camera; the
+script's topic) — plus `query_local`, a search in the video's language from the nouns of the sentence,
+and `said`, the sentence itself — and it carries a `fallback`: what the engine draws when no clip passes. The last sentence (the closing) stays on camera; the
 face shows at least 1.5 s before footage covers it. `sve broll` fetches them like any other.
 
 **Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
@@ -619,6 +620,13 @@ The recipe also turns off what would jump at every cut (slow push, per-shot nois
 punches), uses no music unless you set `music.file` (kept low under the voice, cuts not moved to
 the beat) and puts the subtitles in the band under the graphics (`subtitles.y: 0.835`,
 `check.safe_bottom: 0.88`).
+
+## The whole video with one command (`sve make`)
+
+`sve make <project>` (alias `hacer`): the plan when there is none (`--force` makes it again), the footage
+(fetched, or drawn by the engine when no clip is good enough), a draft render (`--final`: final quality),
+the automatic review (`sve check`) and a short summary. Running it again keeps the plan, the clips and the
+rendered segments.
 
 ## Third-party footage (`sve broll`)
 
@@ -674,11 +682,21 @@ is downloaded is looked at:
   frame), never cut in half; a scene with detail everywhere (a landscape, a room) is cropped where the
   query shows best and there is no text, of five places from one side to the other. A clip that keeps
   most of itself is centered.
-- **Does it show the query?** With the vision model, a clip whose best piece scores under
-  `broll.min_match` (0.25; an unrelated clip scores ≈0.22, a right one ≈0.28) is not used.
-- **Nothing passed?** With `broll.fallback_card` (on) the cutaway becomes an illustrated `title` card
-  with what is said at that moment and the illustration of what it names, so the presenter does not stay
-  alone on screen because no footage was found.
+- **Stills first**: the stills the libraries give (`thumb`) of the best `broll.thumbnails` candidates
+  are judged before any video is downloaded; the ones clearly off the subject or dull are left out and
+  the rest are downloaded best first.
+- **Does it show what is said?** With the vision model, relevance is the best of the likeness to the
+  query and to the sentence itself (`said`; the text model reads Spanish). Under `broll.min_match`
+  (0.27; an unrelated clip scores ≈0.22, a right one ≈0.28) the clip is not used.
+- **Is it interesting?** `interest` = how much more it looks like something happening
+  (`broll.lively`: hands using a phone, a product in action…) than like a backdrop (`broll.dull`: an
+  abstract loop, a wallpaper, a shop front, a still), a little more when it clearly moves, less when it is
+  a still picture. Under `broll.min_interest` (0.05) it is not used: dull clips are left out.
+- **Nothing passed?** With `broll.fallback_card` (on) the engine draws the moment instead, by what the
+  sentence says: a figure → `number`; three or more items → `list`; something doing something → `scene`
+  (an animated illustration: an app swiped away, a battery draining…); else a `title` with the
+  illustration of what it names. The director never draws the same kind twice in a row, and a figure is
+  shown directly (it is not searched for).
 
 Only the piece that is used (plus half a second on each side) is stored: a stock clip is cut out of the
 download (picture only, re-encoded), an official one is downloaded again as that piece alone, in full
@@ -719,8 +737,11 @@ allowed sources and a record of every file lower the risk and leave a trail. `sv
 | `broll.licenses` | `[cc0, pd, cc-by, cc-by-sa]` | Open licenses accepted from a commons. |
 | `broll.framing` | `crop` | How a clip of another shape fills the frame: `crop`, `blur` (blurred borders) or `auto`. |
 | `broll.text` | `false` | `true`: clips that show printed text may be used (otherwise they are avoided). |
-| `broll.min_match` | 0.25 | Vision score under which a clip does not show the query (not used). |
-| `broll.fallback_card` | `true` | No clip passes: an illustrated title card with what is said instead. |
+| `broll.min_match` | 0.27 | Vision score under which a clip shows neither the query nor the sentence (not used). |
+| `broll.min_interest` | 0.05 | How alive a clip must look (lively − dull, by the vision model; 0 = any). |
+| `broll.lively` / `broll.dull` | (lists) | What an interesting clip / a backdrop looks like, for the vision model (English). |
+| `broll.thumbnails` | 8 | Candidates judged by their still before any video is downloaded. |
+| `broll.fallback_card` | `true` | No clip passes: the engine draws the moment instead (number, list, scene or title). |
 | `broll.preview_minutes` | 12 | Videos longer than this are not looked through (any source). |
 | `broll.brands` | `[]` | Brands whose official channel may be used (a pack's `brands.yaml` adds to it). |
 

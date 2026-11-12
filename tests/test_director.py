@@ -47,8 +47,9 @@ def test_the_face_opens_then_footage_cuts_in_at_a_named_thing():
     at = first["from_word"][1]
     assert at - s0["start"] >= 2.5 - 1e-6                               # the opening: the face first
     assert first["query"] in director.QUERIES["phone"]                  # "phone" is said right after the limit
-    assert first["fallback"] == {"template": "title", "text": director.phrase([(w, t) for w, t, _ in s0["words"]], at),
-                                 "icon": "phone"}
+    assert first["query_lang"] == "en" and first["said"] == s0["text"] and "phone" in first["query_local"]
+    fallback = first["fallback"]                                        # drawn by the engine when no clip is good
+    assert fallback["template"] == "scene" and fallback["text"] == director.phrase([(w, t) for w, t, _ in s0["words"]], at)
     # sentence 1 is under the bars: nothing there; the long camera stretch afterwards gets footage too
     assert all(c["at_sentence"] != 1 for c in cuts)
     assert any(c["at_sentence"] in (2, 3) for c in cuts)
@@ -72,7 +73,7 @@ def test_queries_come_from_the_sentence_and_change():
     cuts = director.propose(plan, cfg(max_camera=2.0, opening=2.0, auto_min=1.0), OVERLAY)
     memory = [c for c in cuts if c["at_sentence"] == 2]
     assert memory and memory[0]["query"] in director.QUERIES["app"] + director.QUERIES["ram"]
-    queries = [c["query"] for c in cuts]
+    queries = [c["query"] for c in cuts if c["type"] == "broll"]
     assert all(a != b for a, b in zip(queries, queries[1:]))           # the same picture does not come back right away
     assert director.topic(plan["sentences"]) in director.QUERIES
 
@@ -93,7 +94,8 @@ def test_the_card_says_the_clause(text, cut, title):
 
 def test_card_for_a_sentence_and_what_covers_the_presenter():
     s = {"n": 0, "start": 0.0, "words": [["The", 0.0, 0.2], ["battery", 0.3, 0.5], ["drains", 0.6, 0.8], ["fast.", 0.9, 1.0]]}
-    assert director.card(s) == {"template": "title", "text": "The battery drains fast", "icon": "battery"}
+    assert director.card(s) == {"template": "scene", "action": "drain", "text": "The battery drains fast"}
+    assert director.card(s, last="scene") == {"template": "title", "text": "The battery drains fast", "icon": "battery"}
     assert director.card({"words": [["Hello", 0, 1], ["there.", 1, 2]]}, main="laptop")["icon"] == "laptop"
     plan = {"cutaways": [{"type": "graphic", "template": "lower_third", "text": "x", "at_sentence": 1},
                          {"type": "graphic", "template": "bars", "data": "A:1", "at_sentence": 2, "until_sentence": 3},
@@ -121,3 +123,46 @@ def test_spanish_names():
         "script": {"auto_broll": True, "opening": 2, "max_camera": 3, "auto_min": 1.5}}
     assert legacy_es.plan({"tomas_encima": [{"tipo": "toma", "consulta": "x", "desde_palabra": [0, 1.5], "encaje": 0.6}]}) == {
         "cutaways": [{"type": "broll", "query": "x", "from_word": [0, 1.5], "fit": 0.6}]}
+
+
+def words_of(text: str) -> list[tuple[str, float]]:
+    return [(w, float(i)) for i, w in enumerate(text.split())]
+
+
+@pytest.mark.parametrize("text, cut, expected", [
+    ("Si cierras veinte al día son dos minutos por semana.", 0,
+     {"template": "number", "value": "2", "unit": "minutos", "label": "Veinte al día son", "sub": "por semana"}),
+    ("It takes 240 ms to go around the world.", 0,
+     {"template": "number", "value": "240", "unit": "ms", "label": "It takes", "sub": "to go around the"}),
+    ("No usan el procesador, casi no gastan batería y vuelven al instante.", 0,
+     {"template": "list", "items": "No usan el procesador; Casi no gastan batería; Vuelven al instante", "marks": "n"}),
+    ("Pero si las cierras, se van a la bodega y traerlas de vuelta cuesta.", 5,
+     {"template": "scene", "action": "store", "text": "Bodega y traerlas de vuelta cuesta", "subject": "app",
+      "target": "disk"}),
+    ("La memoria es como una mesa, ahí esperan tus apps.", 5,
+     {"template": "scene", "action": "wait", "text": "La memoria es como una mesa", "subject": "app"}),
+    ("Tu celular ya sabe cuidarse.", 0, {"template": "title", "text": "Tu celular ya sabe cuidarse", "icon": "phone"}),
+])
+def test_what_the_engine_draws_follows_the_sentence(text, cut, expected):
+    words = [[w, t, t + 0.3] for w, t in words_of(text)]
+    assert director.card({"words": words, "start": 0.0, "text": text}, float(cut), "app") == expected
+
+
+def test_figures_and_lists_are_read_carefully():
+    assert director.figure(words_of("Al abrirla empieza de cero.")) is None                 # "de cero" is not a figure
+    assert director.enumeration("Pero si las cierras, se van a la bodega y vuelven.") is None   # clauses, not items
+    assert director.enumeration("Uno, dos") is None
+    assert director.local_query(words_of("Pero si las cierras, se van a la bodega y traerlas de vuelta cuesta."), 0, None) == "bodega"
+    assert director.local_query(words_of("Cierras tus apps para ahorrar batería"), 0, "app") == "apps bateria"
+
+
+def test_a_figure_is_shown_not_searched():
+    text = "Lo medí: veinte apps abiertas gastan dos por ciento de batería cada hora, todo el día, sin parar nunca."
+    plan = plan_for(f"Close your apps to save the battery and make the phone faster, but you make it work harder.\n{text}\n"
+                    "Do you close them?\n",
+                    said(0.3, "Close your apps to save the battery and make the phone faster, but you make it work harder.", 0.4,
+                         text, 0.3, "Do you close them?"))
+    cuts = director.propose(plan, cfg(), OVERLAY)
+    (number,) = [c for c in cuts if c["at_sentence"] == 1]
+    assert number["type"] == "graphic" and number["template"] == "number" and (number["value"], number["unit"]) == ("20", "apps")
+    assert "query" not in number and number["_auto"] == "director"

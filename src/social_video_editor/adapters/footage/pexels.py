@@ -48,11 +48,14 @@ class PexelsSource:
                 continue
             user = v.get("user") or {}
             out.append({"source": self.name, "kind": self.kind, "id": str(v.get("id")), "title": "", "query": query,
-                        "url": f["link"], "page": v.get("url"), "author": user.get("name") or "",
+                        "url": f["link"], "thumb": v.get("image"), "page": v.get("url"), "author": user.get("name") or "",
                         "author_url": user.get("url"), "license": "Pexels License", "license_code": "pexels",
                         "license_url": "https://www.pexels.com/license/", "width": int(f["width"]),
                         "height": int(f["height"]), "duration": float(v.get("duration") or 0)})
         return out
+
+    def preview(self, candidate: dict, dest: Path) -> Path | None:
+        return http.fetch(candidate["thumb"], Path(dest).with_suffix(".jpg"), max_bytes=5 << 20) if candidate.get("thumb") else None
 
     def download(self, candidate: dict, dest: Path, piece: tuple[float, float] | None = None,
                  preview: bool = False) -> Path:

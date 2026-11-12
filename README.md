@@ -62,8 +62,9 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   the piece of it that show the query best; every file is recorded (`footage/credits.json`: source,
   author, license, hash) and credited on screen and in `credits.txt`; `sve check` warns about clips that
   stay too long or have no record. Clips with printed text are avoided and every clip is framed by
-  where its subject is. A **director** cuts to footage (or to an illustrated card) wherever the presenter
-  would stay alone on camera too long. See [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#third-party-footage-sve-broll).
+  where its subject is. A **director** cuts to footage wherever the presenter would stay alone on camera
+  too long; clips must show what is said and look alive, and when none does the engine **draws the
+  moment** instead (an animated scene, a figure, a list). See [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#third-party-footage-sve-broll).
 - **Pieces** — video shots (speed ramps, freeze frames, zoom punch, push-in/pull-out, shake, flash),
   **polaroid** shots (last frame of a shot dropped in as an instant photo with a shutter sound),
   **collage** shots (frames of several shots popping in on the beat), and groups of shots.
@@ -203,6 +204,7 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
 | `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
 | `sve broll <project> [--dry-run] [--force]` | `tomas` (`--simular`, `--forzar`) | Fetches a clip for every `broll` cutaway of the plan from the allowed sources into `footage/`, records where it comes from (`footage/credits.json`) and adds the credit caption. `--dry-run` only lists the candidates. Keys: `PEXELS_API_KEY`, `PIXABAY_API_KEY` (environment variables). |
+| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review and summary. |
 | `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music), the b-roll sources and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):
