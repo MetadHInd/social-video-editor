@@ -48,6 +48,26 @@ class OpenCvVideoAnalyzer:
         cap.release()
         return out
 
+    def text_boxes(self, video: str, per_second: float) -> tuple[list[float], list[list[tuple]]]:
+        """Lines of printed text `per_second` times per second: (times, boxes of each frame as shares)."""
+        import cv2
+
+        from .text import text_boxes
+
+        cap = open_capture(video)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        step = max(int(round(fps / per_second)), 1)
+        times, boxes, i = [], [], 0
+        while cap.grab():
+            if i % step == 0:
+                ok, f = cap.retrieve()
+                if ok:
+                    times.append(round(i / fps, 3))
+                    boxes.append(text_boxes(f))
+            i += 1
+        cap.release()
+        return times, boxes
+
     def scenes(self, video: str, threshold: float) -> list[list[float]]:
         try:
             from scenedetect import ContentDetector, detect
@@ -91,6 +111,13 @@ class OpenCvVideoAnalyzer:
                 frames.append(f)
         cap.release()
         return frames
+
+    def face(self, video: str, download: bool = False) -> dict | None:
+        """Where the presenter's face is (medians of one frame per second, 0–1 of the picture); None
+        when this OpenCV has no face detector (see faces.py)."""
+        from .faces import find_face
+
+        return find_face(video, download=download)
 
     def frame_reader(self, video: str):
         """A function t → RGB frame (or None), for browsing a video (contact sheets). Call .close() at the end."""

@@ -10,6 +10,7 @@ from ..domain.selection import build_plan
 from ..domain.transitions import transition_duration
 from ..log import log
 from .analyze import prepare_sources
+from .explainer import frame_plan, script_plan
 from .products import product_plan_or_none
 from .services import Services
 
@@ -24,6 +25,8 @@ def make_plan(svc: Services, project: Project, force: bool = False) -> Path | No
         log(f"Photo slideshow: {len(plan['shots'])} photos")
     elif project.cfg.get("talk"):                             # meetings / classes: all the speech, long pauses shortened
         plan = talk_plan(infos, analyses, project.cfg)
+    elif project.cfg.get("explainer"):                        # a script said to the camera + its cues as cutaways
+        plan = script_plan(svc, project, analyses)
     else:
         plan = product_plan_or_none(svc, project, infos, analyses, project.cfg)     # unboxing + vision model
     if not plan:
@@ -32,6 +35,8 @@ def make_plan(svc: Services, project: Project, force: bool = False) -> Path | No
         cut = pauses.shorten_plan_pauses(plan, analyses, project.cfg)    # every shot with voice
         if cut:
             log(f"Speech: {cut} long pauses shortened inside the shots with voice (pauses.min_pause)")
+    if project.cfg.get("explainer") and plan.get("sentences"):
+        frame_plan(svc, project, plan, infos, analyses)
     path = svc.projects.save_plan(project, plan)
     log(f"Plan saved to {path}")
     return path

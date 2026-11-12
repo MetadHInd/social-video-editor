@@ -102,6 +102,31 @@ def part_checks(graphics=None, visual=None, upscaler=None, settings: dict | None
     return out
 
 
+def face_check() -> Check:
+    """Framing on the presenter's face (framing.face, the explainer recipe)."""
+    if importlib.util.find_spec("cv2") is None:
+        return "optional", "face framing", "OpenCV is not installed"
+    from ..opencv.faces import detector_state
+
+    state = detector_state()
+    if state is None:
+        return "optional", "face framing", "this OpenCV has no face detector; shots keep the configured focus"
+    name, ready = state
+    if ready:
+        return "ok", "face framing", f"{name} face detector (framing.face)"
+    return "optional", "face framing", "the face model (≈230 KB) is downloaded on first use with framing.face: true"
+
+
+def footage_checks(sources: dict | None) -> list[Check]:
+    """The b-roll sources (`sve broll`): which can be used now and what the others lack (an API key
+    in an environment variable, a program). Nothing is contacted."""
+    out: list[Check] = []
+    for name in sorted(sources or {}):
+        why = sources[name].ready()
+        out.append(("optional", f"b-roll: {name}", why) if why else ("ok", f"b-roll: {name}", f"{sources[name].kind} footage"))
+    return out
+
+
 def workspace_checks(packs: list[str] | None = None) -> list[Check]:
     ws = workspace()
     projects = subdir("projects")
@@ -124,7 +149,7 @@ def diagnose(svc=None, settings: dict | None = None) -> list[Check]:
     packs = svc.packs.available() if svc is not None and getattr(svc, "packs", None) is not None else None
     return [*ffmpeg_checks(), *font_checks(),
             *part_checks(getattr(svc, "graphics", None), getattr(svc, "visual", None), getattr(svc, "upscaler", None), settings),
-            *workspace_checks(packs)]
+            face_check(), *footage_checks(getattr(svc, "footage", None)), *workspace_checks(packs)]
 
 
 def doctor_lines(checks: list[Check]) -> list[str]:

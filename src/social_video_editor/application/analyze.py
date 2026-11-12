@@ -106,6 +106,8 @@ def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: boo
     if not force:
         cached = svc.cache.load(cache, "analysis", info["id"])
         if cached is not None:
+            if "face" not in cached and _add_face(svc, info, cached, cfg):      # analyzed before framing.face was on
+                svc.cache.save(cache, "analysis", info["id"], cached)
             return cached
     a = cfg.get("analysis", {})
     log(f"Analyzing {Path(info['path']).name}: image…")
@@ -123,10 +125,26 @@ def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: boo
     segs = voice_segments(data["words"])
     data["voice"] = {"segments": segs,
                      "ratio": round(sum(b - a_ for a_, b in segs) / max(info["duration"], 1e-3), 3)}
+    _add_face(svc, info, data, cfg)
     svc.cache.save(cache, "analysis", info["id"], data)
     log(f"  done: {len(data['scenes'])} scenes, {len(data['words'])} words, "
         f"speech in {data['voice']['ratio'] * 100:.0f}% of the video")
     return data
+
+
+def _add_face(svc: Services, info: dict, data: dict, cfg: dict) -> bool:
+    """framing.face (false | auto | true): finds the presenter's face in the proxy and stores it as
+    data["face"] (see VideoAnalyzer.face). auto uses a detector only when one is already available;
+    true may download a small model once. Returns whether the analysis changed."""
+    mode = (cfg.get("framing") or {}).get("face", False)
+    if mode in (False, None, "false") or not info.get("proxy"):
+        return False
+    log(f"  face ({Path(info['path']).name})…")
+    face = svc.video.face(info["proxy"], download=mode is True or mode == "true")
+    if face is None:
+        return False
+    data["face"] = face
+    return True
 
 
 def prepare_sources(svc: Services, project: Project, cfg: dict | None = None,

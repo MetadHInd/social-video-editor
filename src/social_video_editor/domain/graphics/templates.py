@@ -668,7 +668,8 @@ class ListScene(Scene):
 # ── lower third ──────────────────────────────────────────────────────────────
 @template("lower_third")
 class LowerThird(Scene):
-    """A caption box over the video: who is talking, what is on screen, or where a clip comes from.
+    """A small caption box over the video, in the bottom-left corner of the safe zone so it covers as
+    little of the picture as possible: who is talking, what is on screen, or where a clip comes from.
 
     text · kicker (small line above: "Video", "On the channel"…) · color
     """
@@ -682,11 +683,10 @@ class LowerThird(Scene):
         self.textv = str(required(sp, "text", "lower_third"))
         self.kicker = str(sp.get("kicker") or "")
         self.color, _ = ink(st.theme, sp.get("color"))
-        up = 1.25 if st.vertical else 1.0
-        self.size, self.k_size = z(46) * up, z(27) * up
-        self.strip = z(14) * up
-        pad_x, pad_y = z(30) * up, z(22) * up
-        max_w = st.W * (0.66 if st.vertical else 0.42)
+        self.size, self.k_size = z(38), z(24)
+        self.strip = z(12)
+        pad_x, pad_y = z(24), z(16)
+        max_w = st.W * (0.56 if st.vertical else 0.34)
         self.rows = kit.wrap(st, self.textv, "label", self.size, max_w)[:2]
         self.lh = self.size * 1.16
         inner_w = max([st.measure(r, "label", self.size) for r in self.rows]
@@ -694,7 +694,7 @@ class LowerThird(Scene):
         head = self.k_size + z(10) if self.kicker else 0
         self.w, self.h = inner_w + 2 * pad_x + self.strip, pad_y * 2 + head + len(self.rows) * self.lh - z(8)
         self.x = st.safe[0]
-        self.y = st.H * 0.60 if st.vertical else st.safe[3] - self.h
+        self.y = st.safe[3] - self.h                         # bottom-left corner of the safe zone
         self.pad_x, self.pad_y, self.head = pad_x, pad_y, head
         self.settle = 0.2 + motion.PRINT_SECONDS + 0.2
         self.exit_at = max(self.dur - 0.2, self.settle)
@@ -718,7 +718,7 @@ class LowerThird(Scene):
                     kit.text(cv, st, row, tx, self.y + self.pad_y + self.head + k * self.lh + self.size * 0.8, "label",
                              self.size, c["ink"], p=p)
             if grow >= 1:                                                        # the marker sits on the box
-                kit.draw_element("marker", cv, st, self.x + self.w - z(44), self.y - z(14) + _bob(self, t, True), t, scale=1.2)
+                kit.draw_element("marker", cv, st, self.x + self.w - z(34), self.y - z(10) + _bob(self, t, True), t, scale=0.9)
 
     def sounds(self):
         return []
@@ -762,7 +762,7 @@ class Diagram(Scene):
         self.fills = [icon_ink(st, ic, g) if ic else (ink(st.theme, g) if g else (st.theme["colors"]["paper"], None))
                       for ic, g in zip(self.icons, given)]
         x0, y0, x1, y1 = st.safe
-        self.s = z(200 if st.vertical else 240)            # an illustration
+        self.s = z(250 if st.vertical else 240)            # an illustration
         self.tag_size, self.title_size, self.edge_size = z(34), z(60), z(30)
         self.tag_h = self.tag_size * 1.6
         self.cell_h = self.s + z(12) + self.tag_h
@@ -798,6 +798,18 @@ class Diagram(Scene):
             self.centers = [(left + cell_w / 2 + i * (cell_w + gap), top + title_h + self.s / 2) for i in range(n)]
         self.title_y = top + self.title_size * 0.9
         self.edges = [self._route(i, j, label) for i, j, label in parsed]
+        self.steps = None                                  # vertical: the steps counted off in the corner the zigzag leaves empty
+        if st.vertical and parsed and all(i != n - 1 for i, _, _ in parsed):
+            lx, ly = self.centers[-1]
+            ox = self.centers[-2][0]
+            room = min(abs(lx - ox) - cell_w / 2 - z(40), 2 * min(ox - x0, x1 - ox))
+            m = len(parsed)
+            r = min(z(36), room / (m * 2.7 - 0.7))
+            if r >= z(16):
+                gap = r * 0.7
+                left = ox - (m * 2 * r + (m - 1) * gap) / 2 + r
+                self.steps = {"y": ly + self.s / 2 + z(12) + self.tag_h / 2, "r": r,
+                              "xs": [left + k * (2 * r + gap) for k in range(m)]}
         self.t0 = 0.45
         k = max(len(self.edges), 1)
         self.seg = min((self.dur - self.t0 - 0.35) / k, 1.3)
@@ -864,6 +876,26 @@ class Diagram(Scene):
         kit.tag(cv, st, self.names[i], cx, cy + self.s / 2 + z(12) + self.tag_h / 2, self.tag_size, anchor="center", index=i,
                 p=motion.progress(t, i * 0.08, 0.3))
 
+    def _steps(self, cv: Canvas, t: float, current: int) -> None:
+        """The steps counted off (1, 2, 3…): a row of small stamps, each one inked in the color of the
+        thing its arrow reaches once the marker gets there."""
+        if not self.steps:
+            return
+        st, c = self.st, self.st.theme["colors"]
+        y, r, xs = self.steps["y"], self.steps["r"], self.steps["xs"]
+        if len(xs) > 1:
+            kit.thread(cv, st, [(xs[0], y), (xs[-1], y)], motion.ease_out(motion.progress(t, 0.1, 0.4)), alpha=0.5)
+        for k, x in enumerate(xs):
+            arrive = self.t0 + k * self.seg + self.seg * 0.9
+            done = t >= arrive
+            p = motion.progress(t, 0.12 + k * 0.06, 0.3)
+            if p <= 0:
+                continue
+            kit.badge(cv, st, x, y, r, self.fills[self.edges[k]["to"]][0] if done else c["paper"],
+                      scale=motion.stamp_scale(p, 0.5) + (0.12 * motion.shake(t - arrive) if done else 0.0))
+            kit.text(cv, st, str(k + 1), x, _baseline(y, r * 1.1), "number", r * 1.1, c["ink"], "center",
+                     alpha=1.0 if done or k == current else 0.55)
+
     def draw(self, cv: Canvas, t: float) -> None:
         st, c, z = self.st, self.st.theme["colors"], self.z
         x0 = st.safe[0]
@@ -894,6 +926,12 @@ class Diagram(Scene):
             if e["label"]:
                 kit.tag(cv, st, e["label"], *e["label_at"], self.edge_size, anchor=e["anchor"], index=k + 1,
                         p=motion.progress(t, self.t0 + k * self.seg + 0.05, 0.3))
+        lit = self.edges[current]["to"] if current >= 0 else None
+        if current >= 0 and t < self.t0 + current * self.seg + self.seg * 0.9:
+            lit = None                                      # the light comes on when the marker arrives
+        if lit is not None:
+            kit.glow(cv, st, *self.centers[lit], self.s * 0.82, self.fills[lit][0], t)
+        self._steps(cv, t, current)
         for i in range(len(self.names)):
             self._node(cv, i, t)
         if marker_at is not None and t >= self.t0 * 0.6:

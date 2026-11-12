@@ -28,6 +28,10 @@ In `plan.json` a graphic is a shot (see [PLAN_FORMAT.md](PLAN_FORMAT.md)):
 
 The same thing as a cue (one line): `bars title="Battery to open an app" data="Cold start:100, Asleep:20" unit="%"`.
 
+A graphic can also be a **cutaway**: shown over the main track while a presenter keeps talking, written
+as a cue in a script (`[bars data="…"]`) or as an entry of the plan's `cutaways`
+(see [Scripts and cutaways](PLAN_FORMAT.md#scripts-and-cutaways-the-explainer-recipe)).
+
 - **Lists** are text split on `;` (or `|`), else on `,` — or a JSON list.
 - **Pairs** are `label:value` items of a list (`"A:15, B:40"`; use `;` between pairs when a value has a
   comma) — or a JSON list of `[label, value]`.
@@ -47,7 +51,10 @@ The same thing as a cue (one line): `bars title="Battery to open an app" data="C
 | `headline` | A headline or quote as a taped paper clipping with a phrase marked | **`text`**, `outlet`, `date`, `highlight` (words of the text), `color` | 4.0 |
 | `list` | 1–6 points, one by one, each on a strip with a round mark | **`items`** (list), `title`, `marks` (`n` numbers, `+` checks, `-` crosses, or one per item: `"+,+,-"`), `color` | 4.5 |
 | `diagram` | 2–5 things and the arrows between them, played step by step while a marker travels | **`nodes`** (list; `Name:ink` colors one), `edges` (`A>B` or `A>B:label`, in the order they happen), `icons` (one per node; `-` = plain card), `title` | 5.0 |
-| `lower_third` | A caption box **over the video** (transparent background): who, what, or where a clip comes from | **`text`**, `kicker`, `color` | 3.0 |
+| `lower_third` | A small caption box **over the video** (transparent background), in the bottom-left corner of the safe zone so it covers little of the picture: who, what, or where a clip comes from | **`text`**, `kicker`, `color` | 3.0 |
+| `callouts` | **Over the video**: 1–6 notes that pop up around the presenter, each an illustration on a round stamp with its label, a figure on the accent color, or a word on paper underlined by hand | **`items`** (list), `times` (second each one appears; default one every 0.6 s), `icons` (one per item; `-` = label alone; default: by label), `link=true` (up to 4, in a row joined by arrows: a small diagram that builds up), `color` | 4.0 |
+| `bullets` | **Over the video**: 1–4 short lines stacked at the presenter's side, one by one | **`items`** (list), `times`, `color` | 4.5 |
+| `pip_frame` | **Over the video**: the paper frame of the presenter's window (picture-in-picture). The engine draws it by itself; a pack can replace it | **`rect`** (`"x, y, w, h"` as shares of the frame), `label`, `color` | 3.0 |
 
 ### Illustrations
 

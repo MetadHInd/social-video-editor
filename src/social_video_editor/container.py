@@ -8,6 +8,10 @@ from .adapters.ffmpeg.photo_encoder import FfmpegPhotoEncoder
 from .adapters.ffmpeg.probe import FfprobeMediaProbe
 from .adapters.ffmpeg.sfx import FfmpegSoundEffects
 from .adapters.files.cache import JsonCacheStore
+from .adapters.footage.official import OfficialChannelSource
+from .adapters.footage.pexels import PexelsSource
+from .adapters.footage.pixabay import PixabaySource
+from .adapters.footage.wikimedia import WikimediaSource
 from .adapters.files.packs import FilePackRepository
 from .adapters.files.projects import YamlProjectRepository
 from .adapters.files.recipes import YamlRecipeRepository
@@ -46,4 +50,5 @@ def build_services() -> Services:
         upscaler=RealEsrganUpscaler(fallback=LanczosUpscaler()),   # lazy: torch only loaded by sve enhance
         graphics=SkiaGraphicRenderer(),  # lazy: skia only loaded when a graphic is drawn
         packs=FilePackRepository(),
+        footage={s.name: s for s in (OfficialChannelSource(), PexelsSource(), PixabaySource(), WikimediaSource())},
     )

@@ -117,14 +117,23 @@ def prescale(info: dict, W: int, H: int, cfg: dict, shot: dict) -> str:
     """First filter (on the original source): brings it to the working size."""
     Wm, Hm = work_size(W, H, cfg)
     if framing_mode(info, W, H, cfg) == "blur":       # fill the borders with the same image blurred
-        fit = min(Wm / info["width"], Hm / info["height"])
+        # shot "fit" (0–1): only that share of the picture across the frame (a subject shown larger,
+        # its sides cut where the blurred copy shows instead), placed by focus_x / focus_y
+        show = min(max(float(shot.get("fit") or 1.0), 0.05), 1.0)
+        fit = min(Wm / info["width"], Hm / info["height"]) / show
         fw, fh = _even(info["width"] * fit), _even(info["height"] * fit)
         cov = max(Wm / info["width"], Hm / info["height"])
         cw, ch = _even(info["width"] * cov), _even(info["height"] * cov)
-        return (f"split=2[bg][fg];"
+        keep_w, keep_h = min(fw, Wm), min(fh, Hm)
+        cut = ""
+        if (keep_w, keep_h) != (fw, fh):
+            fx, fy = float(shot.get("focus_x", 0.5)), float(shot.get("focus_y", 0.5))
+            cut = f",crop={keep_w}:{keep_h}:{int((fw - keep_w) * fx)}:{int((fh - keep_h) * fy)}"
+        # format first: frames decoded by the hardware arrive as nv12, which boxblur reads wrongly (green bands)
+        return (f"format=yuv420p,split=2[bg][fg];"
                 f"[bg]scale={_even(cw / 4)}:{_even(ch / 4)},boxblur=20:2,scale={cw}:{ch},crop={Wm}:{Hm},"
                 f"eq=brightness=-0.08[bg2];"
-                f"[fg]scale={fw}:{fh}:flags=lanczos[fg2];[bg2][fg2]overlay=(W-w)/2:(H-h)/2")
+                f"[fg]scale={fw}:{fh}:flags=lanczos{cut}[fg2];[bg2][fg2]overlay=(W-w)/2:(H-h)/2")
     cov = max(Wm / info["width"], Hm / info["height"])
     cw, ch = _even(info["width"] * cov), _even(info["height"] * cov)
     fx = float(shot.get("focus_x", cfg["framing"].get("focus_x", 0.5)))
@@ -379,6 +388,44 @@ def join(segments: list[dict], fps: int) -> tuple[str, str, str]:
             length += s["dur"] - s["overlap"]
         v, a = nv, na
     return ";".join(parts), v, a
+
+
+def cutaways(video: str, items: list[dict], first_input: int, fps: int) -> tuple[str, str]:
+    """Filter laying pictures over the joined video, in the order given. Returns (filter, video_label).
+
+    An item with "file" is a clip (the next input, counted from first_input) that covers the frame
+    from its "start" to its "end" (seconds of the final video); "alpha": it is transparent where it
+    draws nothing. Its timestamps are moved to its start, so it plays from its first frame when it
+    appears; before that the overlay has no frame and after its last one the main picture passes.
+
+    An item with "pip" is the presenter's window: the part "crop" (x, y, w, h) of the joined video
+    itself, as it is BEFORE any item, scaled into "rect" (x, y, w, h) between "start" and "end" —
+    picture-in-picture over whatever the items before it put on screen. Only the picture is touched."""
+    parts = []
+    windows = [k for k, c in enumerate(items) if c.get("pip")]
+    if windows:                                    # the untouched picture, once more per window
+        parts.append(f"{video}split={len(windows) + 1}[vjoined]" + "".join(f"[pipsrc{k}]" for k in windows))
+        video = "[vjoined]"
+    n = first_input
+    for k, c in enumerate(items):
+        start, end = float(c["start"]), float(c["end"])
+        # half a frame early on both sides: frame times are multiples of 1 / fps with rounding noise
+        a, b = max(start - 0.5 / fps, 0.0), end - 0.5 / fps
+        when = f"enable='between(t,{a:.6f},{b:.6f})'"
+        out = f"[vcut{k}]"
+        if c.get("pip"):
+            cx, cy, cw, ch = (int(v) for v in c["crop"])
+            x, y, w, h = (int(v) for v in c["rect"])
+            parts.append(f"[pipsrc{k}]crop={cw}:{ch}:{cx}:{cy},scale={w}:{h}:flags=bicubic[pip{k}];"
+                         f"{video}[pip{k}]overlay={x}:{y}:eof_action=pass:{when}{out}")
+        else:
+            pixel = "format=rgba," if c.get("alpha") else ""
+            fmt = "format=auto:" if c.get("alpha") else ""
+            parts.append(f"[{n}:v]fps={fps},{pixel}setpts=PTS-STARTPTS+{start:.6f}/TB[cut{k}];"
+                         f"{video}[cut{k}]overlay=0:0:{fmt}eof_action=pass:{when}{out}")
+            n += 1
+        video = out
+    return ";".join(parts), video
 
 
 def double_rate(rate) -> str:

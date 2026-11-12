@@ -68,13 +68,22 @@ EFFECT_TYPES = {"zoom_golpe": "zoom_punch", "empuje": "push_in", "alejar": "pull
 SHOT_TYPES: dict[str, str] = {"grafico": "graphic"}  # polaroid, collage: same in both languages
 # graphic shots / cues (docs/GRAPHICS.md): template names and their keys
 GRAPHIC_TEMPLATES = {"barras": "bars", "cifra": "number", "ficha": "product_card", "cartel": "title",
-                     "titular": "headline", "lista": "list", "rotulo": "lower_third", "diagrama": "diagram"}
+                     "titular": "headline", "lista": "list", "rotulo": "lower_third", "diagrama": "diagram",
+                     "apuntes": "callouts", "vinetas": "bullets", "marco_ventana": "pip_frame"}
 GRAPHIC_KEYS = {"plantilla": "template", "titulo": "title", "datos": "data", "unidad": "unit", "prefijo": "prefix",
                 "resaltar": "highlight", "maximo": "max", "valor": "value", "etiqueta": "label", "icono": "icon",
                 "debajo": "sub", "desde": "from", "contar": "count", "nombre": "name", "imagen": "image",
                 "caracteristicas": "specs", "precio": "price", "antetitulo": "kicker", "medio": "outlet",
                 "fecha": "date", "elementos": "items", "marcas": "marks", "nodos": "nodes", "iconos": "icons",
-                "flechas": "edges", "subtitulo": "caption"}
+                "flechas": "edges", "subtitulo": "caption", "tiempos": "times", "enlazar": "link"}
+# script cues (script.md): the cue names that are not graphic templates, and their keys
+CUE_KINDS = {"camara": "camera", "foto": "photo", "toma": "broll"}
+CUE_KEYS = {"segundos": "seconds", "archivo": "file", "consulta": "query", "ventana": "pip", "marca": "brand",
+            "origen": "source", "encuadre": "framing", "inicio_clip": "clip_start", "velocidad": "speed"}
+PIP_CORNERS = {"abajo_derecha": "bottom_right", "abajo_izquierda": "bottom_left", "arriba_derecha": "top_right",
+               "arriba_izquierda": "top_left"}
+SCRIPT_TAKES = {"ultima": "last", "mejor": "best"}
+SCRIPT_SUBTITLES = {"guion": "script", "voz": "speech"}
 ROLES = {"gancho": "hook", "historia": "story", "revelacion": "reveal", "cierre": "outro",
          "apertura": "opening", "producto": "product", "estrella": "star"}
 # unchanged: polaroid, collage; any other role (free text) is kept
@@ -85,6 +94,7 @@ ANIMATIONS = {"escribir": "typewriter", "ninguna": "none"}
 # unchanged: pop
 HOOK_STRATEGIES = {"inicio": "start"}                # unchanged: teaser
 FRAMING_MODES = {"recortar": "crop", "desenfoque": "blur"}   # unchanged: auto
+FOOTAGE_KINDS = {"oficial": "official", "banco": "stock"}     # b-roll: a brand's own channel / a free library
 MUSIC_ALIGN = {"exacto": "exact"}
 MUSIC_FILE = {"ninguna": "none", "no": "none"}       # music.file: none = no music
 SFX_NAMES = {"tecla": "keystroke", "obturador": "shutter"}   # unchanged: whoosh, pop, flash
@@ -136,7 +146,8 @@ CONFIG = Ctx(
           "efectos": "effects", "musica": "music", "subtitulos": "subtitles", "textos": "texts",
           "exportar": "export", "verificacion": "check", "visión": "vision", "foto": "photo",
           "presentacion": "slideshow", "llamada": "cta", "charla": "talk", "pausas": "pauses",
-          "graficos": "graphics"},
+          "graficos": "graphics", "explicativo": "explainer", "guion": "script", "ventana": "pip",
+          "tomas_externas": "broll"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
@@ -145,6 +156,15 @@ CONFIG = Ctx(
                             "silencio_db": "silence_db", "tramo_minimo": "min_span",
                             "activo": "enabled", "transicion": "transition"},
                       values={"transition": TRANSITIONS}),
+        "script": Ctx(keys={"archivo": "file", "coincidencia_min": "min_match", "toma": "take",
+                            "margen_inicio": "pad_start", "margen_fin": "pad_end", "union_max": "join_gap",
+                            "acercamiento": "punch_in", "subtitulos": "subtitles", "reencuadre_cada": "reframe_every",
+                            "deriva": "drift", "apoyos": "support", "primer_plano": "close_up",
+                            "tomas_auto": "auto_broll", "apertura": "opening", "camara_max": "max_camera",
+                            "toma_min": "auto_min"},
+                      values={"take": SCRIPT_TAKES, "subtitles": SCRIPT_SUBTITLES}),
+        "pip": Ctx(keys={"activo": "enabled", "esquina": "corner", "tam": "size", "segundos_min": "min_seconds"},
+                   values={"corner": PIP_CORNERS}),
         "duration": Ctx(keys={"objetivo": "target", "maximo": "max"}, removed=frozenset({"minimo"})),
         "pacing": Ctx(keys={"toma_min": "shot_min", "toma_max": "shot_max", "frase_max": "phrase_max",
                             "separacion_min": "min_gap", "acelerar_sin_voz": "speed_without_voice"}),
@@ -162,7 +182,7 @@ CONFIG = Ctx(
                                    "prob_min": "min_probability"}),
         "color": COLOR,
         "framing": Ctx(keys={"modo": "mode", "enfoque_x": "focus_x", "enfoque_y": "focus_y",
-                             "margen_zoom": "zoom_margin", "empuje_lento": "slow_push"},
+                             "margen_zoom": "zoom_margin", "empuje_lento": "slow_push", "cara": "face"},
                        values={"mode": FRAMING_MODES}),
         "transitions": Ctx(keys={"rotacion": "rotation", "duracion": "duration"},
                            values={"rotation": TRANSITIONS}, removed=frozenset({"sonido"})),
@@ -209,6 +229,15 @@ CONFIG = Ctx(
         "vision": VISION,
         "photo": PHOTO,
         "graphics": Ctx(keys={"paquete": "pack", "tema": "theme"}),      # the theme's own keys are English only
+        "broll": Ctx(keys={"fuentes": "sources", "candidatos": "candidates", "limite_busqueda": "search_limit",
+                           "segundos_max": "max_seconds", "proporcion_max": "max_share", "credito": "credit",
+                           "segundos_credito": "credit_seconds", "alto_min": "min_height", "megas_max": "max_megabytes",
+                           "licencias": "licenses", "encuadre": "framing", "minutos_vista_previa": "preview_minutes",
+                           "marcas": "brands", "texto": "text", "parecido_min": "min_match",
+                           "tarjeta_reserva": "fallback_card"},
+                     values={"framing": FRAMING_MODES, "sources": FOOTAGE_KINDS},
+                     children={"max_seconds": Ctx(keys=FOOTAGE_KINDS), "max_share": Ctx(keys=FOOTAGE_KINDS),
+                               "brands": Ctx(keys={"nombre": "name", "canal": "channel_id", "alias": "aliases"})}),
     },
 )
 
@@ -238,8 +267,18 @@ TEXT = Ctx(
     # unchanged: pop, sfx (its value uses the sound table), color, x, y, desc_color
     values={"style": TEXT_STYLES, "animation": ANIMATIONS, "sfx": SFX_NAMES},
 )
-PLAN = Ctx(keys={"nota": "note", "tomas": "shots", "textos": "texts", "candidatos_extra": "extra_candidates"},
-           children={"shots": SHOT, "texts": TEXT, "extra_candidates": SHOT})
+# a cutaway (plan "cutaways") or a script cue: a graphic's keys plus where / how long it shows
+CUTAWAY = Ctx(
+    keys={"tipo": "type", "en_frase": "at_sentence", "hasta_frase": "until_sentence", "ini": "start", "fin": "end",
+          "nota": "note", "texto": "text", "movimiento": "motion", "cantidad_movimiento": "motion_amount",
+          "desde_palabra": "from_word", "encaje": "fit",
+          "enfoque_x": "focus_x", "enfoque_y": "focus_y", **CUE_KEYS, **GRAPHIC_KEYS},
+    values={"type": {**SHOT_TYPES, **CUE_KINDS}, "template": {**GRAPHIC_TEMPLATES, **CUE_KINDS}, "framing": FRAMING_MODES,
+            "source": FOOTAGE_KINDS},
+)
+PLAN = Ctx(keys={"nota": "note", "tomas": "shots", "textos": "texts", "candidatos_extra": "extra_candidates",
+                 "guion": "script", "frases": "sentences", "tomas_encima": "cutaways"},
+           children={"shots": SHOT, "texts": TEXT, "extra_candidates": SHOT, "cutaways": CUTAWAY})
 
 # ── project file (proyecto.yaml → project.yaml) ─────────────────────────────
 
@@ -281,7 +320,7 @@ SUMMARY = Ctx(
 # ── file and folder names ────────────────────────────────────────────────────
 
 FILES = {"project.yaml": "proyecto.yaml", "plan_used.json": "plan_usado.json",
-         "config_used.json": "config_usada.json", "summary.json": "resumen.json"}
+         "config_used.json": "config_usada.json", "summary.json": "resumen.json", "script.md": "guion.md"}
 FOLDERS = {"projects": "proyectos", "recipes": "recetas", "music": "musica", "sfx": "sfx"}
 # cache: <id>_media.json ← <id>_info.json, <id>_analysis.json ← <id>_analisis.json,
 #        <wav>_words.json ← <wav>_palabras.json, music_<song>.json ← musica_<song>.json
@@ -328,3 +367,8 @@ def legacy_sfx_name(name: str) -> str | None:
 def graphic(spec: dict) -> dict:
     """A graphic cue / shot with Spanish keys and template name → English ("barras" → "bars")."""
     return translate(spec, SHOT)
+
+
+def cue(spec: dict) -> dict:
+    """A script cue with Spanish names → English ("barras" → "bars", "camara" → "camera", "segundos" → "seconds")."""
+    return translate(spec, CUTAWAY)

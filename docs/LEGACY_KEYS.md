@@ -16,6 +16,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `plan_usado.json` | `plan_used.json` |
 | `config_usada.json` | `config_used.json` |
 | `resumen.json` | `summary.json` |
+| `guion.md` | `script.md` |
 
 ### Workspace folders (the English one is used when it exists)
 
@@ -77,6 +78,9 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `musica` | `music` |
 | `verificar` | `check` |
 | `productos` | `products` |
+| `mejorar` | `enhance` |
+| `grafico` | `graphic` |
+| `tomas` | `broll` |
 | `davinci` | `(removed)` |
 | `--borrador` | `--draft` |
 | `--perfil` | `--profile` |
@@ -89,6 +93,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--hasta` | `--end` |
 | `--cada` | `--every` |
 | `--salida` | `--out` |
+| `--simular` | `--dry-run` |
 
 ## Recipes and project settings
 
@@ -119,8 +124,12 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `presentacion` | `slideshow` |
 | `llamada` | `cta` |
 | `charla` | `talk` |
+| `explicativo` | `explainer` |
+| `guion` | `script` |
+| `ventana` | `pip` |
 | `pausas` | `pauses` |
 | `graficos` | `graphics` |
+| `tomas_externas` | `broll` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -150,6 +159,59 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `tramo_minimo` | `min_span` |
 | `activo` | `enabled` |
 | `transicion` | `transition` |
+
+### Keys of `config.script` (the explainer recipe's script)
+
+| Spanish | English |
+|---|---|
+| `archivo` | `file` |
+| `coincidencia_min` | `min_match` |
+| `toma` | `take` |
+| `margen_inicio` | `pad_start` |
+| `margen_fin` | `pad_end` |
+| `union_max` | `join_gap` |
+| `acercamiento` | `punch_in` |
+| `subtitulos` | `subtitles` |
+| `reencuadre_cada` | `reframe_every` |
+| `deriva` | `drift` |
+| `apoyos` | `support` |
+| `primer_plano` | `close_up` |
+| `tomas_auto` | `auto_broll` |
+| `apertura` | `opening` |
+| `camara_max` | `max_camera` |
+| `toma_min` | `auto_min` |
+
+### Values of `config.script.take`
+
+| Spanish | English |
+|---|---|
+| `ultima` | `last` |
+| `mejor` | `best` |
+
+### Values of `config.script.subtitles`
+
+| Spanish | English |
+|---|---|
+| `guion` | `script` |
+| `voz` | `speech` |
+
+### Keys of `config.pip` (the presenter's window over full-frame cutaways)
+
+| Spanish | English |
+|---|---|
+| `activo` | `enabled` |
+| `esquina` | `corner` |
+| `tam` | `size` |
+| `segundos_min` | `min_seconds` |
+
+### Values of `config.pip.corner`
+
+| Spanish | English |
+|---|---|
+| `abajo_derecha` | `bottom_right` |
+| `abajo_izquierda` | `bottom_left` |
+| `arriba_derecha` | `top_right` |
+| `arriba_izquierda` | `top_left` |
 
 ### Keys of `config.duration`
 
@@ -264,6 +326,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `enfoque_y` | `focus_y` |
 | `margen_zoom` | `zoom_margin` |
 | `empuje_lento` | `slow_push` |
+| `cara` | `face` |
 
 ### Values of `config.framing.mode`
 
@@ -442,6 +505,46 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 
 The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPHICS.md](GRAPHICS.md).
 
+### Keys of `config.broll` (third-party footage fetched by `sve broll` / `sve tomas`)
+
+| Spanish | English |
+|---|---|
+| `fuentes` | `sources` |
+| `candidatos` | `candidates` |
+| `limite_busqueda` | `search_limit` |
+| `segundos_max` | `max_seconds` |
+| `proporcion_max` | `max_share` |
+| `credito` | `credit` |
+| `segundos_credito` | `credit_seconds` |
+| `alto_min` | `min_height` |
+| `megas_max` | `max_megabytes` |
+| `licencias` | `licenses` |
+| `encuadre` | `framing` |
+| `minutos_vista_previa` | `preview_minutes` |
+| `marcas` | `brands` |
+| `texto` | `text` |
+| `parecido_min` | `min_match` |
+| `tarjeta_reserva` | `fallback_card` |
+
+`encuadre` takes the values of `config.framing.mode` (`recortar`, `desenfoque`, `auto`).
+
+### Kinds of footage: keys of `config.broll.max_seconds` / `max_share`, values of `config.broll.sources`
+
+| Spanish | English |
+|---|---|
+| `oficial` | `official` |
+| `banco` | `stock` |
+
+The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both languages.
+
+### Keys of `config.broll.brands` (each brand whose official channel may be used)
+
+| Spanish | English |
+|---|---|
+| `nombre` | `name` |
+| `canal` | `channel_id` |
+| `alias` | `aliases` |
+
 ### Keys of `config.check`
 
 | Spanish | English |
@@ -556,6 +659,9 @@ The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPH
 | `tomas` | `shots` |
 | `textos` | `texts` |
 | `candidatos_extra` | `extra_candidates` |
+| `guion` | `script` |
+| `frases` | `sentences` |
+| `tomas_encima` | `cutaways` |
 
 ### Keys of `plan.shots`
 
@@ -625,6 +731,8 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `iconos` | `icons` |
 | `flechas` | `edges` |
 | `subtitulo` | `caption` |
+| `tiempos` | `times` |
+| `enlazar` | `link` |
 
 ### Values of `plan.shots.type`
 
@@ -643,6 +751,9 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `titular` | `headline` |
 | `lista` | `list` |
 | `rotulo` | `lower_third` |
+| `apuntes` | `callouts` |
+| `vinetas` | `bullets` |
+| `marco_ventana` | `pip_frame` |
 | `diagrama` | `diagram` |
 
 ### Values of `plan.shots.role`
@@ -703,6 +814,38 @@ without a range the whole source is searched. A `text` search needs the vision m
 `plan.shots._searched` uses the same table as `plan.shots.search`.
 
 `plan.shots.color` uses the same table as `config.color`.
+
+### Keys of `plan.cutaways` and of the cues of a script (`script.md` / `guion.md`)
+
+A cutaway or a cue also takes every graphic key of `plan.shots` (`plantilla`, `titulo`, `datos`…) and
+`texto`, `movimiento`, `cantidad_movimiento`, `enfoque_x`, `enfoque_y`, `ini`, `fin`, `nota`, `tipo`.
+
+| Spanish | English |
+|---|---|
+| `en_frase` | `at_sentence` |
+| `hasta_frase` | `until_sentence` |
+| `segundos` | `seconds` |
+| `archivo` | `file` |
+| `consulta` | `query` |
+| `ventana` | `pip` |
+| `marca` | `brand` |
+| `origen` | `source` |
+| `encuadre` | `framing` |
+| `inicio_clip` | `clip_start` |
+| `velocidad` | `speed` |
+| `desde_palabra` | `from_word` |
+| `encaje` | `fit` |
+
+`origen` takes a source name (`oficial` → `official`; `pexels`, `pixabay`, `wikimedia` as they are) and
+`encuadre` the values of `config.framing.mode`.
+
+### Values of `plan.cutaways.type` and names of the script cues that are not graphics
+
+| Spanish | English |
+|---|---|
+| `camara` | `camera` |
+| `foto` | `photo` |
+| `toma` | `broll` |
 
 ### Keys of `plan.texts`
 

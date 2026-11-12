@@ -48,6 +48,22 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   step-by-step diagrams with illustrations (phone, router, server, chip…), written as a few
   key/value pairs and drawn locally: laid out for vertical or landscape, alive (scenery, blinking
   lights, a marker that travels), themeable per channel with packs. See [docs/GRAPHICS.md](docs/GRAPHICS.md).
+- **From a script to the video** — write what you say with cues for what is on screen
+  (`[bars data="…"]`), record yourself repeating whatever goes wrong, and the `explainer` recipe finds
+  the best take of every sentence, puts them in script order and shows each graphic or photo over your
+  voice, with subtitles that say what the script says. While the presenter is on screen, small
+  illustrated notes pop up around them as things are named, and cuts and long shots rotate three
+  framings and drift slowly, so one camera reads like several. Optionally the presenter stays in a
+  corner window (picture-in-picture) over the graphics.
+  See [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#scripts-and-cutaways-the-explainer-recipe).
+- **B-roll with a paper trail** — a `[broll query="…"]` cue becomes a clip fetched from sources you
+  allow: free stock libraries (Pexels, Pixabay), Wikimedia Commons (open licenses only) and the official
+  channels of the brands you list (never anyone else's). The local vision model picks the clip and
+  the piece of it that show the query best; every file is recorded (`footage/credits.json`: source,
+  author, license, hash) and credited on screen and in `credits.txt`; `sve check` warns about clips that
+  stay too long or have no record. Clips with printed text are avoided and every clip is framed by
+  where its subject is. A **director** cuts to footage (or to an illustrated card) wherever the presenter
+  would stay alone on camera too long. See [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#third-party-footage-sve-broll).
 - **Pieces** — video shots (speed ramps, freeze frames, zoom punch, push-in/pull-out, shake, flash),
   **polaroid** shots (last frame of a shot dropped in as an instant photo with a shutter sound),
   **collage** shots (frames of several shots popping in on the beat), and groups of shots.
@@ -186,7 +202,8 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve products <project>` | `productos` | Recognize the products shown in the sources with the local CLIP model (optional `[vision]` extra; downloaded on first use) and print them; writes `cache/products.json`. See [Product recognition](#product-recognition-optional). |
 | `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
 | `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
-| `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music) and the workspace; exits 1 when something required is missing. |
+| `sve broll <project> [--dry-run] [--force]` | `tomas` (`--simular`, `--forzar`) | Fetches a clip for every `broll` cutaway of the plan from the allowed sources into `footage/`, records where it comes from (`footage/credits.json`) and adds the credit caption. `--dry-run` only lists the candidates. Keys: `PEXELS_API_KEY`, `PIXABAY_API_KEY` (environment variables). |
+| `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music), the b-roll sources and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):
 
@@ -229,6 +246,7 @@ commented). Each recipe only overrides what it changes; a project overrides the 
 | `vlog` | Most striking moment → fast chronological sequence on the beat → emotional/funny ending. |
 | `before_after` | The "after" in 1 s → "before" → sped-up process → reveal with flash/zoom. |
 | `storytime` | Strongest line first → story without silences, big subtitles, almost no effects. |
+| `explainer` | A presenter talking to the camera from a script (`script.md`): the best take of every sentence in script order, long pauses shortened, punch-ins at the jump cuts, and the script's cues (graphics, photos) shown over the voice. Subtitles from the script's own words. |
 | `talk` | Meeting, class or screen recording (landscape, long-form): the whole recording in order, only long pauses shortened, joined with a 0.12 s crossfade; neutral look and sound, no music, no texts. |
 | `slideshow` | Photo slideshow (landscape): every photo in chronological order, gentle Ken Burns, soft crossfades, warm look, gentle exposure fix, a playlist blended back to back. |
 
