@@ -305,6 +305,19 @@ def test_vertical_diagram_zigzags_and_landscape_is_a_row():
         assert len(scene.sounds()) == 1 + len(scene.edges)
 
 
+def test_vertical_diagram_counts_its_steps_in_the_corner_the_zigzag_leaves_empty():
+    spec = {"template": "diagram", "nodes": "Phone, Router, Internet", "edges": "Phone>Router; Router>Internet"}
+    v = make_scene(spec, stage(VERTICAL))
+    x0, y0, x1, y1 = v.st.safe
+    assert len(v.steps["xs"]) == 2 and all(x0 <= x - v.steps["r"] and x + v.steps["r"] <= x1 for x in v.steps["xs"])
+    last, before = v.centers[-1], v.centers[-2]
+    assert abs(sum(v.steps["xs"]) / 2 - before[0]) < 1 and last[1] < v.steps["y"] <= y1      # beside the last thing
+    assert {"1", "2"} <= set(drawn(v, v.dur).texts())
+    # an arrow that leaves the last thing passes through that corner: no counter; landscape has no empty corner
+    back = make_scene({**spec, "edges": "Phone>Router; Router>Internet; Internet>Router"}, stage(VERTICAL))
+    assert back.steps is None and make_scene(spec, stage(LANDSCAPE)).steps is None
+
+
 def test_the_marker_is_an_element_a_pack_can_replace():
     st = stage()
     calls = []

@@ -132,6 +132,14 @@ class ClipVisualDetector:
         return np.stack([self._texts[(name, t)] for t in texts])
 
     # ── frames ────────────────────────────────────────────────────────────────
+    def image_embeddings(self, images: list, settings: dict) -> np.ndarray:
+        """Unit embeddings [len(images), d] of RGB pictures (H×W×3 uint8 arrays)."""
+        from PIL import Image
+
+        if not images:
+            return np.zeros((0, 512), np.float32)
+        return self._encode(self._names(settings)[0], [Image.fromarray(np.ascontiguousarray(i)) for i in images], settings)
+
     def frame_embeddings(self, video: str, cache_dir: Path, key: str, settings: dict) -> tuple[np.ndarray, np.ndarray]:
         """(times [n], unit embeddings [n, d]) of the frames of `video` sampled `fps` times per second."""
         fps = float(settings.get("fps", 2))

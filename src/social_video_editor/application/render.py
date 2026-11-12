@@ -7,7 +7,9 @@ Steps:
      render order follows the dependencies (Sequence.render_waves) and dispatch is polymorphic
      (ShotRenderer is a PieceVisitor). Up to render.jobs ($SVE_JOBS) video / photo shots of a wave are
      encoded at the same time; the result does not depend on the number of jobs.
-  2. Segments are joined with their transitions; text layer, music and sound effects are added.
+  2. Segments are joined with their transitions; the plan's cutaways (graphics / photos shown over the
+     main track while its sound goes on, application/cutaways.py) are laid over them; text layer, music
+     and sound effects are added.
   3. Audio is mastered to −14 LUFS; video, cover, .srt, plan_used/config_used/summary.json are
      written to a new version folder (vN, or a variant such as v3SinMusica / v3NoMusic).
      The same FFmpeg pass also writes vN/stems/{original,music,sfx}.wav (pre-master levels; the
@@ -31,6 +33,8 @@ import numpy as np
 
 from ..domain import color_math
 from ..domain.config import EXPORT_PROFILES, labels, output_name, variant_suffix
+from ..domain.explainer import refocus_faces, subtitle_analyses
+from ..domain.footage import CREDITS_FILE, credits_text
 from ..domain.models import Project, UserError
 from ..domain.models import PlanError
 from ..domain.photos import auto_tone_setting, photo_crf, photo_settings, resolve_photo_ref
@@ -43,13 +47,14 @@ from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
 from ..log import log
 from .analyze import prepare_sources
+from .cutaways import render_cutaways
 from .enhance import enhanced_or_none
 from .graphic import build_scene, graphics_theme
 from .music import prepare_music
 from .products import visual_search
 from .services import Services
 
-SEGMENT_VERSION = 6
+SEGMENT_VERSION = 7
 STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
 SHOT_SIGNATURE_KEYS = ("source", "start", "end", "speed", "effects", "zoom", "focus_x", "focus_y", "volume_db",
                        "mute", "freeze", "color", "_beats")
@@ -374,6 +379,13 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     if draft:
         W, H = W // 2 // 2 * 2, H // 2 // 2 * 2
     plan, infos, analyses, music, tl = prepare_edit(svc, project, copy.deepcopy(plan), cfg, no_music)
+    if profile:                                      # the plan framed the faces for the project's own frame shape
+        base = project.cfg["output"]
+        old, new = (int(base["width"]), int(base["height"])), (int(cfg["output"]["width"]), int(cfg["output"]["height"]))
+        moved = old != new and refocus_faces(plan["shots"], infos, analyses, old, new,
+                                             str((cfg.get("framing") or {}).get("mode", "auto")))
+        if moved:
+            log(f"Framing: {moved} shots framed on the face again for {new[0]}×{new[1]}")
     mix_timeline = cfg["music"].pop("_automix_timeline", None)      # playlist: written to vN/automix.json
     waves = tl.sequence.render_waves()               # validates shot references before encoding anything
     jobs = svc.encoder.parallel_jobs(cfg)            # also validates render.jobs / $SVE_JOBS
@@ -381,6 +393,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     log(f"Timeline: {len(tl)} shots, {total:.1f} s, {W}×{H}{' (draft)' if draft else ''}")
 
     segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs).render(waves)
+    cuts = render_cutaways(svc, project, cfg, plan, tl, W, H, draft, infos, analyses)
 
     # Main version = new number (v4). Variants = number of the latest main version + suffix
     # (v4SinMusica / v4NoMusic, v4Borrador / v4Draft, v4Youtube…), so you can see where they come from.
@@ -393,17 +406,19 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     boxes: list[dict] = []
     try:                                  # any failure from here on marks the folder vN_failed / vN_fallida
         texts = absolute_texts(plan, tl)
-        groups = subtitle_groups(analyses, tl, cfg) if cfg["subtitles"].get("auto", True) else []
+        groups = (subtitle_groups(subtitle_analyses(plan, analyses, cfg), tl, cfg)
+                  if cfg["subtitles"].get("auto", True) else [])
         voice = any(has_voice(analyses[w[0]], w[1], w[2])
                     for w in (c.piece.source_window() for c in tl) if w is not None)
         layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
         # same typing speed on screen, but at most sfx.typing_max_per_sec click SOUNDS per second
         keystrokes = thin_keystrokes(keystrokes, float(cfg["sfx"].get("typing_max_per_sec", 16)))
-        events = sound_events(tl, texts, keystrokes, cfg)
+        events = sound_events(tl, texts, keystrokes, cfg) + cuts.sounds
         sfx = svc.sfx.mix_track(events, total, vdir / "_sfx.wav") if events else None
         svc.encoder.compose([{"dur": c.dur, "overlap": c.overlap, "transition": c.piece.transition} for c in tl],
                             segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster,
-                            stems_dir=vdir / "stems" if stems_wanted(cfg, tl, total) else None)
+                            stems_dir=vdir / "stems" if stems_wanted(cfg, tl, total) else None,
+                            **({"cutaways": cuts.files} if cuts.files else {}))
         lufs = svc.encoder.master_audio(premaster, final, cfg)
     except BaseException:                 # UserError is a SystemExit; Ctrl-C also leaves the folder marked
         failed = svc.projects.mark_failed(vdir, labels(lang)["failed"])
@@ -437,6 +452,12 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         "text_boxes": boxes,
         "typing": typing_bursts(keystrokes),
     }
+    if plan.get("cutaways"):
+        summary["cutaways"] = cuts.details
+        summary["cutaway_warnings"] = cuts.warnings
+    if cuts.credits:                      # third-party footage: who to credit in the video's description
+        svc.projects.write_text(vdir / CREDITS_FILE, credits_text(cuts.credits))
+        summary["credits"] = CREDITS_FILE
     svc.projects.write_json(vdir / "summary.json", summary)
     log(f"Done → {final}  ({total:.1f} s, {lufs.get('after_lufs', '?')} LUFS, "
         f"{summary['render_time_sec']} s of rendering)")

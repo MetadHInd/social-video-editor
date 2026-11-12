@@ -14,10 +14,12 @@
   sve products <project>                   (products recognized by the vision model → cache/products.json)
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
   sve graphic [<project>] --proof | --shot N | --cue '…'   (preview animated graphics; --pack NAME, --video)
+  sve broll   <project> [--dry-run] [--force]   (fetches a clip for every [broll query="…"] cue → footage/ + credits.json)
   sve doctor                               (checks FFmpeg, fonts, models and optional parts)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
-productos, mejorar, grafico and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde, --hasta, --cada.
+productos, mejorar, grafico, tomas and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
+--hasta, --cada, --simular.
 """
 from __future__ import annotations
 
@@ -145,6 +147,12 @@ def cmd_graphic(svc, a):
         print(p)
 
 
+def cmd_broll(svc, a):
+    from .application.broll import broll_lines, fetch_broll
+
+    print("\n".join(broll_lines(fetch_broll(svc, _project(svc, a.project), dry_run=a.dry_run, force=a.force))))
+
+
 def cmd_doctor(svc, a):
     from .adapters.system.doctor import diagnose, doctor_lines
 
@@ -216,6 +224,12 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--video", action="store_true", help="with --proof: also a clip of every template in a row")
     s.add_argument("--out", "--salida", help="folder for the pictures (default: cache/graphics)")
     s.set_defaults(f=cmd_graphic)
+    s = sub.add_parser("broll", aliases=["tomas"], help="fetch third-party clips for the plan's broll cutaways, with a record")
+    s.add_argument("project")
+    s.add_argument("--dry-run", "--simular", action="store_true", dest="dry_run",
+                   help="list what would be fetched; download nothing, change nothing")
+    s.add_argument("--force", "--forzar", action="store_true", help="fetch again the cutaways that already have a clip")
+    s.set_defaults(f=cmd_broll)
     sub.add_parser("doctor", help="check FFmpeg, fonts, models and optional parts").set_defaults(f=cmd_doctor)
     return ap
 

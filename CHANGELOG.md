@@ -7,6 +7,68 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- **Third-party footage with a record: `sve broll`** (alias `tomas`; `--dry-run`, `--force`). Every
+  `[broll query="…"]` cue / `broll` cutaway gets a clip from the sources of `broll.sources`: Pexels and
+  Pixabay (free API keys in `PEXELS_API_KEY` / `PIXABAY_API_KEY`), Wikimedia Commons (only CC0, public
+  domain, CC BY, CC BY-SA) and the official channels of the brands listed in `broll.brands` or a pack's
+  `brands.yaml` (searched inside the channel, filtered by channel id, only the piece used is
+  downloaded). Candidates are ranked for the frame; the vision model, when available, keeps the clip
+  and the piece that show the query best. Writes `footage/<clip>`, `footage/credits.json` (source, page,
+  author, license, SHA-256, date, query), the cutaway's `file` / `clip_start`, a credit caption the first
+  time each author or brand appears, and `vN/credits.txt` at render time. A `broll` cutaway is now
+  rendered (also with your own clip: `broll file="…"`). Spanish: `tomas_externas`, `[toma consulta="…"]`.
+- B-roll avoids **printed text** (titles, captions, slide labels found with OpenCV, no model; `broll.text`)
+  and crops a clip of another shape **where the query shows best** (`focus_x` / `focus_y`); only the piece
+  that is used is stored, checked again for text in full quality.
+- `lower_third` is smaller and sits in the bottom-left corner of the safe zone.
+- **The director** (`script.auto_broll`, on in the `explainer` recipe): where the presenter would stay
+  alone on camera longer than `script.opening` / `script.max_camera`, `sve plan` proposes b-roll that
+  starts at a word of the sentence (`from_word`), with a search built from what is said. When no clip
+  passes, `sve broll` puts an illustrated title card with what is said instead (`broll.fallback_card`).
+- B-roll: clips are framed by **where their subject is** (cropped around it, or shown whole and large
+  over a blurred copy: `fit`), and a clip that does not look like the query is not used
+  (`broll.min_match`).
+- Fixed: shots framed with blurred borders (`framing.mode: blur`) showed green bands when the source was
+  decoded by the hardware (VideoToolbox); segment caches are rebuilt once (`SEGMENT_VERSION` 7).
+- `sve check`: `third_party_too_long`, `third_party_share` and `footage_without_record` warnings for
+  third-party footage (`broll.max_seconds`, `broll.max_share`); `sve doctor` lists the b-roll sources and
+  what each lacks; `sve report` counts the b-roll cues still without a clip.
+- `sve render --profile …` with another frame shape frames the explainer plan's shots on the face again
+  for that shape (a focus edited by hand is kept).
+- `diagram` in vertical: larger illustrations, a light behind the thing the marker reaches, and the steps
+  counted off (1, 2, 3…) in the corner the zigzag used to leave empty.
+- **From a script to the video: the `explainer` recipe.** `script.md` holds what the presenter says,
+  sentence by sentence, with `[cues]` for what is on screen (`[bars data="…"]`, `[photo file="…"]`,
+  `[lower_third …]`, `[camera]`; `seconds=N`). `sve plan` finds every sentence in the word-level
+  transcription of the recording (tolerant to misheard words), uses the last good take of each
+  (`script.take`), keeps them in script order, joins sentences said in a row, shortens long pauses and
+  alternates a punch-in at every visible jump cut (`script.punch_in`). Missing sentences are reported,
+  never invented. Settings `script.*`; Spanish: `explicativo`, `guion` (`guion.md`, `[barras …]`,
+  `[camara]`, `[foto …]`).
+- **Cutaways** (`plan.cutaways`): graphics and photos shown over the main track while its sound keeps
+  playing, anchored to script sentences (`at_sentence`, `until_sentence`, `seconds`) or to seconds of
+  the video (`start`, `end`), in any plan. They stay long enough to be read, never overlap, and
+  `lower_third` is laid over the picture with transparency. Rendered once and cached; their sound
+  effects are mixed in; the audio of the main track is untouched.
+- Subtitles of an explainer plan use the script's own words, timed by the voice
+  (`script.subtitles: script`), so misheard words are written right.
+- **Picture-in-picture** (`pip.*`, off by default): over a full-frame graphic or photo the presenter stays
+  in a corner window with a paper frame (the `pip_frame` graphic), cropped around the face, and the
+  graphic is laid out in the room the window leaves. Per cutaway: `pip=yes` / `pip=no`.
+- **Overlays for a presenter on screen**: `callouts` (illustrated notes that pop up around the presenter,
+  optionally linked into a small diagram) and `bullets` (short lines, one by one), each item at its own
+  time (`times`). With one item per sentence under the cue, items follow the sentences.
+- **Notes proposed by the engine** (`script.support`): where the presenter is alone on screen, `sve plan`
+  adds `callouts` for figures, things that have an illustration and nouns, each timed to its word
+  (entries marked `_auto`, shown with `~` in `sve report`).
+- **One camera, several framings**: long shots are split between sentences without losing a frame
+  (`script.reframe_every`, `continues`), visible cuts rotate wide → punch-in → wide → close-up
+  (`script.close_up`), and every camera shot
+  drifts slowly (`script.drift`). `sve check` does not count those picture-only cuts as cuts of the sound.
+- `framing.face`: finds the presenter's face (OpenCV 4 Haar cascade, or YuNet on OpenCV 5 with a
+  ≈230 KB model fetched once into the user cache) and frames the explainer plan's shots on it.
+- `sve report` shows `SCRIPT` (sentences found / missing, takes used) and `CUTAWAYS` (what, when);
+  `sve view` lists the cutaways; `summary.json` records `cutaways` and `cutaway_warnings`.
 - **Animated graphics drawn from data** (`graphic` shots, optional `[graphics]` extra with skia-python):
   templates `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram` and `lower_third`,
   each written as a few key/value pairs (or a one-line cue), laid out for vertical or landscape at the

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..domain.graphics import build_theme, make_scene, parse_cue
+from ..domain.graphics import TEMPLATES, build_theme, make_scene, parse_cue
 from ..domain.graphics.scene import Scene
 from ..domain.models import UserError
 from ..log import log
@@ -36,6 +36,9 @@ SAMPLES = {
         {"template": "diagram", "title": "Cómo viaja un mensaje", "nodes": "Celular, Router, Internet",
          "edges": "Celular>Router:envía; Router>Internet:reenvía; Internet>Router:responde", "dur": 5},
         {"template": "lower_third", "kicker": "Video", "text": "Canal oficial del fabricante"},
+        {"template": "callouts", "items": "Celular; Router; Internet; 240 ms", "times": "0.2, 0.8, 1.4, 2.0"},
+        {"template": "bullets", "items": "Sale de tu celular; Cruza el océano; Vuelve en un parpadeo", "times": "0.2, 1.0, 1.8"},
+        {"template": "pip_frame", "rect": "0.48, 0.52, 0.36, 0.25"},
     ],
     "en": [
         {"template": "title", "text": "How does a message travel?", "kicker": "Chapter 1", "icon": "phone"},
@@ -52,6 +55,9 @@ SAMPLES = {
         {"template": "diagram", "title": "How a message travels", "nodes": "Phone, Router, Internet",
          "edges": "Phone>Router:sends; Router>Internet:forwards; Internet>Router:answers", "dur": 5},
         {"template": "lower_third", "kicker": "Video", "text": "The maker's official channel"},
+        {"template": "callouts", "items": "Phone; Router; Internet; 240 ms", "times": "0.2, 0.8, 1.4, 2.0"},
+        {"template": "bullets", "items": "It leaves your phone; It crosses the ocean; It is back in a blink", "times": "0.2, 1.0, 1.8"},
+        {"template": "pip_frame", "rect": "0.48, 0.52, 0.36, 0.25"},
     ],
 }
 
@@ -112,7 +118,7 @@ def proof(svc: Services, cfg: dict, out_dir: Path, video: bool = False) -> list[
     language = cfg.get("language", "es")
     said = CAPTIONS.get(language, CAPTIONS["en"])
     specs = [{**s, **({"image": str(sample)} if s.get("image") == "@sample" else {}),
-              **({"caption": said[i % len(said)]} if s["template"] != "lower_third" else {})}
+              **({"caption": said[i % len(said)]} if not getattr(TEMPLATES.get(s["template"]), "overlay", False) else {})}
              for i, s in enumerate(SAMPLES.get(language, SAMPLES["en"]))]
     fps = int(cfg["output"]["fps"])
     out = []

@@ -1,0 +1,37 @@
+# RECIPE: EXPLAINER (a presenter talking to the camera + graphics, photos and clips over the voice)
+# Formula: you write script.md (what is said, sentence by sentence, with [cues] for what is on screen),
+# record yourself saying it — repeating any sentence that goes wrong — and `sve plan` finds the best take
+# of every sentence, puts them in script order and turns each cue into a cutaway shown while you keep
+# talking. Graphics take the whole frame; you are on screen in between, and there the engine keeps the
+# picture moving: small notes pop up around you as you name things (script.support), jump cuts and long
+# shots (between sentences) rotate three framings (wide, punch-in, close-up) and every shot drifts slowly.
+# Long pauses are shortened. (pip.enabled: true would keep you in a corner window over the graphics.)
+# Neutral, steady sound and picture (the same processing in every shot, so nothing jumps at a cut).
+explainer: true
+script:
+  file: script.md
+  auto_broll: true       # the director cuts to footage after `opening` / `max_camera` seconds of camera (sve broll fetches it)
+  take: last             # people repeat a sentence until it comes out right: the last good take is used
+  punch_in: 1.08
+duration: {target: 0, max: 0}          # the script decides the length
+hook: {strategy: start, duration: 0, text: null}
+framing:
+  slow_push: 0           # no drift: it would restart at every cut
+  face: true             # frame on the presenter's face (may download a ≈230 KB face model once)
+effects: {zoom_on_peaks: false, zoom_ratio: 0}
+audio:
+  denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)
+  gain_without_voice_db: 0
+music:
+  file: none             # set a track you have the rights to use; it stays under the voice
+  cuts_on_beat: false    # cuts follow the sentences, not the beat
+  ducking: false
+  volume_with_voice_db: -24
+subtitles:
+  auto: true
+  y: 0.835               # in the band under the graphics (their safe zone ends at 0.77)
+  size: 68               # narrower lines: they stay clear of the app buttons on the right
+  max_chars: 16
+check:
+  safe_bottom: 0.88      # subtitles sit in that band on purpose
+export: {cover_at: 0.5}

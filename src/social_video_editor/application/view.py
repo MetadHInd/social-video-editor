@@ -7,6 +7,7 @@ from ..domain.models import Project, UserError
 from ..domain.pieces import Group
 from ..domain.timebase import mmss
 from ..domain.timeline import absolute_texts
+from .cutaways import place_cutaways
 from .render import prepare_edit
 from .services import Services
 
@@ -37,4 +38,9 @@ def view_lines(svc: Services, project: Project) -> list[str]:
             lines.append(shot_line(tl[shot.index]))
     for tx in absolute_texts(plan, tl):
         lines.append(f"   text [{mmss(tx['start'])}–{mmss(tx['end'])}] ({tx.get('style', 'simple')}) {tx['text']}")
+    placed, warnings = place_cutaways(svc, cfg, plan, tl, int(cfg["output"]["width"]), int(cfg["output"]["height"]))
+    for c in placed:
+        lines.append(f"   cutaway [{mmss(c.start)}–{mmss(c.end)}] {c.kind} {c.label}"
+                     + (" (over the picture)" if c.overlay else ""))
+    lines += [f"   ⚠ {w}" for w in warnings]
     return lines

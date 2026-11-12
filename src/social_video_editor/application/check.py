@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from ..domain import check as ck
+from ..domain import footage as fg
 from ..domain.config import labels
 from ..domain.models import UserError
 from ..domain.music import beats_in_video
@@ -70,6 +71,22 @@ class Checker:
         self.spans = shot_spans(self.summary)
         self.cuts = [s["cut"] for s in self.spans[:-1] if s["cut"] is not None]
 
+    def sound_cuts(self) -> list[float]:
+        """The cuts where the sound changes too. A shot that "continues" the previous one (a long shot
+        reframed between two sentences: the same source, not a sample skipped) is a cut of the picture
+        only: what the level does there is the speech itself, not the edit."""
+        shots = self.plan.get("shots", [])
+
+        def straight_on(i: int) -> bool:
+            if i + 1 >= len(shots) or not shots[i + 1].get("continues"):
+                return False
+            a, b = shots[i], shots[i + 1]
+            try:
+                return a.get("source") == b.get("source") and abs(float(b["start"]) - float(a["end"])) < 0.01
+            except (KeyError, TypeError, ValueError):
+                return False
+        return [s["cut"] for i, s in enumerate(self.spans[:-1]) if s["cut"] is not None and not straight_on(i)]
+
     def moment(self, kind: str, t: float, severity: float, why: str) -> None:
         self.moments.append({"kind": kind, "t": round(float(t), 2), "severity": round(float(severity), 2), "why": why})
 
@@ -113,7 +130,7 @@ class Checker:
         for a_, b_ in sil:
             self.warnings.append(f"silence {a_:.2f}–{b_:.2f} s ({b_ - a_:.1f} s below {th['silence_db']} dBFS)")
             self.moment("silence", a_, 1 + (b_ - a_) / th["silence_sec"], f"{b_ - a_:.1f} s of silence")
-        jumps = ck.cut_jumps(L["t"], L["momentary"], self.cuts)
+        jumps = ck.cut_jumps(L["t"], L["momentary"], self.sound_cuts())
         big = [j for j in jumps if abs(j["jump_lu"]) > th["cut_jump_lu"]]
         self.metrics["audio"]["cut_jump_max_lu"] = max((abs(j["jump_lu"]) for j in jumps), default=None)
         self.metrics["audio"]["cut_jumps"] = big
@@ -261,6 +278,22 @@ class Checker:
     def _total(self) -> float | None:
         return float(self.summary.get("duration_sec") or 0) or None
 
+    # ── third-party footage ──────────────────────────────────────────────────
+    def footage(self) -> None:
+        """B-roll fetched from other people's sources: each clip within its limit, the official
+        channels' share of the video, and a record (footage/credits.json) for every file."""
+        used = [d for d in self.summary.get("cutaways") or [] if d.get("type") == "broll" and d.get("third_party")]
+        if not used:
+            return
+        total = self._total() or 0.0
+        found = fg.issues(used, total, fg.settings(self.cfg))
+        seconds: dict[str, float] = {}
+        for d in used:
+            kind = d.get("kind") or fg.STOCK
+            seconds[kind] = round(seconds.get(kind, 0.0) + float(d["end"]) - float(d["start"]), 2)
+        self.metrics["footage"] = {"clips": len(used), "seconds": seconds, "issues": [code for code, _ in found]}
+        self.warnings += [message for _, message in found]
+
     def texts(self) -> None:
         boxes = self.summary.get("text_boxes")
         if boxes is None:
@@ -386,6 +419,7 @@ def check_version(svc: Services, project: str, version: str | None = None,
     c.typing_density()
     c.video(v["video"])
     c.texts()
+    c.footage()
     c.beats(folder, total)
     c.duration(total)
 

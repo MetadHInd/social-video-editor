@@ -1,6 +1,7 @@
 """Projects on disk: project.yaml (or legacy proyecto.yaml), plan.json, version folders, outputs."""
 from __future__ import annotations
 
+import hashlib
 import itertools
 import os
 import shutil
@@ -201,6 +202,34 @@ class YamlProjectRepository:
 
     def exists(self, path: Path) -> bool:
         return Path(path).exists()
+
+    def file_hash(self, path: Path) -> str | None:
+        """SHA-256 of a file's content, None if it is not a file."""
+        path = Path(path)
+        if not path.is_file():
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    # ── script ───────────────────────────────────────────────────────────────
+    def read_script(self, project: Project) -> tuple[str, str]:
+        """(file name, text) of the narration script: settings script.file (default script.md, or the
+        legacy guion.md), relative to the project folder."""
+        name = str((project.cfg.get("script") or {}).get("file") or "script.md")
+        tried = [name] + ([legacy_es.FILES["script.md"]] if name == "script.md" else [])
+        for n in tried:
+            p = Path(n).expanduser()
+            p = p if p.is_absolute() else project.dir / p
+            if p.is_file():
+                return p.name, p.read_text(encoding="utf-8-sig")
+        raise UserError(f"Missing the script: {project.dir / name}. Write what is said, one or more sentences per "
+                        "line, and cues such as [bars data=\"A:1, B:2\"] between them (docs/PLAN_FORMAT.md).")
+
+    def translate_cue(self, spec: dict) -> dict:
+        return legacy_es.cue(spec)
 
     def remove(self, path: Path) -> None:
         """Deletes a temporary file or folder. A file another program keeps open (Windows) is left in

@@ -33,6 +33,33 @@ pauses:                  # sve plan: long pauses inside every shot with voice ar
   min_span: 0.5          # no piece of speech shorter than this (the pause before it is kept instead)
   transition: soft_cut   # 0.12 s crossfade of sound and picture: the cut is neither heard nor seen
 
+script:                  # explainer recipe: a script said to the camera (domain/script.py, script_align.py)
+  file: script.md        # the script, in the project folder: sentences and [cues] (docs/PLAN_FORMAT.md)
+  min_match: 0.6         # share of a sentence's words that must be heard for a take to count
+  take: last             # last | best: which take is used when a sentence was said several times
+  pad_start: 0.08        # seconds kept before the first word of a sentence
+  pad_end: 0.12          # seconds kept after its last word
+  join_gap: 0.6          # sentences said one after the other, this close, stay in one shot
+  punch_in: 1.08         # zoom alternated at every visible jump cut (0 = off)
+  close_up: 1.15         # a third, closer framing: cuts go wide → punch-in → wide → close-up (0 = wide / punch-in only)
+  subtitles: script      # script | speech: subtitles show the script's own words (timed by the voice), or what
+                         # the transcription heard
+  reframe_every: 4.0     # seconds: a longer shot is split between two sentences (nothing is lost) so the punch-in
+                         # alternates there too; one camera reads like several (0 = off)
+  drift: 0.04            # every camera shot zooms this much, slowly, while it plays (0 = off)
+  support: true          # the engine proposes small notes around the presenter (callouts) where nothing else
+                         # is on screen: figures, things with an illustration, key words
+  auto_broll: false      # the director: footage (b-roll) where the presenter would stay alone on camera too long
+  opening: 2.5           # seconds of face at the start before the first footage (the hook)
+  max_camera: 4.0        # then, at most this many seconds of camera in a row
+  auto_min: 1.8          # shortest footage the director proposes (time for a card to come in and be read)
+
+pip:                     # picture-in-picture: the presenter stays in a window over full-frame cutaways
+  enabled: false         # (a cutaway's own "pip": true / false wins)
+  corner: bottom_right   # bottom_right | bottom_left | top_right | top_left
+  size: 0.32             # window width as a share of the frame's short side
+  min_seconds: 2.5       # shorter cutaways take the whole frame
+
 hook:
   strategy: teaser       # teaser = show the best moment first (1-2 s), then tell the story | start = begin at the beginning
   duration: 1.6
@@ -95,6 +122,8 @@ framing:
   focus_y: 0.5           # where to center the crop of a taller source (0 = top, 1 = bottom)
   zoom_margin: 1.25      # extra resolution so zooms keep their quality
   slow_push: 0.04        # "ken burns": every shot zooms 4 % (sense of motion)
+  face: false            # false | auto | true: find the presenter's face and frame the shots on it (explainer plan);
+                         # true may download a small face model once (≈230 KB), auto only uses one already there
 
 transitions:
   rotation: [cut, cut, zoom, cut, whip, cut]   # used in this order
@@ -265,6 +294,26 @@ vision:                  # local CLIP model: recognizes products by itself (opti
   product_plan: false    # plan = one shot per detected product (the unboxing recipe turns it on)
   product_search: false  # true = "search" with criterion "product" uses the vision model (changes the windows
                          # of existing plans, so it is opt-in); "search" by "text" always uses it
+
+broll:                   # sve broll: third-party clips for the [broll query="…"] cues (domain/footage.py)
+  sources: [official, pexels, pixabay, wikimedia]   # tried in this order; official = a listed brand's own channel
+  candidates: 2          # clips downloaded per cue; the vision model keeps the one that shows the query best
+  search_limit: 12       # results asked of each source
+  max_seconds: {official: 5, stock: 8}   # longest a clip of each kind stays on screen
+  max_share: {official: 0.15}            # share of the video official-channel footage may take (sve check)
+  credit: true           # a caption with the author / brand the first time each one is on screen
+  credit_seconds: 3
+  min_height: 720        # short side, pixels: smaller clips are not used
+  max_megabytes: 250     # heavier files are not downloaded
+  licenses: [cc0, pd, cc-by, cc-by-sa]   # accepted from Wikimedia Commons (the stock libraries have their own)
+  framing: crop          # crop | blur | auto: how a clip of another shape fills the frame
+  fallback_card: true    # when no clip passes the checks: an illustrated title card with what is said instead
+  min_match: 0.25        # vision score below which a clip does not show the query (unrelated ≈0.22, right ≈0.28);
+                         # without the vision model clips are not judged
+  text: false            # true = clips that show printed text (titles, captions) may be used; false = they are
+                         # avoided: the piece and the crop with no text are chosen, a clip with text everywhere is skipped
+  preview_minutes: 12    # videos longer than this are not looked through (any source)
+  brands: []             # [{name: Brand, channel_id: UC…, aliases: [product names]}]; a pack's brands.yaml adds to it
 
 graphics:                # shots {"type": "graphic", "template": "bars", …} — animated graphics drawn from data
   pack: null             # name of a pack (<workspace>/packs/<name>/pack.yaml): a channel's look and drawings

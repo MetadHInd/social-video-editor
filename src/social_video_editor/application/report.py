@@ -15,6 +15,8 @@ from collections import Counter
 from pathlib import Path
 
 from ..domain import automix
+from ..domain import pip as pip_window
+from ..domain.cutaways import resolve as resolve_cutaways
 from ..domain.models import Project, UserError
 from ..domain.photos import is_image_name
 from ..domain.pieces import Group, Sequence
@@ -27,6 +29,8 @@ LOW_CONFIDENCE = 0.5      # products below this confidence: look at the images b
 MAX_SHOT_LINES = 10       # condensed shot lines (several shots per line)
 MAX_PRODUCTS = 8
 MAX_MESSAGES = 3          # errors / warnings shown per kind
+MAX_SENTENCES = 6         # script sentences listed per kind (missing, several takes, weak match)
+WEAK_MATCH = 0.8          # a sentence found with a lower score is worth a look
 WIDTH = 112               # max characters of a condensed line
 MEDIA_EXT = (".mp4", ".mov", ".srt", ".jpg", ".png", ".wav")
 MUSIC_SETTINGS = ("bpm", "tempo_factor", "drop_at", "align")   # optional music settings worth showing
@@ -92,8 +96,8 @@ def _shot_entry(clip) -> dict:
         e["template"] = d.get("template")
     else:
         e["from"] = sorted(piece.dependencies())
-    if d.get("effects"):
-        e["effects"] = [x.get("type") for x in d["effects"]]
+    if any(not x.get("auto") for x in d.get("effects") or []):      # the planner's own slow zooms are not listed
+        e["effects"] = [x.get("type") for x in d["effects"] if not x.get("auto")]
     if d.get("group"):
         e["group"] = d["group"]
     if d.get("beats"):
@@ -118,9 +122,39 @@ def _plan(svc: Services, project: Project) -> dict | None:
             out["photos"] = {"count": len(photos), "min_dur": round(min(photos), 2),
                              "max_dur": round(max(photos), 2)}
         out["timeline"] = [_shot_entry(c) for c in tl if c.piece.kind != "photo"]
+        if plan.get("cutaways"):        # placed with an estimated entrance (nothing is drawn for a report)
+            placed, warnings = resolve_cutaways(plan, tl, int(project.cfg["output"]["fps"]),
+                                                pip=pip_window.settings(project.cfg))
+            out["cutaways"] = {"count": len(plan["cutaways"]), "warnings": warnings,
+                               "proposed": sum(1 for c in placed if c.auto),
+                               "broll": _broll(plan),
+                               "placed": [{"n": c.index, "type": c.kind, "what": c.label, "start": c.start,
+                                           "end": c.end, "overlay": c.overlay, "pip": c.pip, "auto": c.auto,
+                                           "sentences": list(c.sentences) if c.sentences else None} for c in placed]}
     except (UserError, KeyError, TypeError, ValueError) as exc:     # an incomplete plan still gets a report
         out["timeline_error"] = str(exc) or type(exc).__name__
+    if plan.get("sentences"):
+        out["script"] = _script(plan)
     return out
+
+
+def _broll(plan: dict) -> dict | None:
+    """The b-roll cutaways: how many there are and how many still have no clip (`sve broll` fetches them)."""
+    cues = [c for c in plan.get("cutaways") or [] if isinstance(c, dict) and c.get("type") == "broll"]
+    return {"cues": len(cues), "without_clip": sum(1 for c in cues if not c.get("file"))} if cues else None
+
+
+def _script(plan: dict) -> dict:
+    """The explainer plan's sentences: how many were found in the recording, which are missing, which
+    were said several times (and the take used) and which matched poorly."""
+    sentences = [s for s in plan["sentences"] if isinstance(s, dict)]
+    found = [s for s in sentences if not s.get("missing") and s.get("start") is not None]
+    return {"file": plan.get("script"), "sentences": len(sentences), "found": len(found),
+            "missing": [{"n": s.get("n"), "text": s.get("text", "")} for s in sentences if s not in found],
+            "repeated": [{"n": s.get("n"), "takes": s["takes"], "start": s["start"], "score": s.get("score")}
+                         for s in found if int(s.get("takes") or 1) > 1],
+            "weak": [{"n": s.get("n"), "score": s["score"], "text": s.get("text", "")}
+                     for s in found if float(s.get("score") or 1) < WEAK_MATCH]}
 
 
 def _music_key(path: Path) -> str:
@@ -296,6 +330,51 @@ def _version_line(v: dict) -> str:
     return "  " + " · ".join(bits)
 
 
+def _script_lines(sc: dict | None) -> list[str]:
+    if not sc:
+        return []
+    out = [f"SCRIPT {sc.get('file') or ''} · {sc['sentences']} sentences · {sc['found']} found".replace("  ·", " ·")]
+    for s in sc["missing"][:MAX_SENTENCES]:
+        out.append("  " + _message(f"⚠ sentence {s['n']} not found in the recording: {s['text']}"))
+    if len(sc["missing"]) > MAX_SENTENCES:
+        out.append(f"  … +{len(sc['missing']) - MAX_SENTENCES} more sentences not found")
+    if sc["repeated"]:
+        tokens = [f"sentence {s['n']}: {s['takes']} takes, used the one at {mmss(s['start'])}"
+                  for s in sc["repeated"][:MAX_SENTENCES]]
+        out += _pack(tokens)
+        if len(sc["repeated"]) > MAX_SENTENCES:
+            out.append(f"  … +{len(sc['repeated']) - MAX_SENTENCES} more sentences with several takes")
+    for s in sc["weak"][:MAX_SENTENCES]:
+        out.append("  " + _message(f"? sentence {s['n']} matched {float(s['score']):.0%}: {s['text']}"))
+    return out
+
+
+def _cutaway_lines(cu: dict | None) -> list[str]:
+    if not cu:
+        return []
+    windows = sum(1 for c in cu["placed"] if c.get("pip"))
+    out = [f"CUTAWAYS {cu['count']} · {len(cu['placed'])} placed (times before beat alignment)"
+           + (f" · {cu['proposed']} proposed by the engine (~)" if cu.get("proposed") else "")
+           + (f" · {windows} with the presenter's window (+pip)" if windows else "")]
+    tokens = []
+    for c in cu["placed"]:
+        where = c.get("sentences")
+        said = "" if not where else (f" (sentence {where[0]})" if where[0] == where[1]
+                                     else f" (sentences {where[0]}–{where[1]})")
+        tokens.append(f"{'~' if c.get('auto') else ''}{c['what']}{'*' if c.get('overlay') else ''}"
+                      f"{'+pip' if c.get('pip') else ''} {c['start']:.1f}–{c['end']:.1f} s{said}")
+    out += _pack(tokens, max_lines=MAX_SHOT_LINES)
+    b = cu.get("broll")
+    if b:
+        out.append(f"  b-roll: {b['cues']} cues · {b['cues'] - b['without_clip']} with a clip"
+                   + (f" · ⚠ {b['without_clip']} to fetch (sve broll <project>)" if b["without_clip"] else ""))
+    for w in cu["warnings"][:MAX_MESSAGES]:
+        out.append("  " + _message(f"⚠ {w}"))
+    if len(cu["warnings"]) > MAX_MESSAGES:
+        out.append(f"  … +{len(cu['warnings']) - MAX_MESSAGES} more warnings")
+    return out
+
+
 def report_lines(r: dict) -> list[str]:
     out = [f"PROJECT {r['project']} · recipe {r['recipe']} · language {r['language']}"]
 
@@ -331,6 +410,8 @@ def report_lines(r: dict) -> list[str]:
         out += _pack([_shot_token(e) for e in p.get("timeline", [])], max_lines=MAX_SHOT_LINES)
         if p.get("first_text"):
             out.append(f"  first text: {_message(p['first_text'])}")
+        out += _script_lines(p.get("script"))
+        out += _cutaway_lines(p.get("cutaways"))
 
     m = r["music"]
     pl = m.get("playlist")

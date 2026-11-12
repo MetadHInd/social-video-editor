@@ -9,11 +9,18 @@ src/social_video_editor/
 │                  shot selection, transitions/effects catalogs, text layout, color math,
 │                  render checks, product detection math (products.py), still photos (photos.py:
 │                  capture time, Ken Burns, slideshow plan, auto-tone curve), playlist mixing
-│                  (automix.py), photo durations fitted to the music (slideshow_timing.py) and
-│                  animated graphics (graphics/: specs, theme, scenes, templates, illustrations)
+│                  (automix.py), photo durations fitted to the music (slideshow_timing.py),
+│                  animated graphics (graphics/: specs, theme, scenes, templates, illustrations),
+│                  scripts (script.py: sentences and cues; script_align.py: finding each sentence in the
+│                  recording; explainer.py: the plan built from them), cutaways (cutaways.py), the
+│                  presenter's window (pip.py), the notes proposed around the presenter (support.py) and
+│                  third-party footage (footage.py: licenses, brands, ranking, the piece used, credits, limits)
+│                  and the director (director.py: footage where the presenter would stay alone too long)
 ├── ports/         typing.Protocol interfaces the application needs
-├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/, upscale/, skia/
-├── application/   use cases: analyze, plan, render, thumbs, view, report, check, products, music, enhance, project
+├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/, upscale/, skia/,
+│                  footage/
+├── application/   use cases: analyze, plan (explainer), render (cutaways), thumbs, view, report, check, products,
+│                  music, enhance, graphic, broll, project
 ├── container.py   composition root: wires every port to its adapter (build_services)
 ├── cli.py         argparse front end (`sve …`)
 ├── recipes/       packaged YAML recipes (base.yaml + one per video type)
@@ -29,8 +36,8 @@ the `Services` bundle of ports (`application/services.py`); `adapters` implement
 | Port (`ports/__init__.py`) | Adapter | Role |
 |---|---|---|
 | `MediaProbe` | `adapters/ffmpeg/probe.py` · `FfprobeMediaProbe` | Size (with rotation), fps, duration, audio, HDR/HLG flags. |
-| `VideoEncoder` | `adapters/ffmpeg/encoder.py` · `FfmpegEncoder` | Proxies, 16 kHz wav, one segment per shot, raw-frame segments, final compose (transitions, text layer, music, sfx; long videos joined in chunks, `render.chunk_*`), loudness mastering, cover; AutoMix song features and the rendered playlist mix (`music_features`, `render_automix`, in `automix_render.py`; plan in `domain/automix.py`). Filter strings live in `adapters/ffmpeg/filters.py`; the HLG→SDR LUT in `luts.py`. |
-| `VideoAnalyzer` | `adapters/opencv/video_analyzer.py` · `OpenCvVideoAnalyzer` | Per-frame samples (brightness, sharpness, motion, color), scene changes (PySceneDetect), frame reading. |
+| `VideoEncoder` | `adapters/ffmpeg/encoder.py` · `FfmpegEncoder` | Proxies, 16 kHz wav, one segment per shot, raw-frame segments (opaque, or with transparency: `encode_overlay`), final compose (transitions, cutaways laid over the joined picture, text layer, music, sfx; long videos joined in chunks, `render.chunk_*`), loudness mastering, cover; AutoMix song features and the rendered playlist mix (`music_features`, `render_automix`, in `automix_render.py`; plan in `domain/automix.py`). Filter strings live in `adapters/ffmpeg/filters.py`; the HLG→SDR LUT in `luts.py`. |
+| `VideoAnalyzer` | `adapters/opencv/video_analyzer.py` · `OpenCvVideoAnalyzer` | Per-frame samples (brightness, sharpness, motion, color), scene changes (PySceneDetect), frame reading, the presenter's face (`faces.py`: Haar cascade on OpenCV 4, YuNet on OpenCV 5 with a small model in the user cache), lines of printed text (`text.py`, no model). |
 | `AudioAnalyzer` | `adapters/librosa/audio_analyzer.py` · `LibrosaAudioAnalyzer` | Loudness/peaks of a source; tempo, beat grid and drop of a song (math in `domain/music.py`). |
 | `Transcriber` | `adapters/whisper/transcriber.py` · `WhisperTranscriber` | Word-level faster-whisper transcription, run in a subprocess (`worker.py`) because OpenCV and PyAV libraries clash in one process. |
 | `TextRenderer` | `adapters/pillow/text_layer.py` · `PillowTextRenderer` | Draws subtitles and text cards as still PNGs + an ffconcat list; returns keystroke times. Emoji-aware text in `rich_text.py`. |
@@ -38,14 +45,15 @@ the `Services` bundle of ports (`application/services.py`); `adapters` implement
 | `PhotoRenderer` | `adapters/ffmpeg/photo_encoder.py` · `FfmpegPhotoEncoder` | Still photos: finding them (folders), and one photo → a segment (EXIF orientation, `photo.auto_tone` exposure fix with local shadow recovery for backlit photos, cover or blurred-background framing, sub-pixel Ken Burns, warmth / vignette, `render.photo_crf`). Tone curve math in `domain/photos.py`. |
 | `ImageUpscaler` | `adapters/upscale/realesrgan.py` · `RealEsrganUpscaler` (fallback `lanczos.py` · `LanczosUpscaler`) | `sve enhance`: small photos enlarged ×4 (torch loaded lazily), big ones reduced, into `cache/photos/`. |
 | `GraphicRenderer` | `adapters/skia/renderer.py` · `SkiaGraphicRenderer` | Animated graphics (optional `[graphics]` extra, skia imported lazily): the `Stage` with real text measuring, frames / overlay frames / stills of a `Scene`, contact sheets. Draws each distinct state of a scene once. |
-| `PackRepository` | `adapters/files/packs.py` · `FilePackRepository` | Packs (`<workspace>/packs/<name>/`): a channel's theme and its Python module of elements, templates and illustrations. |
+| `PackRepository` | `adapters/files/packs.py` · `FilePackRepository` | Packs (`<workspace>/packs/<name>/`): a channel's theme, its Python module of elements, templates and illustrations, and its `brands.yaml` (brands whose official channel may be used for b-roll). |
+| `FootageSource` (one per source, `Services.footage` by name) | `adapters/footage/` · `PexelsSource`, `PixabaySource`, `WikimediaSource`, `OfficialChannelSource` | `sve broll`: search for clips and download one (`ready`, `search`, `download`). Stock libraries read their API key from the environment; the commons returns each file's license; the official source searches inside a listed brand's channel with yt-dlp, filters the download by channel id and fetches only the piece that is used. HTTP with the standard library (`http.py`; errors never show the request URL). |
 | `SoundEffects` | `adapters/ffmpeg/sfx.py` · `FfmpegSoundEffects` | Mixes all sound effects into one track; synthesizes missing `sfx/*.wav`. |
 | `RecipeRepository` | `adapters/files/recipes.py` · `YamlRecipeRepository` | `base → recipe → settings` merge and language resolution. |
-| `ProjectRepository` | `adapters/files/projects.py` · `YamlProjectRepository` | project.yaml, plan.json, version folders, outputs, music lookup (one track, or `music.playlist`: `find_playlist`). |
+| `ProjectRepository` | `adapters/files/projects.py` · `YamlProjectRepository` | project.yaml, plan.json, the narration script (`read_script`, `translate_cue`), version folders, outputs, music lookup (one track, or `music.playlist`: `find_playlist`). |
 | `CacheStore` | `adapters/files/cache.py` · `JsonCacheStore` | Per-project JSON cache (media info, analyses, words, music analyses). |
 | `MusicDownloader` | `adapters/ytdlp/downloader.py` · `YtDlpDownloader` | `sve music`. |
 | `RenderInspector` | `adapters/ffmpeg/inspector.py` · `FfmpegRenderInspector` | `sve check`: EBU R128 loudness series, decoded audio, black/frozen frames, listening snippets (rules in `domain/check.py`). |
-| `VisualDetector` | `adapters/clip/detector.py` · `ClipVisualDetector` | Local CLIP via sentence-transformers (optional `[vision]` extra, imported lazily): frame and text embeddings in one space; frame embeddings cached in `cache/<id>_clip.npy`. Scoring, segmentation and labeling live in `domain/products.py`. |
+| `VisualDetector` | `adapters/clip/detector.py` · `ClipVisualDetector` | Local CLIP via sentence-transformers (optional `[vision]` extra, imported lazily): frame, picture (crops) and text embeddings in one space; frame embeddings cached in `cache/<id>_clip.npy`. Scoring, segmentation and labeling live in `domain/products.py`. |
 
 Supporting adapter modules: `adapters/files/legacy_es.py` translates Spanish files written by
 earlier versions **when they are loaded** (the domain only sees English keys; tables in
@@ -131,6 +139,69 @@ spec (cue / plan shot)  ──make_scene──▶  Scene (a template, laid out o
   builds the scene, records its sound effects on the shot (`_sounds`) and encodes the frames like a
   polaroid or collage. The segment is cached by spec + theme + size.
 
+## Scripts and cutaways (`domain/script.py`, `script_align.py`, `explainer.py`, `cutaways.py`)
+
+```
+script.md ──parse_script──▶ Script (sentences, cues)
+                               │        words of every source (analysis "words")
+                               ▼                 ▼
+                        script_align.align ──▶ per sentence: the take used (source, start, end, score, takes, words)
+                               ▼
+                        explainer.build_plan ──▶ plan: shots (script order) + sentences + cutaways
+                               ▼  pauses.shorten_plan_pauses, then explainer.frame_shots (punch-ins, face focus)
+                            plan.json
+render: timeline ──cutaways.resolve──▶ Cutaway(start, end) ──▶ one silent segment each (cache/segments/cut_*)
+        ──compose──▶ joined shots ▸ cutaways overlaid by time ▸ text layer ▸ audio (untouched by cutaways)
+```
+
+- Matching is word based and pure: tokens without case / accents, look-alike words equal, every place a
+  sentence was said is a take, one is chosen per sentence and no two sentences share words of the
+  recording. A missing sentence stays missing.
+- A cutaway is anchored to **sentences** (their source times, stored in the plan), not to shot numbers:
+  pause shortening splits and renumbers shots. `cutaways.sentence_spans` maps a sentence to the final
+  video through the clips that play its piece of the source.
+- The renderer lays each cutaway over the joined picture with a time-shifted `overlay`
+  (`adapters/ffmpeg/filters.py:cutaways`), after the transitions and before the text layer, in the
+  final pass (also for long, chunked videos). Templates drawn as overlays (`Scene.overlay`, e.g.
+  `lower_third`) are encoded with transparency (`encode_overlay`, QuickTime Animation).
+- Subtitles of an explainer plan come from the script's own words with the times they were said
+  (`explainer.subtitle_analyses`).
+- Overlays for a presenter who stays on screen live in `domain/graphics/overlays.py` (`callouts`,
+  `bullets`, `pip_frame`). `domain/support.py` proposes `callouts` for the sentences with nothing else
+  on screen (rules on the script's words; entries marked `_auto`); an overlay's `item_times` (source
+  moments) are turned into the graphic's `times` by `cutaways.resolve`.
+- Picture-in-picture is geometry (`domain/pip.py`: window, crop around the face, safe zone left for
+  the graphic) plus one more kind of item in the same overlay chain: `filters.cutaways` splits the
+  joined video once per window, crops and scales that copy and lays it over the full-frame cutaway;
+  the window's paper frame is a transparent graphic laid on top. The graphic under a window is laid
+  out with the reduced safe zone (theme `safe`), so no template knows about windows.
+- Reframing (`script_align.join_shots(reframe_every)`) and the slow drift (`explainer.frame_shots`)
+  only write ordinary shot keys (`continues`, `zoom`, `push_in` / `pull_out` effects).
+
+## Third-party footage (`domain/footage.py`, `application/broll.py`)
+
+```
+plan cutaways {"type": "broll", "query"} ──▶ for each source in broll.sources (official only for a listed brand)
+     search (cached a day) ──footage.rank──▶ download the best few ──vision: best clip and piece──▶ footage/<clip>
+     ──▶ plan: "file", "clip_start" (+ "seconds" over the limit, credit captions)   footage/credits.json: one record per file
+render: a clip cutaway is encoded like a video shot from the clip (silent, framed by broll.framing) ──▶ vN/credits.txt
+check:  summary "cutaways" ──footage.issues──▶ third_party_too_long · third_party_share · footage_without_record
+```
+
+- The rules are pure (`domain/footage.py`): which licenses are open, which brand a query names (whole
+  words), why a candidate is refused, how candidates are ranked for a frame, where a clip can be cropped
+  (`crop_spans`), how much text a crop holds (`text_in`), which piece is used (`choose_piece`: vision
+  score minus text), where the subject is (`detail_profile`, `subject_span`) and so how the clip fills the
+  frame (`framing`: whole / crop / fit / scene, then `pick_crop` for a scene), the record and the credit
+  lines, the limits per kind.
+- `domain/director.py` proposes b-roll (`_auto: director`, `from_word`, a `fallback` title card) where the
+  presenter would stay alone on camera too long; `application/explainer.script_plan` adds them before
+  the notes (`support.py`), so notes go where the presenter is still alone.
+- A source that cannot answer raises `FootageError`; the use case notes it and tries the next source.
+  Nothing is fetched at render time: a broll cutaway without a file is left out with a warning.
+- A file inside `<project>/footage/` is third-party footage and must have a record whose hash matches;
+  any other `file` is the user's own clip.
+
 ## Data flow
 
 ```
@@ -195,6 +266,8 @@ profiles are defined there too.
 | **A graphic template / illustration / element** | `@template("name")` on a `Scene` subclass in `domain/graphics/templates.py`, `@icon("name", words=…)` in `icons.py`, `@element("name")` in `kit.py` — or the same decorators in a pack's `elements.py` (no engine change). Document it in [GRAPHICS.md](GRAPHICS.md). |
 | **A shot type** | Subclass `DrawnShot` (or `Shot`) in `domain/pieces.py`, register it in `SHOT_TYPES`, add `visit_<kind>` to `PieceVisitor` and `ShotRenderer`, and the drawing method to the `ImageComposer` port + Pillow adapter. |
 | **A text style** | `texts.styles` in `recipes/base.yaml` (or in a recipe / project settings). |
+| **A footage source** | A class with `name`, `kind`, `ready`, `search`, `download` (the `FootageSource` port) in `adapters/footage/`, added to `footage=` in `container.py`; its name goes in `broll.sources`. Candidates must carry `license_code` (`domain/footage.py:rejection` decides what is accepted). |
+| **A script cue kind** | `domain/script.py` (`PLAIN_KINDS`, `_cue`), its cutaway type in `domain/cutaways.py:KINDS` and its rendering in `application/cutaways.py:render_cutaways`. A new graphic template is a cue already. |
 | **A recipe** | `<workspace>/recipes/<name>.yaml` (or `src/social_video_editor/recipes/` to ship it). Only write what differs from `base.yaml` (a key nothing reads is silently ignored). |
 | **An export profile** | `EXPORT_PROFILES` in `domain/config.py` (and its label per language in `_LABELS` if it needs one). |
 | **An adapter** | Implement the Protocol from `ports/__init__.py` in `adapters/<tech>/` and wire it in `container.py:build_services`. Use cases don't change. |

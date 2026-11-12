@@ -39,7 +39,9 @@ Sources are referred to by their **index** (0, 1, …) in `plan.json`.
   "note": "free text",
   "shots": [ … ],
   "texts": [ … ],
-  "extra_candidates": [ … ]
+  "extra_candidates": [ … ],
+  "cutaways": [ … ],
+  "sentences": [ … ]
 }
 ```
 
@@ -49,6 +51,8 @@ Sources are referred to by their **index** (0, 1, …) in `plan.json`.
   `shots`.
 - `extra_candidates` (written by `sve plan`) are good moments that were not used — handy to swap a
   shot. They are not rendered.
+- `cutaways` (pictures over the main track while its sound goes on) and `sentences` (the script
+  sentences found in the recording) are described in [Scripts and cutaways](#scripts-and-cutaways-the-explainer-recipe).
 - `sve plan --force` keeps the previous plan as `plan_previous.json`. Each render copies the plan
   it actually used (search windows resolved, beat-aligned times) to `vN/plan_used.json`.
 
@@ -262,6 +266,7 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `framing.focus_x` / `focus_y` | 0.5 / 0.5 | Crop center. |
 | `framing.zoom_margin` | 1.25 | Extra working resolution so zooms keep quality (also the maximum zoom). |
 | `framing.slow_push` | 0.04 | Automatic slow zoom on every shot, alternating in/out (0 = off). |
+| `framing.face` | `false` | Find the presenter's face and frame the explainer plan's shots on it (see Scripts and cutaways). |
 
 ### `transitions`, `effects`
 
@@ -378,7 +383,7 @@ Language section) with:
 | `plan_used.json` | The plan as rendered (resolved search windows, beat-aligned times, `_beats`). |
 | `config_used.json` | The fully merged configuration. |
 | `stems/original.wav`, `stems/music.wav`, `stems/sfx.wav` | Pre-master audio stems (written in the same FFmpeg pass as the video). Only for renders up to 600 s that contain original sound (a shot playing a source clip) unless `export.stems: true` (`false`: never). |
-| `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts). `sve check` reads `stems`, `text_boxes` and `typing`. |
+| `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts), and for plans with cutaways `cutaways` [{`n`, `type`, `what`, `start`, `end`, `overlay`, `sentences`, `pip` (it had the presenter's window), `auto` (who proposed it), and for a clip `file`, `third_party`, `recorded`, `source`, `kind`}], `cutaway_warnings` and `credits` (`credits.txt`, when third-party footage is shown). `sve check` reads `stems`, `text_boxes` and `typing`. |
 
 Written by other commands:
 
@@ -386,6 +391,7 @@ Written by other commands:
 |---|---|---|
 | `cache/products.json` | `sve products` (and `sve plan` with `vision.product_plan`) | `{"segments": [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}], "model", "language"}` |
 | `cache/<id>_clip.npy`, `<id>_clip.json` | anything that uses the vision model | Frame embeddings of a source and their timestamps. |
+| `footage/…`, `footage/credits.json` | `sve broll` | The fetched clips and the record of where each comes from (see [Third-party footage](#third-party-footage-sve-broll)). |
 | `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}` |
 
 
@@ -417,6 +423,306 @@ no per-shot denoise or compressor), since per-shot processing would change at ev
 | `pauses.silence_db` | `auto` | Quieter than this (dBFS) is a pause. `auto` = 12 dB under the source's median level, at most -25 (`talk`: -35). |
 | `pauses.min_span` | 0.5 | No piece of speech shorter than this (the pause before it is kept instead). |
 | `pauses.transition` | `soft_cut` | How the two sides of a shortened pause are joined (`cut` = plain jump cut). |
+
+## Scripts and cutaways (the `explainer` recipe)
+
+For a presenter talking to the camera with graphics, photos and clips shown **over the voice**. You
+write the script, record yourself saying it (repeat any sentence that goes wrong, whole), and
+`sve plan` + `sve render` make the video: the best take of every sentence in script order, long pauses
+shortened, and each cue of the script on screen while you keep talking.
+
+```
+sve new talk --recipe explainer --sources presenter.mov
+# write projects/talk/script.md
+sve plan talk && sve report talk          # SCRIPT / CUTAWAYS: what was found, what is missing
+sve render talk --draft
+```
+
+### `script.md`
+
+```
+# lines starting with # are comments
+How does a message travel? It goes further than expected.
+[bars title="Where messages travel" data="Under the sea:95, By satellite:5" unit="%"]
+Every time you send one, the phone cuts it into packets.
+[camera]
+And they travel apart.
+```
+
+- Text lines are what is said. They are split into **sentences** at `. ? ! …` (a decimal such as `2.5`
+  does not split). Sentences are numbered from 0 in the order they are written.
+- A line wrapped in `[ ]` is a **cue**: what is on screen for the sentences after it, until the next
+  cue. Without a cue the presenter is on camera; `[camera]` goes back to the presenter.
+- A cue is written like a graphic cue ([GRAPHICS.md](GRAPHICS.md)): the name, then `key="value"`
+  pairs. Names: any graphic template (`bars`, `number`, `list`, `diagram`, `title`, `headline`,
+  `product_card`, `lower_third`, or a pack's own), `photo file="photos/board.jpg"` (a still photo,
+  path relative to the project; optional `motion`, `motion_amount`, `focus_x`, `focus_y`) and
+  `broll query="…"` (a clip that `sve broll` fetches from the allowed sources, or `broll file="clip.mp4"`
+  for a clip of your own; see [Third-party footage](#third-party-footage-sve-broll)). The overlays
+  `callouts`, `bullets` and `lower_third` are drawn over the presenter instead of replacing the picture.
+- Any cue takes `seconds=N`: at most that long on screen (a `lower_third` usually wants `seconds=4`).
+- A cue needs at least one sentence after it. A graphic cue that cannot be drawn (missing key, unknown
+  template) is an error at `sve plan`, with its script line.
+- Spanish names work too (`[barras datos="…"]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
+  `segundos=`; the file may be called `guion.md`): see [LEGACY_KEYS.md](LEGACY_KEYS.md).
+
+### How the script is matched to the recording
+
+Every sentence is searched in the word-level transcription of all the sources. Words are compared
+without case, accents or punctuation, and two words that look alike count as the same (the
+transcription mishears letters). A place where at least `script.min_match` of the sentence's words
+are heard, in order, is a **take** (sentences of up to three words must be heard whole). When a
+sentence was said several times, the **last** take whose score is within 0.1 of the best one is used
+(`script.take: best` = the highest score). Two sentences never use the same words of the recording,
+and a sentence that was not said is reported as missing: nothing is invented. Sentences may be
+recorded in any order, in one clip or several.
+
+Each sentence keeps `script.pad_start` / `pad_end` seconds of air around it. Consecutive sentences
+that were also said one after the other (less than `script.join_gap` apart) stay in one shot.
+Afterwards the long pauses inside the shots are shortened like in any recipe (previous section).
+At every **visible** jump cut inside the same clip the zoom alternates between 1 and
+`script.punch_in`, so the jump reads as a change of shot; a cut hidden under a cutaway does not.
+With `framing.face` the presenter's face is found (one frame per second) and the shots get
+`focus_x` / `focus_y` on it: a punch-in grows around the face, and a picture cropped to another shape
+keeps the face centered with the eyes on the upper third.
+
+Subtitles show the **script's own words**, timed by the voice (`script.subtitles: script`), so a word
+the transcription misheard is still written right; `speech` shows what was heard.
+
+### The plan
+
+```json
+{
+  "note": "Explainer: 4 of 4 script sentences found, 3 shots, 1 cutaways",
+  "script": "script.md",
+  "shots": [{"source": 0, "start": 12.3, "end": 18.9, "transition": "cut", "sentences": [0, 1], "note": "How does a message…"}],
+  "sentences": [{"n": 0, "text": "How does a message travel?", "source": 0, "start": 12.3, "end": 14.6,
+                 "score": 1.0, "takes": 2, "alternatives": [[0, 3.1, 5.4, 0.8]], "words": [["Does", 12.38, 12.6], …]},
+                {"n": 3, "text": "…", "missing": true}],
+  "cutaways": [{"type": "graphic", "template": "bars", "data": "Under the sea:95, By satellite:5",
+                "at_sentence": 2, "until_sentence": 2}],
+  "texts": []
+}
+```
+
+- `sentences`: where each sentence was found (source seconds), its match `score` (0–1), how many
+  `takes` there were and the other ones (`alternatives`: `[source, start, end, score]`). To use
+  another take, copy its times to the shot (and to the sentence, so its cutaway follows).
+- `cutaways`: pictures shown over the main track **while its sound keeps playing**. Any plan can have
+  them, not only explainer plans.
+
+| Cutaway key | Meaning |
+|---|---|
+| `type` | `graphic` (default), `photo` or `broll`. |
+| `template` + its keys | A graphic, exactly like a graphic shot (`dur` is set from its time on screen). `lower_third` (and any template drawn as an overlay) is laid **over** the picture with transparency; the others cover it. |
+| `file` | `photo`: the picture, relative to the project folder. Optional `motion` (default `zoom_in`), `motion_amount`, `focus_x`, `focus_y`, `framing`, `auto_tone`. |
+| `from_word` | `[source, seconds]`: the cutaway starts when that word is said (inside its first sentence), not with the sentence. Written by the director. |
+| `query`, `file`, `clip_start` | `broll`: what to look for (`sve broll` fetches it and writes `file` and `clip_start`), or your own clip in `file` (relative to the project folder), played from second `clip_start`. Optional `brand`, `source`, `framing` (`crop` / `blur` / `auto`), `fit` (0–1: shown whole over a blurred copy, that share of the clip across the frame), `speed`, `focus_x`, `focus_y`, `zoom`. Only the picture is used. |
+| `at_sentence`, `until_sentence` | Shown from the start of that sentence to the end of the last one (numbers of `sentences`). Sentences are anchors that survive pause shortening and shot renumbering. |
+| `seconds` | At most this long on screen. |
+| `pip` | `true` / `false`: the presenter's window over this cutaway, whatever `pip.enabled` says. |
+| `item_times` | Written by `sve plan` for overlays whose items follow the voice: `[[source, seconds], …]`, the moment each item is said. They become the graphic's `times` when the cutaways are placed (so they survive pause shortening). |
+| `_auto` | `"support"` on the notes the engine proposed (see below); `"director"` on the footage the director proposed; `"credit"` on the credit captions `sve broll` adds; `"card"` on a cue turned into an illustrated card. |
+| `start`, `end` | Instead of sentences: seconds of the final video (`end` optional: `seconds`, or 3 s). |
+
+Placement rules: a cutaway stays at least its entrance plus 0.8 s (time to read it), growing up to
+the next cutaway when its sentence is shorter; two full-frame cutaways never overlap (the first one
+ends where the next starts) and the presenter is not flashed for less than 0.8 s between them; an
+overlay may share the time with a full-frame one, but never grows onto one to reach its minimum
+length; a `broll` cutaway with `seconds` never stays longer than that. What does not fit (less than 0.6 s, a sentence that
+is not in the video) is left out with a warning in `sve plan`, `sve report`, the render log and
+`summary.json` (`cutaway_warnings`). Cutaways are rendered once and cached (`cache/segments/cut_*`);
+graphics bring their sound effects; the text layer (subtitles) is drawn over them.
+
+### A presenter who is never alone on a still frame
+
+Four things keep the picture moving without more cameras or more work in the script. Each one is a
+setting, so any of them can be turned off.
+
+**Notes proposed by the engine** (`script.support`, on). For every sentence said on camera with no
+cue of its own, `sve plan` looks at the script's words and proposes `callouts` overlays: a figure
+(`20`, `2 minutes`) becomes a bold label on the accent color, a word that names an illustration (phone,
+memory, battery… the table in [GRAPHICS.md](GRAPHICS.md)) becomes that illustration with the word under
+it, a noun (the word after an article or a possessive) becomes a label underlined by hand where there
+is room, and a sentence with none of those gets its longest word that reads well alone. Each note pops
+up **when its word is said**, at least 0.8 s apart, at most three per sentence and six per overlay (then
+a new overlay starts), never in the first second of the video nor right before a full-frame cutaway.
+The proposals are ordinary entries of `cutaways` marked `"_auto": "support"`: edit their `items`,
+delete the ones you do not want, or write your own cue for that sentence (a sentence under a cue gets
+no proposal). `sve report` marks them with `~`.
+
+**Notes and bullets you write.** `[callouts items="Phone; Router; Internet" link=yes]` and
+`[bullets items="No extra battery; Back in an instant"]` are cues like any other. When a `bullets` or
+`callouts` cue has as many items as sentences under it (and no `times`), each item appears when its
+sentence starts:
+
+```
+[bullets items="It leaves your phone; It crosses the ocean; It is back in a blink"]
+It leaves your phone. It crosses the ocean under the sea. And it is back before you blink.
+```
+
+**The director** (`script.auto_broll`, on in the `explainer` recipe). The presenter does not stay alone on
+camera for long: `sve plan` keeps a clock of camera seconds since something else was on screen and, when a
+sentence would take it past `script.opening` (2.5 s, the face first at the start) or `script.max_camera`
+(4 s), proposes a `broll` cutaway that starts **at a word of that sentence** (`from_word`; the first word
+after the limit that names something, or the closest one when that would leave less than
+`script.auto_min` = 1.8 s) and lasts to its end. Its `query` comes from what is said (a word with an
+illustration — phone, battery, memory… — gives a stock-friendly English search, in turns; else the
+script's topic) and it carries a `fallback` card. The last sentence (the closing) stays on camera; the
+face shows at least 1.5 s before footage covers it. `sve broll` fetches them like any other.
+
+**Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
+presenter is seen in between). When it is on, while a full-frame graphic or
+photo is on screen for at least `pip.min_seconds`, the presenter stays in a window in a corner
+(`pip.corner`, `pip.size`) with a paper frame, cropped to head and shoulders around the face
+(`framing.face`), and the graphic is laid out in the part of the frame the window leaves free (above
+or below it in vertical video, beside it in landscape). One cutaway can say otherwise: `pip=no` on its
+cue (`"pip": false` in the plan) gives it the whole frame, `pip=yes` puts the window on it even when
+the setting is off. The frame is the `pip_frame` graphic, so a pack can redraw it. A cut of the main
+track under a window is still seen, so the punch-in alternates there as well.
+
+**One camera, several framings.** A run of sentences said without stopping is still split, between
+two sentences, once a shot has lasted `script.reframe_every` seconds: the new shot starts exactly
+where the previous one ends (`"continues": true`; no frame or sample is lost, and `sve check` does not
+take it for a cut of the sound), and the framing changes at that cut like at any jump cut: wide →
+`script.punch_in` → wide → `script.close_up`, three sizes of shot from one camera. On top
+of that every camera shot zooms slowly while it plays (`script.drift`: in when it is wide, out when it
+is punched in, continuous across the joins of its shortened pauses). These slow zooms are effects the
+planner writes on the shots (`"auto": true`) and rewrites every time `sve plan` runs.
+
+### Settings
+
+| Key | Default | Meaning |
+|---|---|---|
+| `explainer` | `false` | `sve plan` builds the plan from the script (the `explainer` recipe sets it). |
+| `script.file` | `script.md` | The script, relative to the project folder. |
+| `script.min_match` | 0.6 | Share of a sentence's words that must be heard for a take to count. |
+| `script.take` | `last` | `last` (the last good take) or `best` (the highest score). |
+| `script.pad_start` / `pad_end` | 0.08 / 0.12 | Seconds kept before the first word / after the last one. |
+| `script.join_gap` | 0.6 | Consecutive sentences this close in the recording stay in one shot. |
+| `script.punch_in` | 1.08 | Zoom alternated at every visible jump cut (0 = off). |
+| `script.subtitles` | `script` | Subtitles from the script's words (`script`) or from the transcription (`speech`). |
+| `script.support` | `true` | Propose `callouts` notes around the presenter where nothing else is on screen. |
+| `script.close_up` | 1.15 | A third framing: visible cuts go wide → punch-in → wide → close-up (0 = wide / punch-in only). |
+| `script.reframe_every` | 4.0 | Seconds after which a shot is split between two sentences and reframed (0 = off). |
+| `script.drift` | 0.04 | Slow zoom of every camera shot while it plays (0 = off). |
+| `script.auto_broll` | `false` (`true` in `explainer`) | The director: footage where the presenter would stay alone on camera too long. |
+| `script.opening` / `max_camera` | 2.5 / 4.0 | Seconds of camera at the start / afterwards before the director cuts to footage. |
+| `script.auto_min` | 1.8 | Shortest footage the director proposes. |
+| `pip.enabled` | `false` | The presenter stays in a window over full-frame cutaways (a cutaway's own `pip` wins). |
+| `pip.corner` | `bottom_right` | `bottom_right`, `bottom_left`, `top_right` or `top_left` (inside the graphics' safe zone). |
+| `pip.size` | 0.32 | Window width as a share of the frame's short side (its height is 1.22 × that). |
+| `pip.min_seconds` | 2.5 | A cutaway shorter than this takes the whole frame. |
+| `framing.face` | `false` | `true` / `auto` / `false`: frame the shots on the presenter's face. OpenCV 4 uses its built-in detector; OpenCV 5 needs a ≈230 KB model in the user cache, downloaded once with `true` (the recipe's value) and only used if already there with `auto`. |
+
+The recipe also turns off what would jump at every cut (slow push, per-shot noise reduction, zoom
+punches), uses no music unless you set `music.file` (kept low under the voice, cuts not moved to
+the beat) and puts the subtitles in the band under the graphics (`subtitles.y: 0.835`,
+`check.safe_bottom: 0.88`).
+
+## Third-party footage (`sve broll`)
+
+A `[broll query="a phone on a table"]` cue (or a `{"type": "broll", "query": …}` cutaway in any plan)
+asks for a clip the engine fetches itself:
+
+```
+sve plan   <project>
+sve broll  <project> --dry-run     # lists what it would fetch; downloads nothing, changes nothing
+sve broll  <project>               # footage/<clip>, footage/credits.json, plan.json updated
+sve render <project> --draft && sve check <project>
+```
+
+**Where clips come from** (`broll.sources`, tried in this order; the first that gives a usable clip wins):
+
+| Source | Kind | Needs | What is used |
+|---|---|---|---|
+| `official` | `official` | yt-dlp (the `[music]` extra) and a list of brands | Only videos published by the **official channel of a brand you list**, and only when the query names that brand (or the cue says `brand="…"`). The search runs inside that channel, every result must carry its channel id and the download itself is filtered by it. Never other creators, news, films or music. |
+| `pexels` | `stock` | `PEXELS_API_KEY` (free) | Pexels videos. |
+| `pixabay` | `stock` | `PIXABAY_API_KEY` (free) | Pixabay videos. |
+| `wikimedia` | `stock` | nothing | Wikimedia Commons videos under CC0, public domain, CC BY or CC BY-SA (`broll.licenses`); anything else (non-commercial, no-derivatives…) is refused. |
+
+API keys are read from **environment variables only** — never write them in a file. `sve doctor` shows
+which sources are ready. A cue can ask for one source: `[broll query="…" source=wikimedia]`.
+
+**Brands.** `broll.brands` (settings) or `packs/<pack>/brands.yaml` list the brands whose own channel may
+be used:
+
+```yaml
+brands:
+  - {name: Acme, channel_id: UCxxxxxxxxxxxxxxxxxxxxxx, aliases: [Rocket Phone]}
+```
+
+`channel_id` is the channel's permanent id (24 characters starting with `UC`), not its handle: a handle
+can be taken by anyone, an id cannot be imitated. Check each one yourself before listing it.
+
+**How a clip is chosen.** Candidates are filtered (license, at least `broll.min_height` pixels, not
+heavier than `broll.max_megabytes`, not longer than `broll.preview_minutes`) and ranked: the frame's
+orientation first, enough pixels to cover the frame, long enough for its time on screen. Each one that
+is downloaded is looked at:
+
+- **Printed text** (titles, captions, labels on a slide) is searched four times per second with OpenCV
+  (no model: letter-sized shapes joined into two-tone lines; rows of app icons, fabric or a phone's own
+  screen are not text). The piece and the crop with no text are preferred; a clip whose best piece still
+  shows text in more than a quarter of its frames is skipped (`broll.text: true` allows text).
+- **What it shows**: with the vision model (`vision.enabled`, the `[vision]` extra) the clip and the
+  piece that show the query best win among `broll.candidates`; without it the first clip is used, the
+  piece with no text nearest its middle.
+- **How it fills the frame**: a clip of another shape (a wide clip in a vertical video keeps only a third
+  of its width) is framed by **where its subject is** (strong edges and what differs from the colour of
+  its border): a subject that fits in the crop is cropped around (`focus_x` / `focus_y`); a wider one is
+  shown **whole and large** over a blurred copy of the clip (`fit`: the share of the clip shown across the
+  frame), never cut in half; a scene with detail everywhere (a landscape, a room) is cropped where the
+  query shows best and there is no text, of five places from one side to the other. A clip that keeps
+  most of itself is centered.
+- **Does it show the query?** With the vision model, a clip whose best piece scores under
+  `broll.min_match` (0.25; an unrelated clip scores ≈0.22, a right one ≈0.28) is not used.
+- **Nothing passed?** With `broll.fallback_card` (on) the cutaway becomes an illustrated `title` card
+  with what is said at that moment and the illustration of what it names, so the presenter does not stay
+  alone on screen because no footage was found.
+
+Only the piece that is used (plus half a second on each side) is stored: a stock clip is cut out of the
+download (picture only, re-encoded), an official one is downloaded again as that piece alone, in full
+quality, after a 360p preview was looked at. The stored piece is checked for text once more in full
+quality. Search answers are cached for a day in the project cache.
+
+**What it writes.**
+
+- `footage/<source>_<id>_<words>.mp4` — the clip.
+- `footage/credits.json` — one record per file: `file`, `sha256`, `source`, `kind`, `url` (its page),
+  `author`, `license`, `downloaded_at`, `query`, `used` (whether the plan uses it), and for official clips
+  `brand`, `channel_id`; `piece`: the seconds of the original video that were kept.
+- In `plan.json`: the cutaway's `file`, `clip_start` and `focus_x` / `focus_y` (where it is cropped); `seconds` when its time on screen is over the
+  limit of its kind (`broll.max_seconds`); and, with `broll.credit`, a `lower_third` caption (`Video` +
+  author and library, or the brand) the first time each author or brand is on screen (`"_auto": "credit"`).
+  The previous plan is kept as `plan_previous.json`.
+- At render time, `vN/credits.txt`: one line per clip shown, for the video's description.
+
+A cutaway that already has its file is left alone (`--force` fetches again). A file outside `footage/`
+is your own clip: it needs no record.
+
+**Limits and checks.** No number of seconds makes other people's footage safe to use; short pieces,
+allowed sources and a record of every file lower the risk and leave a trail. `sve check` warns about:
+`third_party_too_long` (a clip on screen longer than `broll.max_seconds` of its kind),
+`third_party_share` (official footage over `broll.max_share` of the video) and `footage_without_record`
+(a file in `footage/` that is not in `credits.json`, or that changed since it was recorded).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `broll.sources` | `[official, pexels, pixabay, wikimedia]` | Sources tried, in order. |
+| `broll.candidates` | 2 | Clips downloaded per cue for the vision model to choose from. |
+| `broll.search_limit` | 12 | Results asked of each source. |
+| `broll.max_seconds` | `{official: 5, stock: 8}` | Longest a clip of each kind stays on screen. |
+| `broll.max_share` | `{official: 0.15}` | Share of the video a kind of footage may take (checked by `sve check`). |
+| `broll.credit` / `credit_seconds` | `true` / 3 | The credit caption and how long it stays. |
+| `broll.min_height` | 720 | Short side in pixels below which a clip is not used. |
+| `broll.max_megabytes` | 250 | Heavier files are not downloaded. |
+| `broll.licenses` | `[cc0, pd, cc-by, cc-by-sa]` | Open licenses accepted from a commons. |
+| `broll.framing` | `crop` | How a clip of another shape fills the frame: `crop`, `blur` (blurred borders) or `auto`. |
+| `broll.text` | `false` | `true`: clips that show printed text may be used (otherwise they are avoided). |
+| `broll.min_match` | 0.25 | Vision score under which a clip does not show the query (not used). |
+| `broll.fallback_card` | `true` | No clip passes: an illustrated title card with what is said instead. |
+| `broll.preview_minutes` | 12 | Videos longer than this are not looked through (any source). |
+| `broll.brands` | `[]` | Brands whose official channel may be used (a pack's `brands.yaml` adds to it). |
 
 ## Photos and slideshows
 

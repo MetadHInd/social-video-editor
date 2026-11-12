@@ -4,6 +4,8 @@
                                modules: [elements.py]  Python files that register templates / elements
     packs/<name>/elements.py   optional (loaded by default when it exists)
     packs/<name>/fonts/…       font files the theme points to (paths relative to the pack folder)
+    packs/<name>/brands.yaml   optional: brands whose official channel may be used for b-roll
+                               brands: [{name: …, channel_id: UC…, aliases: […]}]
 
 A pack module is ordinary Python run once per process:
 
@@ -52,6 +54,18 @@ class FilePackRepository:
         for module in modules:
             _run_module(folder / module, name)
         return {"name": name, "dir": folder, "theme": theme}
+
+
+    def brands(self, name: str) -> list[dict]:
+        """The brands listed in the pack's brands.yaml (`brands: [...]`, or the list alone); [] without it."""
+        path = self.folder(name) / "brands.yaml"
+        if not path.is_file():
+            return []
+        data = read_yaml(path) or []
+        listed = data.get("brands") if isinstance(data, dict) else data
+        if not isinstance(listed, list):
+            raise UserError(f"Pack '{name}': brands.yaml must hold a list of brands (brands: [{{name, channel_id}}])")
+        return listed
 
 
 def _resolve_font(spec, folder: Path):

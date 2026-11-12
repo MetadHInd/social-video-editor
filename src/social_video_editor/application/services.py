@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..ports import (AudioAnalyzer, CacheStore, GraphicRenderer, ImageComposer, ImageUpscaler, MediaProbe,
+from ..ports import (AudioAnalyzer, CacheStore, FootageSource, GraphicRenderer, ImageComposer, ImageUpscaler, MediaProbe,
                      MusicDownloader, PackRepository, PhotoRenderer, ProjectRepository, RecipeRepository,
                      RenderInspector, SoundEffects, TextRenderer, Transcriber, VideoAnalyzer, VideoEncoder,
                      VisualDetector)
@@ -29,3 +29,4 @@ class Services:
     upscaler: ImageUpscaler | None = None
     graphics: GraphicRenderer | None = None
     packs: PackRepository | None = None
+    footage: dict[str, FootageSource] | None = None      # by name, for `sve broll`

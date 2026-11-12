@@ -43,14 +43,28 @@ class VideoEncoder(Protocol):
         crf: x264 quality (None = the drawn shots' default; photos pass render.photo_crf).
         draft: encode like a draft video shot (faster, lower quality; `crf` ignored)."""
 
+    def encode_overlay(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path) -> Path:
+        """Encodes n raw RGBA frames (straight alpha) as a silent clip that keeps its transparency
+        (a graphic laid over the picture). `out` is a .mov file."""
+
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of a segment (at=None → the last frame)."""
 
+    def cut_clip(self, src: Path, start: float, end: float, out: Path) -> Path:
+        """The piece [start, end] (seconds) of a video as its own .mp4 file, picture only → its path."""
+
     def compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
                 music: Path | None, sfx: Path | None, cfg: dict, W: int, H: int, total: float,
-                has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None) -> Path:
+                has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None,
+                cutaways: list[dict] | None = None) -> Path:
         """Joins the segments with their transitions, overlays texts, mixes music/sfx (premaster).
-        With stems_dir, also writes original.wav / music.wav / sfx.wav there in the same pass."""
+        With stems_dir, also writes original.wav / music.wav / sfx.wav there in the same pass.
+        cutaways: [{"file", "start", "end", "alpha"}] clips the size of the video shown over the joined
+        picture between `start` and `end` (seconds of the final video), under the text layer; only
+        their picture is used (the sound is untouched). alpha: the clip has transparency.
+        An item {"pip": True, "start", "end", "crop": (x, y, w, h), "rect": (x, y, w, h)} instead shows
+        that part of the joined picture (as it is before any cutaway) scaled into `rect`: the
+        presenter's window over the cutaways listed before it. Items are laid in the order given."""
 
     def master_audio(self, src: Path, out: Path, cfg: dict) -> dict:
         """Brings the audio to the target LUFS / true peak; returns {"before_lufs", "after_lufs",
@@ -79,6 +93,16 @@ class VideoAnalyzer(Protocol):
 
     def read_frames(self, video: str, times: Iterable[float]) -> list:
         """BGR frames (numpy arrays) at the given times (missing ones are skipped)."""
+
+    def text_boxes(self, video: str, per_second: float) -> tuple[list[float], list[list[tuple]]]:
+        """Lines of printed text (titles, captions, labels) in frames sampled `per_second` times per
+        second → (times, [[(x, y, w, h) as shares of the frame], …] one list per frame)."""
+
+    def face(self, video: str, download: bool = False) -> dict | None:
+        """Where the presenter's face is, from one frame per second: {"x", "y" (center), "size" (height),
+        "eyes" (height of the eyes), all 0–1 of the picture, medians; "ratio": share of the frames with
+        a face; "detector"}. None when no face detector is available (download=True may fetch a small
+        model once)."""
 
 
 class AudioAnalyzer(Protocol):
@@ -153,6 +177,13 @@ class ProjectRepository(Protocol):
     def read_json(self, path: Path) -> dict | list | None: ...
     def load_summary(self, folder: Path) -> dict | None: ...
     def write_text(self, path: Path, text: str) -> None: ...
+
+    def read_script(self, project: Project) -> tuple[str, str]:
+        """(file name, text) of the project's narration script (settings script.file, default
+        script.md); UserError when it is missing."""
+
+    def translate_cue(self, spec: dict) -> dict:
+        """A script cue written with legacy Spanish names → English names."""
     def exists(self, path: Path) -> bool: ...
     def remove(self, path: Path) -> None:
         """Deletes a file or a folder (missing ones are ignored)."""
@@ -162,6 +193,9 @@ class ProjectRepository(Protocol):
 
     def list_files(self, folder: Path) -> list[Path]:
         """Files (not folders) directly inside `folder`; [] if it does not exist."""
+
+    def file_hash(self, path: Path) -> str | None:
+        """SHA-256 of a file's content (hex), None if it does not exist."""
 
     def find_music(self, music_cfg: dict, project_dir: Path) -> Path | None: ...
 
@@ -226,6 +260,9 @@ class VisualDetector(Protocol):
 
     def text_embeddings(self, texts: list[str], settings: dict):
         """Embeddings [len(texts), d] of texts in any supported language."""
+
+    def image_embeddings(self, images: list, settings: dict):
+        """Embeddings [len(images), d] of RGB pictures (H×W×3 arrays), e.g. parts of a frame."""
 
 
 class PhotoRenderer(Protocol):
@@ -292,3 +329,31 @@ class PackRepository(Protocol):
 
     def load(self, name: str) -> dict:
         """{"name", "dir", "theme"}; registers the pack's templates and elements."""
+
+    def brands(self, name: str) -> list[dict]:
+        """The pack's brands.yaml: the brands whose official channel may be used for b-roll
+        ([{"name", "channel_id", "aliases"}]); [] without that file."""
+
+
+class FootageSource(Protocol):
+    """One place third-party clips (b-roll) come from: a stock library, a commons, the official
+    channels of listed brands. Candidates are the dicts described in domain/footage.py; a source that
+    cannot answer raises domain.footage.FootageError."""
+
+    name: str            # "pexels", "wikimedia", "official"…
+    kind: str            # "stock" | "official"
+
+    def ready(self) -> str | None:
+        """None when it can be used; otherwise why not (a missing API key, a missing program)."""
+
+    def search(self, query: str, limit: int, orientation: str, language: str = "en",
+               brand: dict | None = None) -> list[dict]:
+        """Up to `limit` candidates for a query, most relevant first. orientation: portrait |
+        landscape | square (the output frame). brand: the listed brand the query names (an official
+        source searches only that brand's channel and returns nothing without one)."""
+
+    def download(self, candidate: dict, dest: Path, piece: tuple[float, float] | None = None,
+                 preview: bool = False) -> Path:
+        """Downloads a candidate next to `dest` (the extension is the file's own) → its path.
+        piece: only those seconds (start, end) of a long video. preview: a small copy to look
+        through (sources of short clips ignore both and download the clip)."""

@@ -173,6 +173,21 @@ class FfmpegEncoder:
         preset, quality = ("ultrafast", 22) if draft else ("fast", 12 if crf is None else int(crf))
         cmd += ["-frames:v", str(n), "-t", f"{dur:.4f}", "-c:v", "libx264", "-preset", preset, "-crf", str(quality),
                 "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(tmp)]
+        return self._pipe(cmd, frames, tmp, out)
+
+    def encode_overlay(self, frames: Iterable[bytes], n: int, W: int, H: int, fps: int, out: Path) -> Path:
+        """Encodes n raw RGBA frames (straight alpha) as a silent QuickTime Animation clip (.mov): lossless
+        and with its transparency, for graphics laid over the picture (compose `cutaways`, alpha)."""
+        tmp = _tmp_for(out)
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
+               "-s", f"{W}x{H}", "-r", str(fps), "-i", "-", "-frames:v", str(n), "-an",
+               "-c:v", "qtrle", "-pix_fmt", "argb", str(tmp)]
+        return self._pipe(cmd, frames, tmp, out)
+
+    @staticmethod
+    def _pipe(cmd: list, frames: Iterable[bytes], tmp: Path, out: Path) -> Path:
+        """Runs an FFmpeg that reads raw frames from its standard input, writes them and publishes `tmp`
+        as `out`."""
         p = popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         # stderr drained in a thread while frames are written: a full stderr pipe (4 KiB on Windows)
         # would block FFmpeg while this loop blocks on a full stdin pipe
@@ -222,6 +237,19 @@ class FfmpegEncoder:
                 tmp.unlink(missing_ok=True)
         return _publish(tmp, out)
 
+    def cut_clip(self, src: Path, start: float, end: float, out: Path) -> Path:
+        """The piece [start, end] of a video as its own file: picture only, re-encoded (x264, high
+        quality) so it starts exactly there. `out` gets the .mp4 extension."""
+        out = Path(out).with_suffix(".mp4")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _tmp_for(out)
+        try:
+            run(["ffmpeg", "-ss", f"{max(start, 0):.3f}", "-i", src, "-t", f"{max(end - start, 0.1):.3f}", "-map", "0:v:0",
+                 "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p", "-movflags", "+faststart", tmp])
+            return _publish(tmp, out)
+        finally:
+            tmp.unlink(missing_ok=True)
+
     def extract_frame(self, video: Path, out_png: Path, at: float | None = None) -> Path:
         """One frame of an already rendered segment (at=None → the last frame)."""
         if at is None:
@@ -233,10 +261,15 @@ class FfmpegEncoder:
     # ── final video ──────────────────────────────────────────────────────────
     def compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
                 music: Path | None, sfx: Path | None, cfg: dict, W: int, H: int, total: float,
-                has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None) -> Path:
+                has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None,
+                cutaways: list[dict] | None = None) -> Path:
         """Joins the segments, overlays the text layer and progress bar, mixes music + sfx → premaster.
 
         stems_dir: also writes stems_dir/{original,music,sfx}.wav (pre-master levels) in the same pass.
+        cutaways: [{"file", "start", "end", "alpha"}] clips shown over the joined picture between
+        `start` and `end` (under the text layer), and [{"pip": True, "start", "end", "crop", "rect"}]
+        windows showing a part of the joined picture itself (filters.cutaways); the audio is not
+        touched. Long videos get them in the final pass, over the joined chunks.
         Long videos (should_chunk) are first joined in chunks of render.chunk_size segments. A chunk
         ends where the transition into the next chunk's first shot begins and that chunk starts with
         the same transition (from the tail of the previous segment), so the chunks join with plain
@@ -252,12 +285,13 @@ class FfmpegEncoder:
                 return self._compose([{"dur": float(total), "overlap": 0.0, "transition": "cut", "renumber": True,
                                        "exact_audio": True}],
                                      [listing],
-                                     layer, music, sfx, cfg, W, H, total, has_voice, draft, workdir, out, stems_dir)
+                                     layer, music, sfx, cfg, W, H, total, has_voice, draft, workdir, out, stems_dir,
+                                     cutaways)
             finally:
                 for f in [*files, listing]:
                     Path(f).unlink(missing_ok=True)
         return self._compose(segments, segment_files, layer, music, sfx, cfg, W, H, total,
-                             has_voice, draft, workdir, out, stems_dir)
+                             has_voice, draft, workdir, out, stems_dir, cutaways)
 
     def _chunks(self, segments: list[dict], files: list[Path], cfg: dict, draft: bool,
                 workdir: Path) -> tuple[Path, list[Path]]:
@@ -331,7 +365,8 @@ class FfmpegEncoder:
 
     def _compose(self, segments: list[dict], segment_files: list[Path], layer: Path | None,
                  music: Path | None, sfx: Path | None, cfg: dict, W: int, H: int, total: float,
-                 has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None) -> Path:
+                 has_voice: bool, draft: bool, workdir: Path, out: Path, stems_dir: Path | None = None,
+                 cutaways: list[dict] | None = None) -> Path:
         fps = int(cfg["output"]["fps"])
         inputs = []
         for s in segment_files:
@@ -350,9 +385,16 @@ class FfmpegEncoder:
         if sfx:
             inputs += ["-i", sfx]
             idx_sfx, idx = idx, idx + 1
+        idx_cut = idx
+        for c in cutaways or []:
+            if c.get("file"):                       # a presenter window ("pip") reads the joined video itself
+                inputs += ["-i", c["file"]]
 
         joined, v, a = filters.join(segments, fps)
         parts = [joined]
+        if cutaways:
+            over, v = filters.cutaways(v, cutaways, idx_cut, fps)
+            parts.append(over)
         if idx_layer is not None:
             parts.append(f"[{idx_layer}:v]fps={fps},format=rgba,setpts=PTS-STARTPTS[txt];"
                          f"{v}[txt]overlay=0:0:format=auto:eof_action=pass:shortest=0[vt]")
