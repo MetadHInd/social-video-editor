@@ -78,6 +78,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `musica` | `music` |
 | `verificar` | `check` |
 | `productos` | `products` |
+| `hacer` | `make` |
 | `mejorar` | `enhance` |
 | `grafico` | `graphic` |
 | `tomas` | `broll` |
@@ -525,6 +526,10 @@ The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPH
 | `texto` | `text` |
 | `parecido_min` | `min_match` |
 | `tarjeta_reserva` | `fallback_card` |
+| `interes_min` | `min_interest` |
+| `miniaturas` | `thumbnails` |
+| `vivas` | `lively` |
+| `aburridas` | `dull` |
 
 `encuadre` takes the values of `config.framing.mode` (`recortar`, `desenfoque`, `auto`).
 
@@ -733,6 +738,9 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `subtitulo` | `caption` |
 | `tiempos` | `times` |
 | `enlazar` | `link` |
+| `accion` | `action` |
+| `sujeto` | `subject` |
+| `destino` | `target` |
 
 ### Values of `plan.shots.type`
 
@@ -754,6 +762,7 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `apuntes` | `callouts` |
 | `vinetas` | `bullets` |
 | `marco_ventana` | `pip_frame` |
+| `escena` | `scene` |
 | `diagrama` | `diagram` |
 
 ### Values of `plan.shots.role`
@@ -835,6 +844,10 @@ A cutaway or a cue also takes every graphic key of `plan.shots` (`plantilla`, `t
 | `velocidad` | `speed` |
 | `desde_palabra` | `from_word` |
 | `encaje` | `fit` |
+| `dicho` | `said` |
+| `consulta_local` | `query_local` |
+| `idioma_consulta` | `query_lang` |
+| `reserva` | `fallback` |
 
 `origen` takes a source name (`oficial` → `official`; `pexels`, `pixabay`, `wikimedia` as they are) and
 `encuadre` the values of `config.framing.mode`.

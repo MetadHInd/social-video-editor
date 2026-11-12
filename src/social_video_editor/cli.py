@@ -15,10 +15,11 @@
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
   sve graphic [<project>] --proof | --shot N | --cue '…'   (preview animated graphics; --pack NAME, --video)
   sve broll   <project> [--dry-run] [--force]   (fetches a clip for every [broll query="…"] cue → footage/ + credits.json)
+  sve make    <project> [--final] [--force]       (everything: plan if missing, footage, render, review)
   sve doctor                               (checks FFmpeg, fonts, models and optional parts)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
-productos, mejorar, grafico, tomas and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
+productos, mejorar, grafico, tomas, hacer and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
 --hasta, --cada, --simular.
 """
 from __future__ import annotations
@@ -153,6 +154,12 @@ def cmd_broll(svc, a):
     print("\n".join(broll_lines(fetch_broll(svc, _project(svc, a.project), dry_run=a.dry_run, force=a.force))))
 
 
+def cmd_make(svc, a):
+    from .application.make import make, make_lines
+
+    print("\n".join(make_lines(make(svc, _project(svc, a.project), final=a.final, force=a.force))))
+
+
 def cmd_doctor(svc, a):
     from .adapters.system.doctor import diagnose, doctor_lines
 
@@ -230,6 +237,11 @@ def parser() -> argparse.ArgumentParser:
                    help="list what would be fetched; download nothing, change nothing")
     s.add_argument("--force", "--forzar", action="store_true", help="fetch again the cutaways that already have a clip")
     s.set_defaults(f=cmd_broll)
+    s = sub.add_parser("make", aliases=["hacer"], help="the whole video: plan if missing, footage, render, review")
+    s.add_argument("project")
+    s.add_argument("--final", action="store_true", help="render in final quality (default: a draft)")
+    s.add_argument("--force", "--forzar", action="store_true", help="make the plan again")
+    s.set_defaults(f=cmd_make)
     sub.add_parser("doctor", help="check FFmpeg, fonts, models and optional parts").set_defaults(f=cmd_doctor)
     return ap
 

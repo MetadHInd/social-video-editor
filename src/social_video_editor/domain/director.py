@@ -23,9 +23,11 @@ the card instead, so the presenter is never alone too long even without a good c
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 from .graphics.icons import ALONE, find_icon
+from .graphics.scenes import ACTIONS, action_of
 from .script import tokens
 
 DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8}
@@ -49,6 +51,14 @@ QUERIES = {                 # what stock libraries show well for each illustrati
     "printer": ["printer printing", "office printer"],
 }
 TOPIC_DEFAULT = "phone"
+POSSESSIVES = {"tus", "sus", "mis", "your", "yours"}       # "tus apps" names the apps, not a person
+DETERMINERS = set("el la los las un una unos unas tu tus su sus mi mis este esta estos estas the a an your my this these".split())
+ICON_DEVICES = ("phone", "app", "laptop", "chip", "ram", "disk", "router", "server", "cloud", "globe", "tower", "lock", "battery")
+OWNERS = {"swipe": ("app",), "open": ("app",), "sleep": ("app", "phone", "laptop"), "wait": ("app", "phone", "laptop", "user"),
+          "store": ("app", "phone", "laptop"), "work": ("chip", "phone", "laptop", "server", "ram"),
+          "faster": ("phone", "laptop", "app"), "slower": ("phone", "laptop", "app")}
+CONNECTORS = set("pero si cuando porque entonces aunque como mientras but if when because then so although".split())
+LOCAL_STOP = set("cada vez algo nada todo todos todas otra otro misma mismo cosa cosas forma manera thing things way".split())
 PHRASE_WORDS = 6
 FEWEST = 3
 CLAUSE_END = (",", ";", ":")
@@ -63,7 +73,7 @@ def settings(cfg: dict) -> dict:
 
 def _icon_of(word: str) -> str | None:
     t = "".join(tokens(word))
-    return None if len(t) < 3 or t in ALONE else find_icon(word)
+    return None if len(t) < 3 or t in ALONE or t in POSSESSIVES else find_icon(word)
 
 
 def topic(sentences: list[dict]) -> str:
@@ -95,8 +105,11 @@ def phrase(words: list[tuple[str, float]], at: float, most: int = PHRASE_WORDS) 
         while stop < len(words) - 1 and not closes[stop]:
             stop += 1
     end = max(begin, min(stop, begin + most - 1))
-    while end < len(words) - 1 and end - begin + 1 < FEWEST:  # too short to read as a title: the next clause too
-        end += 1
+    if end - begin + 1 < FEWEST:                             # too short to read as a title: the next clause too
+        while end < len(words) - 1 and end - begin + 1 < most:
+            end += 1
+            if closes[end] and end - begin + 1 >= FEWEST:
+                break
     text = " ".join(w for w, _ in words[begin:end + 1]).strip(" ,;:.…")
     if end < len(words) - 1 and not closes[end]:
         text += "…"
@@ -104,15 +117,127 @@ def phrase(words: list[tuple[str, float]], at: float, most: int = PHRASE_WORDS) 
     return text[:lead] + text[lead:lead + 1].upper() + text[lead + 1:]
 
 
-def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT) -> dict:
-    """The illustrated title card for a sentence (from second `at` of it): what is said, with the
-    illustration of the thing it names (or the script's topic)."""
+NUMBER_WORDS = {
+    "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+    "once": 11, "doce": 12, "quince": 15, "veinte": 20, "treinta": 30, "cuarenta": 40, "cincuenta": 50, "cien": 100,
+    "mil": 1000, "zero": 0, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "twenty": 20, "thirty": 30, "fifty": 50, "hundred": 100, "thousand": 1000,
+}                           # "un" / "one" and "cero" ("de cero") are left out: they are rarely figures
+UNIT_STOP = set("de del la el los las por y que al a en con the of a an and per".split())
+
+
+def _clean(word: str) -> str:
+    return str(word).strip("¿?¡!.,;:«»\"'()…")
+
+
+def figure(words: list[tuple[str, float]]) -> dict | None:
+    """A figure the sentence says ("20", "dos minutos") as a `number` graphic: the value, its unit (the
+    word after it), what comes before it in its clause as the label and after it as the line under it.
+    A figure with a unit is preferred ("dos minutos" over "veinte al día")."""
+    plain = ["".join(tokens(w)) for w, _ in words]
+    found = []
+    for i, (w, _) in enumerate(words):
+        raw = _clean(w)
+        digits = raw.replace(".", "").replace(",", "").replace("%", "")
+        value = raw if digits.isdigit() else NUMBER_WORDS.get(plain[i])
+        if value is None:
+            continue
+        unit, after = "", i + 1
+        if after < len(words) and plain[after] and plain[after] not in UNIT_STOP and not plain[after].isdigit() \
+                and not words[i][0].rstrip().endswith((",", ";", ":", ".")):
+            unit, after = _clean(words[after][0]), after + 1
+        begin = i
+        while begin > 0 and i - begin < 4 and not words[begin - 1][0].rstrip().endswith((",", ";", ":", ".", "?", "!")):
+            begin -= 1
+        end = after
+        while end < len(words) and end - after < 4 and not words[end - 1][0].rstrip().endswith((",", ";", ":", ".", "?", "!")):
+            end += 1
+        before = [_clean(x) for x, _ in words[begin:i] if _clean(x)]
+        rest = [_clean(x) for x, _ in words[after:end] if _clean(x)] if end > after else []
+        spec = {"template": "number", "value": str(value)}
+        if unit:
+            spec["unit"] = unit
+        if before:
+            label = " ".join(before)
+            spec["label"] = label[:1].upper() + label[1:]
+        if rest:
+            spec["sub"] = " ".join(rest)
+        found.append((not unit, i, spec))
+    return min(found, key=lambda x: (x[0], x[1]))[2] if found else None
+
+
+def enumeration(text: str) -> list[str] | None:
+    """3 to 6 short items said in a row ("A, B y C") or None."""
+    body = str(text).strip(" .?!¿¡…")
+    parts = [x.strip() for chunk in re.split(r",|;", body) for x in re.split(r"\s+(?:y|e|o|and|or)\s+", chunk) if x.strip()]
+    if not 3 <= len(parts) <= 6 or any(len(x.split()) > 5 for x in parts):
+        return None
+    if "".join(tokens(parts[0].split()[0])) in CONNECTORS:    # clauses of one thought ("pero si…, se van…"), not a list
+        return None
+    return [x[:1].upper() + x[1:] for x in parts]
+
+
+def scene_for(words: list[tuple[str, float]], at: float, main: str) -> dict | None:
+    """An illustrated scene (graphics/scenes.py) when the sentence says what something does: the verb
+    said at or after the cut first, else the one before it."""
+    cut = next((k for k, (_, t) in enumerate(words) if t >= at - 1e-6), 0)
+    found = action_of([w for w, _ in words[cut:]])
+    if found:
+        found = (found[0], found[1] + cut)
+    else:
+        found = action_of([w for w, _ in words])
+    if not found:
+        return None
+    action, where = found
+    subject, target, _ = ACTIONS[action]
+    named = sorted((abs(k - where), i) for k, (w, _) in enumerate(words) if (i := _icon_of(w)))
+    things = [i for _, i in named]
+    if action == "drain":
+        subject = next((i for i in things if i != "battery"), None)
+    elif action != "charge":
+        fit = [i for i in things if i in OWNERS.get(action, ICON_DEVICES)]
+        subject = fit[0] if fit else subject
+    if action in ("send", "store"):
+        others = [i for i in things if i != subject]
+        target = "ram" if action == "store" and "ram" in others else (others[0] if others else target)
+    spec = {"template": "scene", "action": action, "text": phrase(words, at)}
+    if subject:
+        spec["subject"] = subject
+    if target and action in ("send", "store", "swipe", "open"):
+        spec["target"] = target
+    return spec
+
+
+def local_query(words: list[tuple[str, float]], at: float, icon: str | None, language: str = "es") -> str:
+    """A search in the video's own language from what is said: the words that name things (a word with an
+    illustration, or a noun after an article or a possessive — the same reading as the notes), up to three."""
+    from .support import sentence_notes
+
+    notes = sentence_notes([[w, t, t] for w, t in words], language)
+    found = []
+    for n in notes:
+        token = "".join(tokens(n["label"]))
+        if n["kind"] in ("icon", "word") and token not in LOCAL_STOP and token not in found:
+            found.append(token)
+    return " ".join(found[:3])
+
+
+def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, last: str | None = None) -> dict:
+    """What the engine draws for a sentence when no footage is good enough, by what the sentence says:
+    a figure → `number`; three or more items → `list`; something doing something → `scene` (an animated
+    illustration); else a `title` with the illustration of what it names. `last`: the template used
+    just before — another one is chosen when there is one, so the same kind does not come twice."""
     words = [(str(w[0]), float(w[1])) for w in sentence.get("words") or []]
     at = float(sentence.get("start") or 0) if at is None else at
     named = [i for w, t in words if (i := _icon_of(w))]
     after = [i for w, t in words if t >= at - 1e-6 and (i := _icon_of(w))]
-    return {"template": "title", "text": phrase(words, at) or str(sentence.get("text") or ""),
-            "icon": (after or named or [main])[0]}
+    title = {"template": "title", "text": phrase(words, at) or str(sentence.get("text") or ""),
+             "icon": (after or named or [main])[0]}
+    items = enumeration(sentence.get("text") or "")
+    options = [x for x in (figure(words), {"template": "list", "items": "; ".join(items), "marks": "n"} if items else None,
+                           scene_for(words, at, main), title) if x]
+    fresh = [x for x in options if x["template"] != last]
+    return (fresh or options)[0]
 
 
 def covered(plan: dict, overlay: set[str]) -> set[int]:
@@ -141,6 +266,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset()) -> list[dict
     main = topic(sentences)
     turns: Counter = Counter()
     last_query = None
+    last: str | None = None
     out: list[dict] = []
     clock, opening = 0.0, True
     for k, s in enumerate(sentences):
@@ -176,8 +302,14 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset()) -> list[dict
             query = options[turns[icon] % len(options)]
         turns[icon] += 1
         last_query = query
-        out.append({"type": "broll", "query": query, "at_sentence": n, "until_sentence": n,
-                    "from_word": [s["source"], round(at, 3)], "note": f"«{word.strip('¿?¡!.,;:')}»",
-                    "fallback": {"template": "title", "text": phrase(words, at), "icon": icon}, "_auto": "director"})
+        drawn = card(s, at, main, last)
+        where = {"at_sentence": n, "until_sentence": n, "from_word": [s["source"], round(at, 3)],
+                 "note": f"«{word.strip('¿?¡!.,;:')}»", "_auto": "director"}
+        if drawn["template"] == "number":                   # a figure is shown, not searched for
+            out.append({"type": "graphic", **drawn, **where})
+        else:
+            out.append({"type": "broll", "query": query, "query_lang": "en", "query_local": local_query(words, at, icon, str(cfg.get("language", "es"))),
+                        "said": str(s.get("text") or ""), **where, "fallback": drawn})
+        last = drawn["template"]
         clock, opening = 0.0, False
     return out

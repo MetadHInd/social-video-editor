@@ -48,11 +48,15 @@ class PixabaySource:
             if f is None:
                 continue
             out.append({"source": self.name, "kind": self.kind, "id": str(v.get("id")), "title": str(v.get("tags") or ""),
-                        "query": query, "url": f["url"], "page": v.get("pageURL"), "author": str(v.get("user") or ""),
+                        "query": query, "url": f["url"], "thumb": f.get("thumbnail"), "page": v.get("pageURL"),
+                        "author": str(v.get("user") or ""),
                         "license": "Pixabay Content License", "license_code": "pixabay",
                         "license_url": "https://pixabay.com/service/license-summary/", "width": int(f["width"]),
                         "height": int(f["height"]), "duration": float(v.get("duration") or 0)})
         return out
+
+    def preview(self, candidate: dict, dest: Path) -> Path | None:
+        return http.fetch(candidate["thumb"], Path(dest).with_suffix(".jpg"), max_bytes=5 << 20) if candidate.get("thumb") else None
 
     def download(self, candidate: dict, dest: Path, piece: tuple[float, float] | None = None,
                  preview: bool = False) -> Path:

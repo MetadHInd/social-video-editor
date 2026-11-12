@@ -41,7 +41,13 @@ DEFAULTS = {
     "framing": "crop",                  # crop | blur | auto: how a clip of another shape fills the frame
     "text": False,                      # true: clips that show printed text (titles, captions) may be used
     "fallback_card": True,              # no clip passes: an illustrated title card with what is said, instead
-    "min_match": 0.25,                  # vision score under which a clip does not show the query (≈0.22 unrelated, ≈0.28 right)
+    "min_match": 0.27,                  # vision score under which a clip does not show the query (≈0.22 unrelated, ≈0.28 right)
+    "min_interest": 0.05,               # how alive a clip must look (lively − dull, below); 0 = any
+    "thumbnails": 8,                    # candidates judged by their still before downloading any video
+    "lively": ["a close-up of hands using a smartphone", "a person interacting with a device",
+               "a dynamic shot of technology in action", "a product shown in motion"],
+    "dull": ["an abstract background", "a static wallpaper", "a store front", "a still image with nothing happening",
+             "a blurry photo"],
     "preview_minutes": 12,              # a video longer than this is not looked through (any source)
     "brands": [],                       # [{"name", "channel_id", "aliases": [...]}] (a pack's brands.yaml adds to it)
 }
@@ -341,6 +347,29 @@ def framing(src_w: float, src_h: float, W: int, H: int, span: tuple[float, float
     return {"mode": "fit", "focus": round(focus, 3), "fit": round(show, 3)}
 
 
+STILL = 0.004              # mean change between frames (0–1) under which a clip is a still picture
+MOVING = 0.01               # …and over which it clearly moves
+
+
+def motion_amount(grays) -> float:
+    """How much a clip moves: the mean change (0–1) between consecutive grey frames."""
+    import numpy as np
+
+    frames = [np.asarray(g, np.float32) for g in grays]
+    pairs = [(a, b) for a, b in zip(frames, frames[1:]) if a.shape == b.shape]
+    return float(np.mean([np.abs(a - b).mean() for a, b in pairs]) / 255) if pairs else 0.0
+
+
+def interest(lively: float, dull: float, motion: float | None = None) -> float:
+    """How interesting a clip looks: how much more it looks like something happening (hands on a device,
+    a product in action) than like a backdrop (an abstract loop, a wallpaper, a shop front, a still),
+    by the vision model; a little more when it clearly moves, less when it is a still picture."""
+    out = float(lively) - float(dull)
+    if motion is not None:
+        out += 0.02 if motion >= MOVING else -0.03 if motion < STILL else 0.0
+    return round(out, 4)
+
+
 def best_window(times, scores, seconds: float, duration: float) -> tuple[float, float]:
     """(start, mean score) of the `seconds` of a clip that show the query best, from the score of
     its sampled frames. A clip no longer than that is used from its start."""
@@ -375,7 +404,7 @@ def record(c: dict, file: str, sha256: str | None, query: str, downloaded_at: st
     out = {"file": file, "sha256": sha256, "source": c.get("source"), "kind": c.get("kind", STOCK),
            "url": c.get("page") or c.get("url"), "author": c.get("author") or "", "license": c.get("license") or "",
            "downloaded_at": downloaded_at, "query": query, "used": True}
-    for k in ("title", "license_url", "author_url", "brand", "channel_id"):
+    for k in ("id", "title", "license_url", "author_url", "brand", "channel_id"):
         if c.get(k):
             out[k] = c[k]
     if piece:

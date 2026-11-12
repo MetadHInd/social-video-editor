@@ -307,8 +307,16 @@ broll:                   # sve broll: third-party clips for the [broll query="�
   max_megabytes: 250     # heavier files are not downloaded
   licenses: [cc0, pd, cc-by, cc-by-sa]   # accepted from Wikimedia Commons (the stock libraries have their own)
   framing: crop          # crop | blur | auto: how a clip of another shape fills the frame
-  fallback_card: true    # when no clip passes the checks: an illustrated title card with what is said instead
-  min_match: 0.25        # vision score below which a clip does not show the query (unrelated ≈0.22, right ≈0.28);
+  fallback_card: true    # when no clip passes the checks: the engine draws one instead (a scene, a figure, a list or a
+                         # title with what is said)
+  min_interest: 0.05     # how alive a clip must look (vision: something happening vs a backdrop; 0 = any)
+  thumbnails: 8          # candidates judged by their still before any video is downloaded
+  lively: ["a close-up of hands using a smartphone", "a person interacting with a device",
+           "a dynamic shot of technology in action", "a product shown in motion"]
+  dull: ["an abstract background", "a static wallpaper", "a store front", "a still image with nothing happening",
+         "a blurry photo"]
+  min_match: 0.27        # vision score below which a clip does not show the query or the sentence (unrelated ≈0.22,
+                         # right ≈0.28);
                          # without the vision model clips are not judged
   text: false            # true = clips that show printed text (titles, captions) may be used; false = they are
                          # avoided: the piece and the crop with no text are chosen, a clip with text everywhere is skipped

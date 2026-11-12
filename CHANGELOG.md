@@ -25,6 +25,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   alone on camera longer than `script.opening` / `script.max_camera`, `sve plan` proposes b-roll that
   starts at a word of the sentence (`from_word`), with a search built from what is said. When no clip
   passes, `sve broll` puts an illustrated title card with what is said instead (`broll.fallback_card`).
+- **`sve make`** (alias `hacer`): plan if missing, footage, render, review and summary with one command.
+- B-roll is judged by **what is said** (the sentence, not only the search) and by **how alive it looks**
+  (`broll.min_interest`, `broll.lively` / `broll.dull`); the libraries' stills are judged before any video
+  is downloaded (`broll.thumbnails`); director searches go out in English and in the video's language.
+- New `scene` template: an animated illustration doing what the sentence says (swipe, open, sleep, drain,
+  charge, send, store, freeze, clean, work, wait, faster, slower). When no clip is good enough the director
+  draws a `number`, a `list`, a `scene` or a `title`, by what the sentence says, never the same kind twice.
+- B-roll never uses the same clip in two places, and its credit caption starts with the clip (`from_word`).
 - B-roll: clips are framed by **where their subject is** (cropped around it, or shown whole and large
   over a blurred copy: `fit`), and a clip that does not look like the query is not used
   (`broll.min_match`).

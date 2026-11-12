@@ -132,6 +132,23 @@ class ClipVisualDetector:
         return np.stack([self._texts[(name, t)] for t in texts])
 
     # ── frames ────────────────────────────────────────────────────────────────
+    def picture_embeddings(self, files: list, settings: dict) -> np.ndarray:
+        """Unit embeddings [len(files), d] of picture files; a file that cannot be read gets a zero row."""
+        from PIL import Image
+
+        pictures, rows = [], []
+        for k, f in enumerate(files):
+            try:
+                with Image.open(f) as im:
+                    pictures.append(im.convert("RGB"))
+                rows.append(k)
+            except (OSError, ValueError):
+                continue
+        out = np.zeros((len(files), 512), np.float32)
+        if pictures:
+            out[rows] = self._encode(self._names(settings)[0], pictures, settings)
+        return out
+
     def image_embeddings(self, images: list, settings: dict) -> np.ndarray:
         """Unit embeddings [len(images), d] of RGB pictures (H×W×3 uint8 arrays)."""
         from PIL import Image

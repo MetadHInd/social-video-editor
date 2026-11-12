@@ -264,6 +264,9 @@ class VisualDetector(Protocol):
     def image_embeddings(self, images: list, settings: dict):
         """Embeddings [len(images), d] of RGB pictures (H×W×3 arrays), e.g. parts of a frame."""
 
+    def picture_embeddings(self, files: list, settings: dict):
+        """Embeddings [len(files), d] of picture files (unreadable ones get a zero row)."""
+
 
 class PhotoRenderer(Protocol):
     """Still photos as sources: finding them and turning one into a segment like the other shots."""
@@ -351,6 +354,10 @@ class FootageSource(Protocol):
         """Up to `limit` candidates for a query, most relevant first. orientation: portrait |
         landscape | square (the output frame). brand: the listed brand the query names (an official
         source searches only that brand's channel and returns nothing without one)."""
+
+    def preview(self, candidate: dict, dest: Path) -> Path | None:
+        """The still the source gives for a candidate (candidate "thumb"), saved next to `dest`, to judge
+        it before downloading the video; None when there is none."""
 
     def download(self, candidate: dict, dest: Path, piece: tuple[float, float] | None = None,
                  preview: bool = False) -> Path:

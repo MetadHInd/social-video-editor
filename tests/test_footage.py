@@ -118,7 +118,7 @@ def test_record_and_credits():
     assert stock == {"file": "footage/pexels_77.mp4", "sha256": "abc", "source": "pexels", "kind": "stock",
                      "url": "https://example.org/a", "author": "Ana", "license": "Pexels License",
                      "downloaded_at": "2030-01-02T03:04:05Z", "query": "a phone", "used": True,
-                     "author_url": "https://example.org/ana"}
+                     "id": "77", "author_url": "https://example.org/ana"}
     brand = fg.record(clip(source="official", kind="official", brand="Acme", channel_id=ACME["channel_id"], author="Acme TV",
                            license="© Acme (official channel)", page="https://video.example/watch?v=1"),
                       "footage/official_1.mp4", "def", "acme phone", "2030-01-02T03:04:05Z", (12.0, 18.25))
@@ -200,7 +200,8 @@ def test_pexels_needs_its_key_and_reads_the_answer(monkeypatch):
     assert found == {"source": "pexels", "kind": "stock", "id": "7", "title": "", "query": "un celular",
                      "url": "https://cdn.example/7_hd.mp4", "page": "https://stock.example/video/7", "author": "Ana",
                      "author_url": "https://stock.example/@ana", "license": "Pexels License", "license_code": "pexels",
-                     "license_url": "https://www.pexels.com/license/", "width": 1080, "height": 1920, "duration": 14.0}
+                     "license_url": "https://www.pexels.com/license/", "width": 1080, "height": 1920, "duration": 14.0,
+                     "thumb": None}
     assert pexels.pick_file([{"link": "x", "width": 640, "height": 360}, {"link": "y", "width": 960, "height": 540}])["link"] == "y"
 
 
@@ -248,7 +249,7 @@ def test_wikimedia_reads_license_author_and_a_rendition_of_reasonable_size(monke
                       "page": "https://commons.example/wiki/File:Parts_of_a_phone.webm", "author": "Ana",
                       "license": "CC BY-SA 4.0", "license_code": "cc-by-sa",
                       "license_url": "https://creativecommons.org/licenses/by-sa/4.0", "width": 1920, "height": 1080,
-                      "duration": 74.0}
+                      "duration": 74.0, "thumb": None}
     assert fg.rank([first, second], 1080, 1920, 4.0, fg.settings(None))[0] == [second]
     # a transcoded copy too heavy for its length (bit rate × duration) is passed over for a smaller one
     info = {"url": "https://upload.example/o.webm", "size": 900 << 20, "width": 1920, "height": 1080, "duration": 1000.0,
@@ -394,6 +395,7 @@ class FakeSource:
         self.name, self.kind, self.clips, self.color, self.why = name, kind, clips, color, why
         self.searches: list = []
         self.downloads: list = []
+        self.stills: list = []
 
     def ready(self):
         return self.why
@@ -401,6 +403,15 @@ class FakeSource:
     def search(self, query, limit, orientation, language="en", brand=None):
         self.searches.append((query, orientation, language, brand and brand["name"]))
         return [dict(c, source=self.name, kind=self.kind, query=query) for c in self.clips]
+
+    def preview(self, candidate, dest):
+        if not candidate.get("thumb"):
+            return None
+        out = Path(dest).with_suffix(".jpg")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out), np.full((90, 160, 3), 128, np.uint8))
+        self.stills.append(candidate["id"])
+        return out
 
     def download(self, candidate, dest, piece=None, preview=False):
         self.downloads.append((candidate["id"], piece, preview))
@@ -582,10 +593,37 @@ def test_no_clip_becomes_an_illustrated_card_and_the_director_cuts_in(workspace,
     capsys.readouterr()
     cli.main(["broll", "demo"])
     out = capsys.readouterr().out
-    assert "no clip passed: an illustrated card instead (title “Every time you send one”)" in out
+    assert "no clip passed: an illustrated card instead (scene “Every time you send one”)" in out
     (cut,) = json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"]
-    assert cut == {"type": "graphic", "template": "title", "text": "Every time you send one", "icon": "phone",
-                   "at_sentence": 1, "until_sentence": 1, "_auto": "card"}
+    assert cut == {"type": "graphic", "template": "scene", "action": "send", "text": "Every time you send one",
+                   "subject": "phone", "target": "globe", "at_sentence": 1, "until_sentence": 1, "_auto": "card"}
+
+
+@pytest.mark.integration
+@requires_ffmpeg
+def test_the_same_clip_is_never_used_twice_and_the_credit_comes_with_its_clip(workspace, monkeypatch):
+    monkeypatch.chdir(workspace.parent)
+    d = explainer_project(workspace, 'How does a message travel?\n[broll query="a phone"]\nEvery time you send one, it splits again.\n'
+                                     '[broll query="a phone"]\nAnd they travel apart.\n', {"broll": {"sources": ["stock"]}})
+    stock = FakeSource("stock", "stock", [stock_clip(id="1", title="one"), stock_clip(id="2", title="two")], "0x1EC81E")
+    fake_services(monkeypatch, {"stock": stock})
+    cli.main(["plan", "demo"])
+    plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+    plan["cutaways"][1]["from_word"] = [0, 10.3]                          # the second clip starts at a word
+    (d / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    cli.main(["broll", "demo"])
+    cuts = json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"]
+    clips = [c["file"] for c in cuts if c["type"] == "broll"]
+    assert clips == ["footage/stock_1_one.mp4", "footage/stock_2_two.mp4"]
+    (credit,) = [c for c in cuts if c.get("_auto") == "credit"]          # one author: one caption, with the first clip
+    assert credit["at_sentence"] == 1 and "from_word" not in credit
+    plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+    plan["cutaways"] = [c for c in plan["cutaways"] if c.get("_auto") != "credit"]
+    plan["cutaways"][0]["from_word"] = [0, 6.6]
+    (d / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    cli.main(["broll", "demo"])
+    (credit,) = [c for c in json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"] if c.get("_auto") == "credit"]
+    assert credit["from_word"] == [0, 6.6]
 
 
 def test_the_explainer_recipe_lets_the_director_propose_footage(workspace, monkeypatch, capsys):
@@ -600,7 +638,11 @@ def test_the_explainer_recipe_lets_the_director_propose_footage(workspace, monke
 
 
 class FakeVision:
-    """Scores a clip by its file name: the vision model stand-in."""
+    """The vision model stand-in, in three dimensions: (the query, something lively, a dull backdrop).
+    A clip is scored by its file name; a still by its candidate id."""
+
+    def __init__(self, stills=None):
+        self.stills = stills or {}
 
     def ready(self, settings, download=False):
         return None
@@ -609,16 +651,24 @@ class FakeVision:
         return "fake"
 
     def frame_embeddings(self, video, cache_dir, key, settings):
-        good = "good" in Path(video).name
         times = np.arange(0, 6, 0.5)
-        emb = np.zeros((len(times), 2), np.float32)
-        emb[:, 0], emb[:, 1] = 0.26, (1 - 0.26 ** 2) ** 0.5      # related to the query, but not much (over broll.min_match)
-        if good:
-            emb[6:10] = (1.0, 0.0)                       # seconds 3–5 show the query
+        emb = np.zeros((len(times), 3), np.float32)
+        emb[:] = (0.3, 0.3, 0.1)                        # related to the query, a little alive (over the minimums)
+        if "good" in Path(video).name:
+            emb[6:10] = (1.0, 0.5, 0.0)                 # seconds 3–5 show the query, alive
+        if "dull" in Path(video).name:
+            emb[:] = (0.4, 0.1, 0.3)                    # on the subject but a backdrop
         return times, emb
 
     def text_embeddings(self, texts, settings):
-        return np.array([[1.0, 0.0]] * len(texts), np.float32)
+        lively, dull = fg.DEFAULTS["lively"], fg.DEFAULTS["dull"]
+        return np.array([[0, 1, 0] if t in lively else [0, 0, 1] if t in dull else [1, 0, 0] for t in texts], np.float32)
+
+    def picture_embeddings(self, files, settings):
+        return np.array([self.stills.get(Path(f).stem.split("_")[1], (0.3, 0.3, 0.1)) for f in files], np.float32)
+
+    def image_embeddings(self, images, settings):
+        return np.array([(0.3, 0.3, 0.1)] * len(images), np.float32)
 
 
 @pytest.mark.integration
@@ -637,13 +687,72 @@ def test_the_vision_model_picks_the_clip_and_the_piece(workspace, monkeypatch, c
     assert cut["file"] == "footage/stock_2_good_one.mp4" and cut["clip_start"] == 0.5
     assert [x[0] for x in stock.downloads] == ["1", "2"]                  # broll.candidates: two are compared
     # a clip that does not look like the query at all is not used
-    assert fg.settings(None)["min_match"] == 0.25
+    assert fg.settings(None)["min_match"] == 0.27
     assert sorted(p.name for p in (d / "footage").iterdir()) == ["credits.json", "stock_2_good_one.mp4"]   # the loser is deleted
     (rec,) = json.loads((d / "footage" / "credits.json").read_text(encoding="utf-8"))
     assert rec["piece"][0] == 2.5                                         # seconds 3–5 show the query (± 0.5 s kept)
     kept = build_services().probe.duration(d / cut["file"])
     assert kept == pytest.approx(rec["piece"][1] - rec["piece"][0], abs=0.1) and kept < 6.0   # only the piece is stored
     assert "match 1.00" in capsys.readouterr().out
+
+
+@pytest.mark.integration
+@requires_ffmpeg
+def test_stills_decide_what_is_downloaded_and_dull_clips_become_drawings(workspace, monkeypatch, capsys):
+    monkeypatch.chdir(workspace.parent)
+    d = explainer_project(workspace, 'How does a message travel?\n[broll query="a phone on a table"]\nAnd they travel apart.\n',
+                          {"broll": {"sources": ["stock"], "credit": False, "candidates": 1}, "vision": {"enabled": True}})
+    stock = FakeSource("stock", "stock", [stock_clip(id="off", title="off", thumb="x"), stock_clip(id="dull", title="dull one", thumb="x"),
+                                          stock_clip(id="good", title="good one", thumb="x")], "0x1EC81E")
+    svc = fake_services(monkeypatch, {"stock": stock})
+    svc.visual = FakeVision({"off": (0.1, 0.3, 0.0), "dull": (0.4, 0.2, 0.1), "good": (0.5, 0.6, 0.0)})
+    cli.main(["plan", "demo"])
+    capsys.readouterr()
+    cli.main(["broll", "demo"])
+    out = capsys.readouterr().out
+    assert stock.stills == ["off", "dull", "good"]                       # every still looked at…
+    assert "1 of 3 left out by their still" in out                      # …the one off the subject is never downloaded
+    assert [x[0] for x in stock.downloads] == ["good"]                   # the best still first: one download is enough
+    (cut,) = json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"]
+    assert cut["file"] == "footage/stock_good_good_one.mp4"
+    # only dull clips: none is used, the engine draws the sentence instead
+    stock.clips = [stock_clip(id="dull", title="dull one")]
+    stock.downloads.clear()
+    (d / "cache" / "footage_search.json").unlink()                       # search answers are cached a day
+    cli.main(["broll", "demo", "--force"])
+    out = capsys.readouterr().out
+    assert "looks dull (interest" in out and "an illustrated card instead" in out
+    (cut,) = json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"]
+    assert cut["type"] == "graphic" and cut["_auto"] == "card"
+
+
+def test_interest_and_motion():
+    still = [np.full((9, 16), 100.0)] * 4
+    moving = [np.full((9, 16), 100.0 + 20 * k) for k in range(4)]
+    assert fg.motion_amount(still) == 0.0 and fg.motion_amount(moving) == pytest.approx(20 / 255)
+    assert fg.motion_amount([]) == 0.0
+    assert fg.interest(0.31, 0.22) == pytest.approx(0.09)
+    assert fg.interest(0.31, 0.22, motion=0.05) == pytest.approx(0.11)       # it moves: a little more
+    assert fg.interest(0.25, 0.24, motion=0.001) == pytest.approx(-0.02)     # a still picture: less
+    assert fg.settings(None)["min_interest"] == 0.05 and fg.settings(None)["min_match"] == 0.27
+
+
+@pytest.mark.integration
+@requires_ffmpeg
+def test_make_does_everything_with_one_command(workspace, monkeypatch, capsys):
+    monkeypatch.chdir(workspace.parent)
+    d = explainer_project(workspace, 'How does a message travel?\n[broll query="a phone on a table"]\nAnd they travel apart.\n',
+                          {"broll": {"sources": ["stock"], "credit": False}})
+    fake_services(monkeypatch, {"stock": FakeSource("stock", "stock", [stock_clip()], "0x1EC81E")})
+    cli.main(["make", "demo"])
+    out = capsys.readouterr().out
+    assert (d / "plan.json").exists() and "1 fetched" in out
+    assert "Video: " in out and "Review v1Borrador: OK" in out
+    vdir = d / "v1Borrador"
+    assert (vdir / "check.json").exists() and next(vdir.glob("*.mp4")).exists()
+    cli.main(["hacer", "demo"])                                         # again: the plan and the clip are kept
+    out = capsys.readouterr().out
+    assert "1 already had a clip" in out and "v1Borrador_2" in out
 
 
 @pytest.mark.integration

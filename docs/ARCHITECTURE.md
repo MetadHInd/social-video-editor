@@ -15,12 +15,13 @@ src/social_video_editor/
 │                  recording; explainer.py: the plan built from them), cutaways (cutaways.py), the
 │                  presenter's window (pip.py), the notes proposed around the presenter (support.py) and
 │                  third-party footage (footage.py: licenses, brands, ranking, the piece used, credits, limits)
-│                  and the director (director.py: footage where the presenter would stay alone too long)
+│                  and the director (director.py: footage where the presenter would stay alone too long, and
+│                  what the engine draws instead: number, list, scene, title)
 ├── ports/         typing.Protocol interfaces the application needs
 ├── adapters/      implementations: ffmpeg/, opencv/, librosa/, whisper/, pillow/, files/, system/, ytdlp/, clip/, upscale/, skia/,
 │                  footage/
 ├── application/   use cases: analyze, plan (explainer), render (cutaways), thumbs, view, report, check, products,
-│                  music, enhance, graphic, broll, project
+│                  music, enhance, graphic, broll, make, project
 ├── container.py   composition root: wires every port to its adapter (build_services)
 ├── cli.py         argparse front end (`sve …`)
 ├── recipes/       packaged YAML recipes (base.yaml + one per video type)
@@ -166,6 +167,8 @@ render: timeline ──cutaways.resolve──▶ Cutaway(start, end) ──▶ o
   `lower_third`) are encoded with transparency (`encode_overlay`, QuickTime Animation).
 - Subtitles of an explainer plan come from the script's own words with the times they were said
   (`explainer.subtitle_analyses`).
+- Illustrated scenes (`domain/graphics/scenes.py`, template `scene`): an illustration doing what a sentence
+  says; `action_of(words)` reads the action from its verbs (Spanish and English).
 - Overlays for a presenter who stays on screen live in `domain/graphics/overlays.py` (`callouts`,
   `bullets`, `pip_frame`). `domain/support.py` proposes `callouts` for the sentences with nothing else
   on screen (rules on the script's words; entries marked `_auto`); an overlay's `item_times` (source
