@@ -48,3 +48,4 @@ subtitles:
 check:
   safe_bottom: 0.88      # subtitles sit in that band on purpose
 export: {cover_at: 0.5}
+decider: {enabled: auto}   # local models answer what the rules are unsure of (titles, notes, scenes…), when installed

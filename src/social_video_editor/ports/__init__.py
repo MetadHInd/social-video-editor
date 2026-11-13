@@ -270,6 +270,42 @@ class VisualDetector(Protocol):
     def picture_embeddings(self, files: list, settings: dict):
         """Embeddings [len(files), d] of picture files (unreadable ones get a zero row)."""
 
+    def release(self) -> None:
+        """Frees the loaded models (memory for the next model); they load again when used."""
+
+
+class TextClassifier(Protocol):
+    """A zero-shot text classifier (NLI): how well each of several labels fits a text.
+
+    `settings` is the `decider` section of the configuration (nli_model, device…)."""
+
+    def ready(self, settings: dict, download: bool = False) -> str | None:
+        """None when it can be used; otherwise why not (not installed, model not downloaded, offline…)."""
+
+    def classify(self, items: list[tuple[str, list[str], str, bool]], settings: dict) -> list[list[float]]:
+        """For each (text, labels, hypothesis template with "{}", several may be true): a score in
+        [0, 1] per label, in order. An item that cannot be scored gets an empty list."""
+
+    def release(self) -> None:
+        """Frees the model from memory."""
+
+
+class Reasoner(Protocol):
+    """A local language model that answers closed questions with one (or several) option letters.
+
+    `settings` is the `decider` section of the configuration (llm_model, timeout…)."""
+
+    def ready(self, settings: dict, download: bool = False) -> str | None:
+        """None when it can be used; otherwise why not (server not running, model not pulled, offline…)."""
+
+    def choose(self, prompt: str, keys: list[str], settings: dict, image: Path | None = None,
+               many: bool = False) -> tuple[list[str], float | None]:
+        """The letters chosen among `keys` and how sure the model is (0–1; None when it cannot tell).
+        Never raises for a model or network failure: it returns ([], None)."""
+
+    def release(self, settings: dict) -> None:
+        """Unloads the model (frees its memory)."""
+
 
 class PhotoRenderer(Protocol):
     """Still photos as sources: finding them and turning one into a segment like the other shots."""

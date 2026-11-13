@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from ..ports import (AudioAnalyzer, CacheStore, FootageSource, GraphicRenderer, ImageComposer, ImageUpscaler, MediaProbe,
                      MusicDownloader, PackRepository, PhotoRenderer, ProjectRepository, RecipeRepository,
-                     RenderInspector, SoundEffects, TextRenderer, Transcriber, VideoAnalyzer, VideoEncoder,
-                     VisualDetector)
+                     Reasoner, RenderInspector, SoundEffects, TextClassifier, TextRenderer, Transcriber, VideoAnalyzer,
+                     VideoEncoder, VisualDetector)
 
 
 @dataclass
@@ -30,3 +30,5 @@ class Services:
     graphics: GraphicRenderer | None = None
     packs: PackRepository | None = None
     footage: dict[str, FootageSource] | None = None      # by name, for `sve broll`
+    classifier: TextClassifier | None = None             # the decider's small model (zero-shot NLI)
+    reasoner: Reasoner | None = None                     # the decider's local language model

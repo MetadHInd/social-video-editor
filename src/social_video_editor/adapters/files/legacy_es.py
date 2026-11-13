@@ -150,7 +150,7 @@ CONFIG = Ctx(
           "exportar": "export", "verificacion": "check", "visión": "vision", "foto": "photo",
           "presentacion": "slideshow", "llamada": "cta", "charla": "talk", "pausas": "pauses",
           "graficos": "graphics", "explicativo": "explainer", "guion": "script", "ventana": "pip",
-          "tomas_externas": "broll", "revision": "review"},
+          "tomas_externas": "broll", "revision": "review", "decisor": "decider"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
@@ -230,6 +230,9 @@ CONFIG = Ctx(
                            "seguro_abajo": "safe_bottom", "seguro_derecha": "safe_right",
                            "columna_botones": "right_rail", "tolerancia_duracion": "duration_tolerance",
                            "escuchar_max": "listen_max", "escuchar_seg": "listen_sec"}),
+        "decider": Ctx(keys={"activado": "enabled", "umbral": "threshold", "modelo_nli": "nli_model",
+                             "modelo_llm": "llm_model", "llm": "llm", "llm_min": "llm_min", "espera_max": "timeout",
+                             "dispositivo": "device"}),
         "review": Ctx(keys={"vueltas": "rounds", "lectura_cps": "read_cps", "grafico_max": "graphic_max",
                             "holgura_camara": "camera_slack"}),
         "vision": VISION,
@@ -335,7 +338,8 @@ FOLDERS = {"projects": "proyectos", "recipes": "recetas", "music": "musica", "sf
 CACHE_FILES = {"media": ("{key}_media.json", "{key}_info.json", MEDIA_INFO),
                "analysis": ("{key}_analysis.json", "{key}_analisis.json", ANALYSIS),
                "words": ("{key}_words.json", "{key}_palabras.json", WORD),
-               "music": ("music_{key}.json", "musica_{key}.json", MUSIC_ANALYSIS)}
+               "music": ("music_{key}.json", "musica_{key}.json", MUSIC_ANALYSIS),
+               "decisions": ("decisions_{key}.json", "decisiones_{key}.json", Ctx())}
 ENV_WORKSPACE = ("SVE_WORKSPACE", "MOTOR_ESPACIO")
 
 

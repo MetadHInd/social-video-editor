@@ -24,6 +24,7 @@ vision = ["sentence-transformers"]
 music = ["yt-dlp"]
 enhance = ["spandrel", "torch"]
 graphics = ["skia-python"]
+decider = ["transformers", "torch"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]
@@ -50,4 +51,5 @@ testpaths = ["tests"]
 pythonpath = ["src"]          # works even when the package is not installed
 markers = ["integration: needs FFmpeg (generates synthetic media in a temporary folder)",
            "vision: needs the CLIP model already downloaded (skipped otherwise)",
-           "enhance: needs spandrel + torch and the Real-ESRGAN model file (skipped otherwise)"]
+           "enhance: needs spandrel + torch and the Real-ESRGAN model file (skipped otherwise)",
+           "live: talks to a real local model server (SVE_LIVE=1; skipped otherwise)"]

@@ -17,6 +17,8 @@ from .adapters.files.projects import YamlProjectRepository
 from .adapters.files.recipes import YamlRecipeRepository
 from .adapters.files.workspace import subdir
 from .adapters.librosa.audio_analyzer import LibrosaAudioAnalyzer
+from .adapters.nli.classifier import NliClassifier
+from .adapters.ollama.reasoner import OllamaReasoner
 from .adapters.opencv.video_analyzer import OpenCvVideoAnalyzer
 from .adapters.pillow.composer import PillowComposer
 from .adapters.pillow.text_layer import PillowTextRenderer
@@ -51,4 +53,6 @@ def build_services() -> Services:
         graphics=SkiaGraphicRenderer(),  # lazy: skia only loaded when a graphic is drawn
         packs=FilePackRepository(),
         footage={s.name: s for s in (OfficialChannelSource(), PexelsSource(), PixabaySource(), WikimediaSource())},
+        classifier=NliClassifier(),      # lazy: transformers only loaded when the decider asks it
+        reasoner=OllamaReasoner(),       # plain HTTP to a local Ollama server (nothing loaded here)
     )

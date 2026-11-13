@@ -34,6 +34,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `<id>_analisis.json` | `<id>_analysis.json` |
 | `<id>_palabras.json` | `<id>_words.json` |
 | `musica_<id>.json` | `music_<id>.json` |
+| `decisiones_<id>.json` | `decisions_<id>.json` |
 
 ### Environment variables
 
@@ -132,6 +133,7 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `graficos` | `graphics` |
 | `tomas_externas` | `broll` |
 | `revision` | `review` |
+| `decisor` | `decider` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -512,6 +514,19 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `tema` | `theme` |
 
 The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPHICS.md](GRAPHICS.md).
+
+### Keys of `config.decider` (local models for what the rules are unsure of)
+
+| Spanish | English |
+|---|---|
+| `activado` | `enabled` |
+| `umbral` | `threshold` |
+| `modelo_nli` | `nli_model` |
+| `modelo_llm` | `llm_model` |
+| `llm` | `llm` |
+| `llm_min` | `llm_min` |
+| `espera_max` | `timeout` |
+| `dispositivo` | `device` |
 
 ### Keys of `config.review` (the engine's own review in `sve make` / `sve hacer`)
 

@@ -335,6 +335,17 @@ broll:                   # sve broll: third-party clips for the [broll query="�
   preview_minutes: 12    # videos longer than this are not looked through (any source)
   brands: []             # [{name: Brand, channel_id: UC…, aliases: [product names]}]; a pack's brands.yaml adds to it
 
+decider:                 # closed questions the hand rules are unsure of, answered by LOCAL models (domain/decide.py):
+                         # a small zero-shot classifier, then a local language model (Ollama). Nothing is paid per use.
+  enabled: false         # auto = use what is installed · true = may download the small model (≈560 MB, once) · false = rules only
+  threshold: 0.8         # the rules' answers less sure than this go to the models
+  nli_model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7   # MIT · pip install 'social-video-editor[decider]'
+  llm: auto              # auto = when a local Ollama server has llm_model · false = never
+  llm_model: qwen3.5:9b  # Apache-2.0 · brew install ollama && ollama pull qwen3.5:9b
+  llm_min: 0.5           # a language-model answer less sure than this keeps the previous answer
+  timeout: 60            # seconds per language-model request
+  device: cpu            # the small classifier: cpu | mps | cuda
+
 graphics:                # shots {"type": "graphic", "template": "bars", …} — animated graphics drawn from data
   pack: null             # name of a pack (<workspace>/packs/<name>/pack.yaml): a channel's look and drawings
   theme: {}              # overrides of the theme on top of the pack (colors, fonts, strokes… see docs/GRAPHICS.md)
