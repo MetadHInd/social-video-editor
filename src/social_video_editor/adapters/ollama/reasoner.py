@@ -40,7 +40,8 @@ READY_TTL = 5.0             # seconds a ready() answer is reused
 RELEASE_TIMEOUT = 10
 KEEP_ALIVE = "2m"           # between the questions of one batch; release() unloads at the end
 # greedy, and no penalty for letters that are already in the prompt (a model's own defaults may set one)
-OPTIONS = {"temperature": 0, "presence_penalty": 0, "frequency_penalty": 0, "repeat_penalty": 1}
+OPTIONS = {"temperature": 0, "presence_penalty": 0, "frequency_penalty": 0, "repeat_penalty": 1,
+           "num_predict": 16}                   # letters only: no room to explain (that took up to 30 s an answer)
 # request fields a runner may not support → words of the error that name them
 OPTIONAL_FIELDS = (("format", ("structured output", "format")), ("logprobs", ("logprob",)), ("think", ("think",)))
 

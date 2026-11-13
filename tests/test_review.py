@@ -202,3 +202,10 @@ def test_what_was_removed_is_not_proposed_again_and_tried_remedies_offer_options
     y = review.Issue("cutaway_too_short", "short", 1.0, 0, {"drop": True}, key="k")
     _, pending = review.apply({"cutaways": [proposal]}, [y], {"k"})
     assert pending[0].options == ["leave it", "remove it"]
+
+
+def test_shorter_versions_keep_the_meaning_and_the_question_mark():
+    versions = review._other_versions("No están abiertas, están en la mesa", 20)
+    assert versions and all("no" in v.lower().split() for v in versions)          # never drops the "no"
+    q = review._other_versions("¿Por qué se quedan tantas cosas guardadas?", 22)
+    assert q and all(v.startswith("¿") and v[1].isupper() for v in q)

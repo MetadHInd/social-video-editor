@@ -41,19 +41,23 @@ DEFAULTS = {
 }
 
 # topic → the stages (after the rules) that may answer it, in order
+# Measured on 215 labeled questions from real scripts: the language model beats the rules on notes
+# (words picked right 20 % → 75 %), titles (59 → 80 %) and shortened texts (50 → 60 %); on scene actions,
+# illustrations and the kind of drawing the rules were right more often (82 / 60 / 74 %) than either
+# model, and the zero-shot classifier helped nowhere — those stay with the rules (an empty route).
 ROUTES: dict[str, tuple[str, ...]] = {
     "label_words": ("llm",),            # which words of a sentence make good on-screen notes
     "title_span": ("llm",),             # which part of a sentence reads well as a card title
-    "is_comparison": ("nli", "llm"),    # are these figures set against each other?
-    "bar_labels": ("llm",),             # the name of each bar
-    "action": ("nli", "llm"),           # what an illustrated scene shows the thing doing
-    "icon": ("nli", "llm"),             # which illustration a sentence names
-    "card_type": ("llm",),              # which drawing fits a sentence (figure, list, scene, title…)
     "shorten": ("llm",),                # which shorter version of a card's text still says it
-    "clip_shows": ("llm",),             # does this picture show what is said? (with the picture)
-    "clip_lively": ("llm",),            # does this picture show something happening? (with the picture)
+    "clip_shows": ("llm",),             # does this picture show what is said? (with the picture; not measured yet)
+    "clip_lively": ("llm",),            # does this picture show something happening? (with the picture; not measured yet)
+    "is_comparison": (),                # are these figures set against each other?
+    "bar_labels": (),                   # the name of each bar
+    "action": (),                       # what an illustrated scene shows the thing doing
+    "icon": (),                         # which illustration a sentence names
+    "card_type": (),                    # which drawing fits a sentence (figure, list, scene, title…)
 }
-ROUTES_VERSION = 1
+ROUTES_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -179,11 +183,16 @@ def llm_request(q: Question) -> tuple[str, list[str], bool]:
     """(prompt, option keys, several may be chosen) for the language model: the options are listed
     with one letter each and the answer is one (or several) of those letters."""
     keys = list(KEYS[:len(q.options)])
-    head = {"es": ("Texto", "Opciones", "Responde solo con la letra", "Responde con las letras que correspondan"),
-            "en": ("Text", "Options", "Answer with the letter only", "Answer with every letter that applies")}
+    head = {"es": ("Texto", "Opciones", "Responde solo con la letra", "Responde solo con las letras que correspondan",
+                   "ninguna de estas"),
+            "en": ("Text", "Options", "Answer with the letter only", "Answer with every letter that applies, nothing else",
+                   "none of these")}
     t = head.get(q.language, head["en"])
     lines = [q.prompt, "", f"{t[0]}: {q.context}" if q.context else "", f"{t[1]}:"]
     lines += [f"{k}) {o.text}" for k, o in zip(keys, q.options)]
+    if q.kind == "multi":                   # "none of them" is an answer too (a letter of its own)
+        keys.append(KEYS[len(q.options)])
+        lines.append(f"{keys[-1]}) {t[4]}")
     lines += ["", t[3] if q.kind == "multi" else t[2]]
     return "\n".join(x for x in lines if x is not None), keys, q.kind == "multi"
 
@@ -191,8 +200,14 @@ def llm_request(q: Question) -> tuple[str, list[str], bool]:
 def from_keys(q: Question, keys: list[str]) -> tuple[str, ...] | None:
     """Option values for the letters the language model chose (None when one is not an option)."""
     index = {k: o.value for k, o in zip(KEYS, q.options)}
+    chosen = [str(k).strip().lower() for k in keys]
+    none = KEYS[len(q.options)] if q.kind == "multi" and len(q.options) < len(KEYS) else None
+    if none and none in chosen:
+        if len(chosen) > 1:                 # "none" together with options: not a clear answer
+            return None
+        return ()
     try:
-        return validate(q, [index[str(k).strip().lower()] for k in keys])
+        return validate(q, [index[k] for k in chosen])
     except KeyError:
         return None
 
@@ -219,7 +234,9 @@ def pick(q: Question, stage: str, raw, confidence: float | None, s: dict, previo
             values, conf = (q.options[best].value,), scores[best]
         values = validate(q, values)
     elif stage == "llm":
-        values = from_keys(q, list(raw or []))
+        if not raw:                         # no letter at all is a failure (a timeout, an unreadable answer)
+            return None
+        values = from_keys(q, list(raw))
         conf = float(s["llm_min"]) if confidence is None else float(confidence)
         if conf < float(s["llm_min"]):
             return None

@@ -330,7 +330,7 @@ are made by hand rules. With `decider.enabled: auto` (on in the `explainer` reci
 rules are **unsure of** are answered by **local** models, nothing paid per use:
 
 1. a small zero-shot classifier (`MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`, MIT,
-   ≈560 MB; `pip install -e ".[decider]"`), then
+   ≈560 MB; `pip install -e ".[decider]"`) — wired in but not used by the measured routes today, then
 2. a local language model through [Ollama](https://ollama.com) (`qwen3.5:9b`, Apache-2.0; it can also look
    at a frame): `brew install ollama && brew services start ollama && ollama pull qwen3.5:9b`.
 

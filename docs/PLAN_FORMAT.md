@@ -702,9 +702,16 @@ Some of the engine's judgments are closed questions asked by the pure domain cod
 | `shorten` | a card too long to read | shorter versions |
 | `clip_shows` / `clip_lively` | b-roll near the thresholds | yes / no, with a frame of the clip |
 
+Which stages may answer each question is `ROUTES` in `domain/decide.py`, set from a labeled set of 215
+real questions: the language model beat the rules on notes (words picked right 20 % → 75 %), titles
+(59 → 80 %) and shortened cards (50 → 60 %), so those go to it, and so do the b-roll questions; scene
+actions, illustrations, the kind of drawing and bars stayed better with the rules (82 / 60 / 74 %), and the
+zero-shot classifier helped nowhere, so today it is never loaded (it stays available for a route that needs
+it). With the routes measured, a 2-minute script asks the language model about 15 questions (≈20 s).
+
 The rules answer each with a confidence. Questions under `decider.threshold` go, in batches, first to a
-small zero-shot classifier (when the question has a hypothesis), then to a local language model through
-Ollama (which sees the frame for clip questions); the vision model is unloaded before it and every model
+small zero-shot classifier (when their route has it and the question has a hypothesis), then to a local
+language model through Ollama (which sees the frame for clip questions); the vision model is unloaded before it and every model
 after its batch. A model's answer replaces the previous one only when it is one of the options and at least
 as sure (and, for the language model, at least `decider.llm_min`). The language model answers with an
 option letter; its confidence comes from the token probabilities (when the server cannot force the answer's

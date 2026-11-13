@@ -9,6 +9,12 @@ from social_video_editor.adapters.files import legacy_es
 from social_video_editor.application.decide import Decisions, decider_available, run_decided
 from social_video_editor.domain import decide as dd
 
+@pytest.fixture(autouse=True)
+def routes(monkeypatch):
+    """The cascade's mechanics are tested with routes of their own (the real table is measured and changes)."""
+    monkeypatch.setattr(dd, "ROUTES", {"action": ("nli", "llm"), "title_span": ("llm",), "card_type": ("llm",)})
+
+
 ACTIONS = (dd.Option("open", "abrir"), dd.Option("wait", "esperar"), dd.Option("none", "ninguna"))
 
 
@@ -135,3 +141,20 @@ def test_enabled_values(tmp_path, value, expected):
     svc, project = decider_services(tmp_path, FakeClassifier(), FakeReasoner())
     project.cfg["decider"]["enabled"] = value
     assert decider_available(svc, project.cfg) == expected
+
+
+def test_the_measured_routes(monkeypatch):
+    monkeypatch.undo()
+    assert dd.ROUTES["label_words"] == ("llm",) and dd.ROUTES["title_span"] == ("llm",)
+    assert dd.ROUTES["action"] == () and dd.ROUTES["icon"] == () and dd.ROUTES["card_type"] == ()
+    assert not any("nli" in r for r in dd.ROUTES.values())          # the small classifier is never loaded today
+
+
+def test_a_failed_answer_never_empties_a_multi_question():
+    s = dd.settings({})
+    m = question(kind="multi", default=("open", "wait"), hypothesis=None)
+    assert dd.pick(m, "llm", [], None, s, dd.rules_only(m)) is None          # a failure: the rules' answer stands
+    prompt, keys, many = dd.llm_request(m)
+    assert many and keys == ["a", "b", "c", "d"] and "d) ninguna de estas" in prompt
+    assert dd.pick(m, "llm", ["d"], 0.9, s, dd.rules_only(m)) == dd.Answer((), 0.9, "llm")   # "none" is an answer
+    assert dd.from_keys(m, ["a", "d"]) is None                                # none together with options: unclear

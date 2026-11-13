@@ -38,6 +38,8 @@ DEFAULTS = {"rounds": 3, "read_cps": 15.0, "graphic_max": 6.0, "camera_slack": 1
 ENGINE = ("director", "card", "support", "review")    # "_auto" of the cutaways the engine proposed (it may remove them)
 READ_KEYS = ("kicker", "title", "text", "label", "prefix", "value", "unit", "sub", "data", "items", "nodes",
              "name", "specs", "price", "outlet", "date")
+NEGATIONS = {"no", "nunca", "jamás", "jamas", "ni", "tampoco", "nada", "not", "never", "nothing", "don't", "doesn't",
+             "isn't", "can't", "won't"}
 FEWEST_WORDS = 2            # a shortened card keeps at least this many words
 FEWEST_ITEMS = 2            # …and a list at least this many items
 HEARD_SHARE = 0.3           # a word the voice says while it is shown is read along: it counts this share
@@ -275,11 +277,20 @@ def _other_versions(text: str, chars: float) -> list[str]:
     """Other shorter versions of a card's text than its first words: each clause (split at a comma,
     semicolon or colon), then its last words that fit in `chars`."""
     whole = text.rstrip("…").strip()
-    upper = whole[:1].isupper()
+    lead = len(whole) - len(whole.lstrip("¿¡\"'«("))
+    upper = whole[lead:lead + 1].isupper()
+    said = {w.strip(".,;:¿?¡!").lower() for w in whole.split()}
 
     def tidy(part: str) -> str:
         part = part.strip().rstrip(",;:").strip()
-        return part[:1].upper() + part[1:] if upper else part
+        if part.endswith("?") and "¿" in whole and not part.startswith("¿"):
+            part = "¿" + part                   # a question keeps its opening mark
+        at = len(part) - len(part.lstrip("¿¡\"'«("))
+        return part[:at] + part[at:at + 1].upper() + part[at + 1:] if upper else part
+
+    def keeps_meaning(part: str) -> bool:     # a version that drops "no" / "never" says the opposite
+        kept = {w.strip(".,;:¿?¡!").lower() for w in part.split()}
+        return not ((said & NEGATIONS) - kept)
 
     out = [tidy(part) for part in _CLAUSE.split(whole)][:3] if _CLAUSE.search(whole) else []
     words = whole.split()
@@ -288,7 +299,7 @@ def _other_versions(text: str, chars: float) -> list[str]:
         tail.pop(0)
     if len(tail) < len(words):
         out.append(tidy(" ".join(tail)))
-    return [v for v in out if v]
+    return [v for v in out if v and keeps_meaning(v)]
 
 
 # ── the render ───────────────────────────────────────────────────────────────

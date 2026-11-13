@@ -216,7 +216,8 @@ def test_proposals_say_a_model_changed_them():
     assert all("_decided" not in c for c in got if c not in changed)
 
 
-def test_the_cascade_runs_the_director_until_its_answers_settle(tmp_path):
+def test_the_cascade_runs_the_director_until_its_answers_settle(tmp_path, monkeypatch):
+    monkeypatch.setitem(dd.ROUTES, "action", ("llm",))         # the mechanics, whatever the measured routes say
     def none_for_actions(prompt: str, keys: list[str]):
         letter = re.search(r"^([a-z])\) ninguna de estas acciones$", prompt, re.M)
         return ([letter.group(1)] if letter else []), 0.9
