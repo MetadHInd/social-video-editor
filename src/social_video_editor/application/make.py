@@ -21,6 +21,7 @@ from ..log import log
 from .analyze import prepare_sources
 from .broll import broll_lines, fetch_broll
 from .cutaways import entrance_of
+from .decide import run_decided
 from .explainer import frame_plan
 from .plan import make_plan
 from .render import render
@@ -107,20 +108,21 @@ def _settle_plan(svc: Services, project: Project, tried: set[str], fixed: list[s
         got = fetch_broll(svc, project)
         first = first or got
         plan = load_plan(svc, project)
-        found = review.review_plan(plan, layout(svc, project, plan), project.cfg)
+        placed = layout(svc, project, plan)
+        found = run_decided(svc, project, lambda d: review.review_plan(plan, placed, project.cfg, decide=d))
         done, pending = review.apply(plan, found, tried)
         if not done:
             break
         fixed += done
         for line in done:
             log(f"  fixed: {line}")
-        _notes_again(project, plan)
+        _notes_again(svc, project, plan)
         _reframe(svc, project, plan)
         svc.projects.save_plan(project, plan)
     return pending, first
 
 
-def _notes_again(project: Project, plan: dict) -> None:
+def _notes_again(svc: Services, project: Project, plan: dict) -> None:
     """The notes around the presenter follow what is on screen: proposed again after the cutaways changed."""
     from ..domain import support
     from ..domain.explainer import script_settings
@@ -128,7 +130,8 @@ def _notes_again(project: Project, plan: dict) -> None:
     if not script_settings(project.cfg).get("support"):
         return
     kept = [c for c in plan.get("cutaways") or [] if c.get("_auto") != "support"]
-    notes = support.propose({**plan, "cutaways": kept}, project.cfg.get("language", "es"))
+    language = project.cfg.get("language", "es")
+    notes = run_decided(svc, project, lambda d: support.propose({**plan, "cutaways": kept}, language, decide=d))
     plan["cutaways"] = sorted(kept + notes, key=lambda c: c.get("at_sentence", 0))
 
 

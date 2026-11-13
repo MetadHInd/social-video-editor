@@ -24,12 +24,13 @@ plan entry a remedy changed keeps the codes in "_fixed" (private: it does not ch
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from . import director
 from .script import tokens
 from .cutaways import MIN_BETWEEN, Cutaway
-from .decide import Decide
+from .decide import Decide, Option, Question, ask
 from .graphics.scene import TEMPLATES
 
 REVIEW_FILE = "review.json"     # <project>/review.json: what the last `sve make` fixed and left
@@ -43,6 +44,11 @@ HEARD_SHARE = 0.3           # a word the voice says while it is shown is read al
 SLACK = 0.25                # seconds a measure may run over its limit before it counts
 FACE_BACK = 1.5             # a graphic cut short leaves the presenter at least this long (domain/director.MIN_FACE)
 CLOSING = "the closing sentence stays on camera"
+SHORTER_VERSIONS = 4        # the rules' shorter text and up to three others the decider may choose from
+SHORTEN_CONFIDENCE = 0.6    # how sure the rules are that cutting the last words reads best
+SHORTEN_PROMPT = {"es": "¿Cuál de estos textos más cortos se entiende mejor y dice lo mismo?",
+                  "en": "Which of these shorter texts reads best and still says the same thing?"}
+_CLAUSE = re.compile(r"[,;:]\s+")
 
 
 @dataclass
@@ -152,7 +158,8 @@ def review_plan(plan: dict, layout: Layout, cfg: dict, decide: Decide | None = N
         words = reading(c.spec)
         need_read = read_seconds(c.spec, r["read_cps"], heard(plan, c.sentences))
         if words and need_read > length + SLACK:
-            short = shorten(c.spec, length * float(r["read_cps"]), decide) if engine else None
+            short = shorten(c.spec, length * float(r["read_cps"]), decide,
+                            str((cfg or {}).get("language") or "es")) if engine else None
             found.append(Issue("text_too_long_to_read", f"{c.label} at {c.start:.1f} s: {len(words)} characters need "
                                f"{need_read:.1f} s to read, it is shown {length:.1f} s", c.start, c.index,
                                {"set": short} if short else ({"drop": True} if engine else None),
@@ -225,10 +232,11 @@ def overlay_templates() -> set[str]:
     return {name for name, tpl in TEMPLATES.items() if getattr(tpl, "overlay", False)}
 
 
-def shorten(spec: dict, chars: float, decide: Decide | None = None) -> dict | None:
+def shorten(spec: dict, chars: float, decide: Decide | None = None, language: str = "es") -> dict | None:
     """The text of an engine card cut to about `chars` characters (None when it cannot be shortened
     and still say something): a title or scene keeps its first words, a list its first items, a figure
-    drops the line under it, then its label."""
+    drops the line under it, then its label. A title or scene that can also be cut another way (a
+    clause of it, its last words) asks the decider which shorter text reads best (`shorten`)."""
     template = str(spec.get("template") or "")
     if template in ("bars", "diagram", "list") and spec.get("title"):
         return {"title": ""}
@@ -238,7 +246,19 @@ def shorten(spec: dict, chars: float, decide: Decide | None = None) -> dict | No
             words.pop()
         text = " ".join(words).rstrip(",;:") + ("…" if len(words) < len(str(spec["text"]).rstrip("…").split()) else "")
         rest = len(reading({**spec, "text": ""}))
-        return {"text": text} if text != spec["text"] and len(text) + rest <= chars + 8 else None
+        if text == spec["text"] or len(text) + rest > chars + 8:
+            return None
+        longest = max(chars, len(text))
+        versions = [text]
+        for v in _other_versions(str(spec["text"]), chars):
+            if (v not in versions and v != spec["text"] and len(v.split()) >= FEWEST_WORDS and len(v) <= longest
+                    and len(v) + rest <= chars + 8 and len(versions) < SHORTER_VERSIONS):
+                versions.append(v)
+        if len(versions) >= 2:
+            q = Question("shorten", "choice", SHORTEN_PROMPT.get(language, SHORTEN_PROMPT["en"]),
+                         tuple(Option(v, v) for v in versions), str(spec["text"]), (text,), SHORTEN_CONFIDENCE, language)
+            text = ask(decide, q).value or text
+        return {"text": text}
     if template == "list" and spec.get("items"):
         items = [x.strip() for x in str(spec["items"]).split(";") if x.strip()]
         while len(items) > FEWEST_ITEMS and len(" ".join(items)) > chars:
@@ -249,6 +269,26 @@ def shorten(spec: dict, chars: float, decide: Decide | None = None) -> dict | No
             if spec.get(k):
                 return {k: ""}
     return None
+
+
+def _other_versions(text: str, chars: float) -> list[str]:
+    """Other shorter versions of a card's text than its first words: each clause (split at a comma,
+    semicolon or colon), then its last words that fit in `chars`."""
+    whole = text.rstrip("…").strip()
+    upper = whole[:1].isupper()
+
+    def tidy(part: str) -> str:
+        part = part.strip().rstrip(",;:").strip()
+        return part[:1].upper() + part[1:] if upper else part
+
+    out = [tidy(part) for part in _CLAUSE.split(whole)][:3] if _CLAUSE.search(whole) else []
+    words = whole.split()
+    tail = list(words)
+    while len(tail) > FEWEST_WORDS and len(" ".join(tail)) > chars:
+        tail.pop(0)
+    if len(tail) < len(words):
+        out.append(tidy(" ".join(tail)))
+    return [v for v in out if v]
 
 
 # ── the render ───────────────────────────────────────────────────────────────

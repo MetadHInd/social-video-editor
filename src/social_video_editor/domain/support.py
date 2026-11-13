@@ -11,6 +11,10 @@ said:
   4. a long word that reads well alone ("asleep", "dormidas") becomes a label too, where there is still
      room: the words that carry the sentence pop up as they are said. A sentence with nothing at all
      to show, after a quiet moment, settles for a shorter one.
+The rules know no grammar, so a verb can pass for a noun or a long word ("they wait", "close it"). Each
+candidate has a confidence (a figure or an illustration is sure; a noun that ends like a verb form, a
+long word or a key word is not): when a sentence has unsure candidates, one `label_words` question asks
+the decider (domain/decide.py) which of them make good notes. Without a decider the rules keep them all.
 Notes are grouped in one overlay per stretch (up to six notes, a few seconds) and each one appears
 when its word is said. Every proposal carries "_auto": "support" so it can be told apart, edited or
 removed in plan.json; `script.support: false` turns them off.
@@ -19,7 +23,7 @@ from __future__ import annotations
 
 import re
 
-from .decide import Decide
+from .decide import Decide, Option, Question, ask
 from .graphics.icons import ALONE, find_icon
 from .script import tokens
 
@@ -61,6 +65,16 @@ why will with would you your yours actually simply always never another because 
 without against during however although anything something everything nothing themselves yourself""".split()),
 }
 
+# how sure the rules are that a candidate makes a good note; under SURE the decider is asked about it
+CONFIDENCE = {"figure": 1.0, "icon": 0.95, "word": 0.85, "verb_like": 0.5, "emphasis": 0.5, "key_word": 0.4}
+SURE = 0.8
+# endings of verb forms (and verbs with a pronoun stuck to them): a "noun" ending so may be a verb ("las guardan")
+_VERB_LIKE = {"es": re.compile(r"(?:an|en|ar|er|ir|l[aeo]s?|te|se|me|nos)$")}
+PROMPT = {"es": "¿Cuáles de estas palabras de la frase sirven como apunte corto en pantalla? Un buen apunte nombra "
+                "una cosa o una idea clave (un sustantivo); un verbo no sirve.",
+          "en": "Which of these words of the sentence work as a short note on screen? A good note names a thing "
+                "or a key idea (a noun); a verb does not."}
+
 
 def _clean(word: str) -> str:
     return word.strip(_EDGES + " ")
@@ -76,14 +90,25 @@ def sentence_notes(words: list[list], language: str = "es", key_word: bool = Fal
     """Notes a sentence offers, in the order they are said: [{"label", "icon" | None, "t", "kind"}]
     (t = source seconds its word starts; kind = figure | icon | word (a noun) | emphasis (a long word)).
     words: [[written word, start, end]] (plan sentences' "words"). key_word: when it offers nothing,
-    its longest word of SHORT_KEY_WORD letters or more."""
+    its longest word of SHORT_KEY_WORD letters or more. decide: asked which unsure candidates to keep."""
+    return _notes(words, language, key_word, decide)[0]
+
+
+def _candidates(words: list[list], language: str, key_word: bool) -> list[dict]:
+    """Every note the rules offer, each with "conf" (CONFIDENCE) and "word" (as written)."""
     stop = STOPWORDS.get(language, STOPWORDS["en"])
     weak = _WEAK.get(language, _WEAK["en"])
+    verb_like = _VERB_LIKE.get(language)
     named = DETERMINERS.get(language, DETERMINERS["en"])
     pronouns, openers = PRONOUN_AFTER.get(language, PRONOUN_AFTER["en"])
     lower = [_clean(w).lower() for w, _s, _e in words]                    # as written (accents kept: "tú" is not "tu")
     plain = ["".join(tokens(w)) if w.isalpha() else "" for w in lower]
     out, used, unit = [], set(), -1
+
+    def note(i: int, label: str, icon: str | None, kind: str, conf: float) -> dict:
+        return {"label": label, "icon": icon, "t": float(words[i][1]), "kind": kind, "conf": conf,
+                "word": _clean(words[i][0])}
+
     for i, (word, start, _end) in enumerate(words):
         if i == unit:                                         # already shown as the unit of a figure
             continue
@@ -92,7 +117,7 @@ def sentence_notes(words: list[list], language: str = "es", key_word: bool = Fal
             label = figure.group(1).strip()
             if i + 1 < len(words) and lower[i + 1].isalpha() and len(lower[i + 1]) >= 2 and plain[i + 1] not in stop:
                 label, unit = f"{label} {_clean(words[i + 1][0])}", i + 1     # "2 minutes", "20 apps"
-            out.append({"label": label, "icon": None, "t": float(start), "kind": "figure"})
+            out.append(note(i, label, None, "figure", CONFIDENCE["figure"]))
             continue
         token = "".join(tokens(lower[i]))
         if len(token) < 3 or token in stop or token in ALONE:
@@ -101,25 +126,45 @@ def sentence_notes(words: list[list], language: str = "es", key_word: bool = Fal
         if icon:
             if icon not in used:
                 used.add(icon)
-                out.append({"label": _label(word), "icon": icon, "t": float(start), "kind": "icon"})
+                out.append(note(i, _label(word), icon, "icon", CONFIDENCE["icon"]))
             continue
         before = lower[i - 1] if i else ""
         noun = (before in named and len(token) >= NOUN_LETTERS and plain[i] and not weak.search(token)
                 and not (before in pronouns and i >= 2 and lower[i - 2] in openers))
         if noun and token not in used:
             used.add(token)
-            out.append({"label": _label(word), "icon": None, "t": float(start), "kind": "word"})
+            sure = CONFIDENCE["verb_like" if verb_like and verb_like.search(token) else "word"]
+            out.append(note(i, _label(word), None, "word", sure))
     taken = {n["t"] for n in out}
     good = [(len(t), i) for i, t in enumerate(plain) if t and t not in stop and not weak.search(t)
             and float(words[i][1]) not in taken and i != unit]
-    out += [{"label": _label(words[i][0]), "icon": None, "t": float(words[i][1]), "kind": "emphasis"}
-            for n, i in good if n >= KEY_WORD_LETTERS]
+    out += [note(i, _label(words[i][0]), None, "emphasis", CONFIDENCE["emphasis"]) for n, i in good if n >= KEY_WORD_LETTERS]
     if not out and key_word:
         short = [x for x in good if x[0] >= SHORT_KEY_WORD]
         if short:
             i = max(short)[1]                                 # the longest; the later one among equals
-            out.append({"label": _label(words[i][0]), "icon": None, "t": float(words[i][1]), "kind": "emphasis"})
+            out.append(note(i, _label(words[i][0]), None, "emphasis", CONFIDENCE["key_word"]))
     return sorted(out, key=lambda n: n["t"])
+
+
+def _notes(words: list[list], language: str, key_word: bool, decide: Decide | None) -> tuple[list[dict], str | None]:
+    """(the notes of sentence_notes, the source of the answer when a model changed them, else None)."""
+    out = _candidates(words, language, key_word)
+    changed = None
+    unsure = [n for n in out if n["conf"] < SURE]
+    if unsure:
+        options: dict[str, str] = {}
+        for n in unsure:
+            options.setdefault(n["label"], n["word"])
+        q = Question("label_words", "multi", PROMPT.get(language, PROMPT["en"]),
+                     tuple(Option(label, word) for label, word in options.items()),
+                     " ".join(str(w[0]) for w in words), tuple(options), min(n["conf"] for n in unsure), language)
+        answer = ask(decide, q)
+        keep = set(answer.values)
+        out = [n for n in out if n["conf"] >= SURE or n["label"] in keep]
+        if answer.source != "rules" and keep != set(q.default):
+            changed = answer.source
+    return [{k: n[k] for k in ("label", "icon", "t", "kind")} for n in out], changed
 
 
 def _pick(notes: list[dict], last: float | None) -> list[dict]:
@@ -169,7 +214,8 @@ def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> l
         if group and group["items"]:
             out.append({"type": "graphic", "template": "callouts", "items": group["items"],
                         "icons": [n or "-" for n in group["icons"]], "item_times": group["times"],
-                        "at_sentence": group["first"], "until_sentence": group["last"], "_auto": "support"})
+                        "at_sentence": group["first"], "until_sentence": group["last"], "_auto": "support",
+                        **({"_decided": group["decided"]} if group.get("decided") else {})})
             recent = {x.lower() for x in group["items"]}
         group = None
 
@@ -194,7 +240,8 @@ def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> l
         same = last_note is not None and last_note[0] == s["source"]
         quiet = not same or float(s["start"]) - last_note[1] > QUIET_SECONDS
         shown = {x.lower() for x in group["items"]} if group else set()
-        offered = [note for note in sentence_notes(s["words"], language, key_word=quiet and length >= 1.2, decide=decide)
+        notes, decided = _notes(s["words"], language, quiet and length >= 1.2, decide)
+        offered = [note for note in notes
                    if clock + (note["t"] - float(s["start"])) >= OPENING_SECONDS
                    and note["t"] < until
                    and (alone_after or until - note["t"] >= LAST_SECONDS)
@@ -208,8 +255,12 @@ def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> l
             group["icons"].append(note["icon"])
             group["times"].append([s["source"], round(note["t"], 3)])
             last_note = (s["source"], note["t"])
+            if decided:
+                group["decided"] = decided
         if group:
             group["last"] = n
+            if decided:
+                group["decided"] = decided         # its notes changed because of a model's answer
         clock += float(s["end"]) - float(s["start"])
         if cut is not None:                    # the picture changes inside this sentence: the notes end with it
             flush()
