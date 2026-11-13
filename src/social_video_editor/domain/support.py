@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 
+from .decide import Decide
 from .graphics.icons import ALONE, find_icon
 from .script import tokens
 
@@ -70,7 +71,8 @@ def _label(word: str) -> str:
     return w[:1].upper() + w[1:]
 
 
-def sentence_notes(words: list[list], language: str = "es", key_word: bool = False) -> list[dict]:
+def sentence_notes(words: list[list], language: str = "es", key_word: bool = False,
+                   decide: Decide | None = None) -> list[dict]:
     """Notes a sentence offers, in the order they are said: [{"label", "icon" | None, "t", "kind"}]
     (t = source seconds its word starts; kind = figure | icon | word (a noun) | emphasis (a long word)).
     words: [[written word, start, end]] (plan sentences' "words"). key_word: when it offers nothing,
@@ -138,7 +140,7 @@ def _pick(notes: list[dict], last: float | None) -> list[dict]:
     return sorted(chosen, key=lambda n: n["t"])
 
 
-def propose(plan: dict, language: str = "es") -> list[dict]:
+def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> list[dict]:
     """Cutaway entries (`callouts` overlays) for the sentences said on camera with nothing else on
     screen. The plan is not changed. Sentences under a cutaway of the plan are left alone; a sentence
     whose cutaway starts at one of its words (from_word) keeps notes on its part said on camera."""
@@ -192,7 +194,7 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
         same = last_note is not None and last_note[0] == s["source"]
         quiet = not same or float(s["start"]) - last_note[1] > QUIET_SECONDS
         shown = {x.lower() for x in group["items"]} if group else set()
-        offered = [note for note in sentence_notes(s["words"], language, key_word=quiet and length >= 1.2)
+        offered = [note for note in sentence_notes(s["words"], language, key_word=quiet and length >= 1.2, decide=decide)
                    if clock + (note["t"] - float(s["start"])) >= OPENING_SECONDS
                    and note["t"] < until
                    and (alone_after or until - note["t"] >= LAST_SECONDS)

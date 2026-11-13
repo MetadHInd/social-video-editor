@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from .decide import Decide
 from .graphics.icons import ALONE, find_icon
 from .graphics.scenes import ACTIONS, action_of
 from .script import tokens
@@ -388,7 +389,8 @@ def local_query(words: list[tuple[str, float]], at: float, icon: str | None, lan
     return " ".join(found[:3])
 
 
-def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, last: str | None = None) -> dict:
+def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, last: str | None = None,
+         decide: Decide | None = None) -> dict:
     """What the engine draws for a sentence when no footage is good enough, by what the sentence says:
     a figure → `number`; three or more items → `list`; something doing something → `scene` (an animated
     illustration); else a `title` with the illustration of what it names. `last`: the template used
@@ -421,7 +423,7 @@ def covered(plan: dict, overlay: set[str]) -> set[int]:
     return out
 
 
-def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset()) -> list[dict]:
+def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Decide | None = None) -> list[dict]:
     """b-roll cutaways for the stretches the presenter is alone on camera for too long. The plan is
     not changed. overlay: the templates drawn over the picture (they do not cover the presenter)."""
     p = settings(cfg)
@@ -488,7 +490,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset()) -> list[dict
             query = options[turns[icon] % len(options)]
         turns[icon] += 1
         last_query = query
-        drawn = card(s, at, main, last)
+        drawn = card(s, at, main, last, decide=decide)
         where = {"at_sentence": n, "until_sentence": n, "from_word": [s["source"], round(at, 3)],
                  "note": f"«{word.strip('¿?¡!.,;:')}»", "_auto": "director"}
         if drawn["template"] == "number":                   # a figure is shown, not searched for

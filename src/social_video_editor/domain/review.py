@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from . import director
 from .script import tokens
 from .cutaways import MIN_BETWEEN, Cutaway
+from .decide import Decide
 from .graphics.scene import TEMPLATES
 
 REVIEW_FILE = "review.json"     # <project>/review.json: what the last `sve make` fixed and left
@@ -121,7 +122,7 @@ def read_seconds(spec: dict, cps: float, said: set[str] = frozenset()) -> float:
 
 # ── the plan ─────────────────────────────────────────────────────────────────
 
-def review_plan(plan: dict, layout: Layout, cfg: dict) -> list[Issue]:
+def review_plan(plan: dict, layout: Layout, cfg: dict, decide: Decide | None = None) -> list[Issue]:
     """Findings in the plan as placed on the video, in time order."""
     r = settings(cfg)
     cutaways = plan.get("cutaways") or []
@@ -151,7 +152,7 @@ def review_plan(plan: dict, layout: Layout, cfg: dict) -> list[Issue]:
         words = reading(c.spec)
         need_read = read_seconds(c.spec, r["read_cps"], heard(plan, c.sentences))
         if words and need_read > length + SLACK:
-            short = shorten(c.spec, length * float(r["read_cps"])) if engine else None
+            short = shorten(c.spec, length * float(r["read_cps"]), decide) if engine else None
             found.append(Issue("text_too_long_to_read", f"{c.label} at {c.start:.1f} s: {len(words)} characters need "
                                f"{need_read:.1f} s to read, it is shown {length:.1f} s", c.start, c.index,
                                {"set": short} if short else ({"drop": True} if engine else None),
@@ -165,7 +166,7 @@ def review_plan(plan: dict, layout: Layout, cfg: dict) -> list[Issue]:
                                f"{limit:g} s): the picture rests too long", c.start, c.index, fix,
                                [] if fix else [f"split it (seconds={limit:g} and another cue for the rest)",
                                                "leave it"], f"long:{_where(source)}"))
-    found += camera_stretches(plan, layout, cfg)
+    found += camera_stretches(plan, layout, cfg, decide)
     for s in plan.get("sentences") or []:
         if isinstance(s, dict) and s.get("missing"):
             found.append(Issue("sentence_unmatched", f"sentence {s.get('n')} was not found in the recording: "
@@ -196,7 +197,7 @@ def sooner(plan: dict, layout: Layout, c: Cutaway, missing: float) -> list | Non
     return [source, round(word if word is not None else target, 3)]
 
 
-def camera_stretches(plan: dict, layout: Layout, cfg: dict) -> list[Issue]:
+def camera_stretches(plan: dict, layout: Layout, cfg: dict, decide: Decide | None = None) -> list[Issue]:
     """Stretches where the presenter is alone (no full-frame cutaway) for longer than the director allows."""
     d = director.settings(cfg)
     if not d["auto_broll"] or not layout.spans:
@@ -210,7 +211,7 @@ def camera_stretches(plan: dict, layout: Layout, cfg: dict) -> list[Issue]:
         allowed = float(d["opening"] if t < 0.05 else d["max_camera"]) + slack
         if end - t > allowed:
             inside = [n for n, (s0, s1) in layout.spans.items() if s0 < end - 0.05 and s1 > t + 0.05]
-            fresh = [c for c in director.propose(plan, cfg, overlay_templates()) if c.get("at_sentence") in inside]
+            fresh = [c for c in director.propose(plan, cfg, overlay_templates(), decide=decide) if c.get("at_sentence") in inside]
             out.append(Issue("camera_too_long", f"the presenter is alone on camera {end - t:.1f} s from {t:.1f} s "
                              f"(most {allowed - slack:g} s)", t, None, {"add": fresh} if fresh else None,
                              [] if fresh else ["add a [graphic] or [broll] cue to that sentence", "leave it"],
@@ -224,7 +225,7 @@ def overlay_templates() -> set[str]:
     return {name for name, tpl in TEMPLATES.items() if getattr(tpl, "overlay", False)}
 
 
-def shorten(spec: dict, chars: float) -> dict | None:
+def shorten(spec: dict, chars: float, decide: Decide | None = None) -> dict | None:
     """The text of an engine card cut to about `chars` characters (None when it cannot be shortened
     and still say something): a title or scene keeps its first words, a list its first items, a figure
     drops the line under it, then its label."""
