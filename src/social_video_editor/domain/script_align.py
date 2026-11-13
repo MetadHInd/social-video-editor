@@ -36,6 +36,9 @@ SENTENCE_END = (".", "?", "!", "…")
 MAX_ALTERNATIVES = 4
 MIN_REFRAMED = 2.0        # a shot made by reframing lasts at least this long (else it stays in the previous one)
 UNSAID = 0.06             # a written word left with less time than this (seconds) was not said
+JOINED = 0.12             # words this close are one stretch of speech: a sentence never ends between them…
+JOINED_WORDS = 3          # …so up to this many words joined to its edge are kept (misheard ones the script
+JOINED_SECONDS = 1.2      # does not match: "sc reens" for "screens"), at most this long
 
 
 @dataclass(frozen=True)
@@ -234,6 +237,30 @@ def _window(words: list[Word], take: Take, pad_start: float, pad_end: float) -> 
     return round(max(start, 0.0), 3), round(end, 3)
 
 
+def _whole(words: list[Word], take: Take, taken: set[int]) -> Take:
+    """The take widened over the words said right against its edges (no pause between them) that no
+    other sentence uses, so the cut never falls inside a stretch of speech: a word the transcription
+    split or misheard ("Pre paras" for "Preparas") is not chopped in half."""
+    from dataclasses import replace
+
+    first, last = take.first, take.last
+    for _ in range(JOINED_WORDS):
+        p = first - 1
+        if (p < 0 or p in taken or words[p].source != words[first].source
+                or words[first].start - words[p].end > JOINED or words[p].raw.endswith(SENTENCE_END)
+                or words[take.first].start - words[p].start > JOINED_SECONDS):
+            break
+        first = p
+    for _ in range(JOINED_WORDS):
+        p = last + 1
+        if (p >= len(words) or p in taken or words[p].source != words[last].source
+                or words[p].start - words[last].end > JOINED or words[last].raw.endswith(SENTENCE_END)
+                or words[p].end - words[take.last].end > JOINED_SECONDS):
+            break
+        last = p
+    return replace(take, first=first, last=last)
+
+
 def align(sentences: list[str], words: list[Word], cfg: dict | None = None) -> list[dict | None]:
     """Where each sentence is in the recording: {"source", "start", "end", "score", "takes",
     "alternatives": [[source, start, end, score], …]} (source seconds), or None when it was not said."""
@@ -243,11 +270,12 @@ def align(sentences: list[str], words: list[Word], cfg: dict | None = None) -> l
     chosen = choose(takes, [len(t) for t in split], str(p["take"]))
     pads = float(p["pad_start"]), float(p["pad_end"])
     out: list[dict | None] = []
-    for sentence, found, take in zip(sentences, takes, chosen):
+    for k, (sentence, found, take) in enumerate(zip(sentences, takes, chosen)):
         if take is None:
             out.append(None)
             continue
-        start, end = _window(words, take, *pads)
+        taken = {i for j, t in enumerate(chosen) if t is not None and j != k for i in range(t.first, t.last + 1)}
+        start, end = _window(words, _whole(words, take, taken), *pads)
         others = sorted((t for t in found if t is not take), key=lambda t: t.first)[:MAX_ALTERNATIVES]
         out.append({"source": words[take.first].source, "start": start, "end": end, "score": take.score,
                     "takes": len(found),

@@ -40,6 +40,8 @@ script:                  # explainer recipe: a script said to the camera (domain
   pad_start: 0.08        # seconds kept before the first word of a sentence
   pad_end: 0.12          # seconds kept after its last word
   join_gap: 0.6          # sentences said one after the other, this close, stay in one shot
+  transition: dissolve   # how two camera shots are joined: dissolve = a 0.2 s crossfade (no dry jump cut) | cut
+  cutaway_fade: 0.2      # seconds a full-frame graphic / clip fades in and out (two in a row: one over the other)
   punch_in: 1.08         # zoom alternated at every visible jump cut (0 = off)
   close_up: 1.15         # a third, closer framing: cuts go wide → punch-in → wide → close-up (0 = wide / punch-in only)
   subtitles: script      # script | speech: subtitles show the script's own words (timed by the voice), or what
@@ -98,6 +100,7 @@ transcription:
 
 color:
   auto: true
+  per_source: false      # true = one correction measured over the whole recording (the same for all its shots)
   hdr_white: 0.62        # iPhone HDR → SDR conversion (tested)
   levels: true           # stretches blacks/whites
   white_balance: 0.5     # 0 = untouched, 1 = fully neutral
@@ -128,7 +131,7 @@ framing:
 transitions:
   rotation: [cut, cut, zoom, cut, whip, cut]   # used in this order
   duration: 0.22
-  # catalog: cut | fade | soft_cut | fade_black | flash | zoom | whip | slide_up | slide_left | circle | pixel | blur | radial | curtain
+  # catalog: cut | fade | soft_cut | dissolve | fade_black | flash | zoom | whip | slide_up | slide_left | circle | pixel | blur | radial | curtain
 
 effects:
   zoom_on_peaks: true    # zoom punch on a loud sound (emphasis)
@@ -142,6 +145,9 @@ effects:
 audio:
   use_original: true
   denoise: 10            # noise reduction (dB, afftdn). 0 = off
+  clean_voice: false     # true = the background noise of each recording taken out ONCE, over the whole recording
+                         # (RNNoise, a ≈300 KB model downloaded once): no seams at the cuts (then denoise is skipped)
+  clean_mix: 1.0         # how much of the cleaned voice (1 = all; 0.8 keeps a little of the room)
   highpass: 80           # removes rumble
   voice_eq: true         # presence at 3 kHz, less "mud" at 250 Hz
   compressor: true
@@ -245,6 +251,12 @@ check:                   # sve check <project>: automatic review of a render (th
   duration_tolerance: 0.25       # ± 25 % of duration.target
   listen_max: 6                  # ≤ 3 s snippets of the worst moments (listen/ or escuchar/)
   listen_sec: 3.0
+
+review:                  # sve make: the engine reviews its own plan and render and fixes what it can (domain/review.py)
+  rounds: 3              # at most this many renders (render → check → fix → render again)
+  read_cps: 15           # characters a viewer reads per second: a graphic is shown at least its text / this
+  graphic_max: 6.0       # seconds a full-frame graphic or photo stays at most; longer, the presenter comes back (0 = off)
+  camera_slack: 1.5      # the presenter alone may run this much over script.opening / max_camera before it counts
 
 polaroid:                # shot {"type": "polaroid", "from_shot": k, "beats": 2, "text": "…"}
   width: 0.70

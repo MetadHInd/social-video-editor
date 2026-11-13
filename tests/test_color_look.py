@@ -89,3 +89,40 @@ def test_apply_color_reference(tmp_path):
     assert "_reference" not in plain["color"]
     with pytest.raises(UserError):
         app_render.apply_color_reference(_Svc(), _Project(tmp_path), {"color": {"reference": "missing.mp4"}})
+
+
+def test_explainer_look_is_natural():
+    import yaml
+    from importlib import resources
+    recipes = resources.files("social_video_editor") / "recipes"
+    color = {**yaml.safe_load((recipes / "base.yaml").read_text())["color"],
+             **yaml.safe_load((recipes / "explainer.yaml").read_text())["color"]}
+    stats = color_math.measure(frames(0.38, 0.2, bgr=(0.8, 0.9, 1.0)))        # a warm room, a bit dark
+    p = color_math.correction(stats, color)
+    assert p["levels"] is None and p["gains"] is None                         # blacks, whites and tone untouched
+    assert (p["contrast"], p["saturation"]) == (1.0, 1.0) and 1.0 < p["gamma"] <= 1.05  # only a light nudge
+    assert color_math.creative(color) == {}                                   # no vibrance, no sharpening
+    assert color["per_source"] is True
+
+
+def test_per_source_color_is_measured_once_for_all_the_shots():
+    reads = []
+
+    class Video:
+        def read_frames(self, path, times):
+            reads.append(list(times))
+            return frames(0.4 + 0.1 * len(reads), 0.1)
+
+    class Svc:
+        video = Video()
+
+    r = object.__new__(app_render.ShotRenderer)
+    r.svc, r._source_stats = Svc(), {}
+    info = {"proxy": "p.mp4", "duration": 60.0}
+    r.cfg = {"color": {"per_source": True}}
+    a = r._color_stats(0, info, {"start": 1.0, "end": 3.0})
+    b = r._color_stats(0, info, {"start": 40.0, "end": 45.0})
+    assert a is b and len(reads) == 1 and len(reads[0]) == app_render.SOURCE_COLOR_FRAMES
+    assert reads[0][0] < 1 and reads[0][-1] > 59                               # spread over the whole recording
+    r.cfg = {"color": {}}
+    assert r._color_stats(0, info, {"start": 1.0, "end": 3.0}) is not a and len(reads) == 2    # per shot

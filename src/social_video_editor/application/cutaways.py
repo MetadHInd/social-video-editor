@@ -14,7 +14,8 @@ import numpy as np
 
 from ..domain import color_math, footage
 from ..domain import pip as pip_window
-from ..domain.cutaways import DEFAULT_ENTRANCE, PHOTO_ENTRANCE, Cutaway, kind_of, resolve, spec_of
+from ..domain.cutaways import DEFAULT_ENTRANCE, PHOTO_ENTRANCE, Cutaway, kind_of, resolve, soften, spec_of
+from ..domain.explainer import script_settings
 from ..domain.models import PlanError, Project
 from ..domain.photos import ALL_MOTIONS, auto_tone_setting, photo_crf, photo_settings
 from ..domain.timeline import Timeline
@@ -125,6 +126,7 @@ def render_cutaways(svc: Services, project: Project, cfg: dict, plan: dict, tl: 
                             "overlay": c.overlay, **({"sentences": list(c.sentences)} if c.sentences else {}),
                             **({"pip": True} if window else {}), **({"auto": c.auto} if c.auto else {}), **extra})
     out.details.sort(key=lambda d: (d["start"], d["n"]))
+    soften(out.files, float(script_settings(cfg).get("cutaway_fade") or 0), fps, tl.total)
     for w in out.warnings:
         log(f"  ⚠ {w}")
     return out

@@ -166,6 +166,172 @@ def figure(words: list[tuple[str, float]]) -> dict | None:
     return min(found, key=lambda x: (x[0], x[1]))[2] if found else None
 
 
+TIME_UNITS = {"ms": 0.001, "milisegundo": 0.001, "millisecond": 0.001, "s": 1, "seg": 1, "segundo": 1, "second": 1,
+              "min": 60, "minuto": 60, "minute": 60, "h": 3600, "hora": 3600, "hour": 3600, "dia": 86400, "day": 86400}
+SHORT_UNITS = {"milisegundo": "ms", "millisecond": "ms", "segundo": "s", "second": "s", "seg": "s", "minuto": "min",
+               "minute": "min", "hora": "h", "hour": "h", "dia": "días", "day": "days", "porciento": "%", "percent": "%",
+               "gigabyte": "GB", "gb": "GB", "megabyte": "MB", "mb": "MB"}
+MARKERS = set("antes ahora hoy ayer before now today yesterday".split())     # a bar named by when
+COMPARING = set("vs versus contra frente comparado mientras compared than while".split())
+LABEL_STOP = UNIT_STOP | set("son es eran fue is are was were vs versus contra frente tiene tienen tenia has have had tarda "
+                             "tardaba tardan takes took gasta gastan usa usan uses use pesa pesan cuesta cuestan costs cost "
+                             "mide miden".split())
+LABEL_WORDS = 3
+QUOTE_LEAD = ("según", "segun", "according to")
+QUOTE_VERBS = set("publicó publico dice dijo reveló revelo informó informo asegura aseguró afirma afirmó anunció anuncio "
+                  "says said reported reports announced published claims".split())
+
+
+def _unit_key(word: str) -> str:
+    """'minutos' → 'minuto', 'GB' → 'gb', '%' → 'porciento': the same unit however it is said."""
+    w = "".join(tokens(word)) or word.strip()
+    if w in ("%", "porciento", "percent") or word.strip() == "%":
+        return "porciento"
+    for key in (w, w[:-2] if w.endswith("es") else w, w[:-1] if w.endswith("s") else w):
+        if key in TIME_UNITS or key in SHORT_UNITS:
+            return key
+    return w[:-1] if w.endswith("s") and len(w) > 3 else w
+
+
+def _figures(words: list[tuple[str, float]]) -> list[dict]:
+    """Every figure said with its unit: [{"i", "end" (index after the unit), "value", "unit", "said"}]."""
+    plain = ["".join(tokens(w)) for w, _ in words]
+    out = []
+    for i, (w, _) in enumerate(words):
+        raw = _clean(w)
+        pct = raw.endswith("%")
+        digits = raw.rstrip("%").replace(".", "").replace(",", ".")
+        try:
+            value = float(digits) if digits.replace(".", "", 1).isdigit() else NUMBER_WORDS.get(plain[i])
+        except ValueError:
+            value = None
+        if value is None:
+            continue
+        unit, said, end = ("porciento", "%", i + 1) if pct else ("", "", i + 1)
+        if not pct and end < len(words) and _clean(words[end][0]) in ("%", "por ciento"):
+            unit, said, end = "porciento", "%", end + 1
+        elif not pct and end < len(words) and plain[end] and plain[end] not in UNIT_STOP and not plain[end].isdigit() \
+                and not words[i][0].rstrip().endswith((",", ";", ":", ".")):
+            unit, said, end = _unit_key(words[end][0]), _clean(words[end][0]), end + 1
+            if unit == "por" or said.lower() in ("por", "per"):
+                unit, said, end = "", "", i + 1
+        if unit:
+            out.append({"i": i, "end": end, "value": float(value), "unit": unit, "said": said})
+    return out
+
+
+def comparison(words: list[tuple[str, float]]) -> dict | None:
+    """Two to six figures of the same kind compared in one sentence ("dos minutos por semana, al año dos
+    horas"; "de 15 % antes a 40 % hoy") as `bars`: times are put in the smallest unit said; each bar is
+    named by a word such as "antes / hoy" next to it, else by the words after it (or before it).
+    → the spec plus "at" (the second the first figure is said), or None."""
+    found = _figures(words)
+    for f in found:
+        f["base"] = TIME_UNITS.get(f["unit"])
+    groups: dict[str, list[dict]] = {}
+    for f in found:
+        groups.setdefault("time" if f["base"] else f["unit"], []).append(f)
+    best = max(groups.values(), key=len, default=[])
+    if not 2 <= len(best) <= 6 or len({(f["value"], f["unit"]) for f in best}) < len(best):
+        return None
+    closes = [w.rstrip().endswith(CLAUSE_END + (".", "?", "!")) for w, _ in words]
+    plain = ["".join(tokens(w)) for w, _ in words]
+    apart = any(closes[k] for f, g in zip(best, best[1:]) for k in range(f["end"] - 1, g["i"]))
+    other = any(plain[k] in ("y", "e", "and") and k + 1 < len(words) and plain[k + 1] in DETERMINERS
+                for f, g in zip(best, best[1:]) for k in range(f["end"], g["i"]))
+    if not (best[0]["base"] or apart or other or any(w in MARKERS | COMPARING for w in plain)):
+        return None                                         # figures one after another, not set against each other
+    used = {k for f in best for k in range(f["i"], f["end"])}
+    labels = []
+    for n, f in enumerate(best):
+        lo = best[n - 1]["end"] if n else 0
+        hi = best[n + 1]["i"] if n + 1 < len(best) else len(words)
+        before = []
+        for k in range(f["i"] - 1, lo - 1, -1):              # its own clause, right before it
+            if k in used or closes[k]:
+                break
+            before.insert(0, k)
+        after = []
+        for k in range(f["end"], hi):
+            if k in used:
+                break
+            after.append(k)
+            if closes[k]:
+                break
+        marked = [k for k in reversed(before) if plain[k] in MARKERS] or [k for k in after if plain[k] in MARKERS]
+        own = before and len(before) <= LABEL_WORDS and before[0] > 0 and closes[before[0] - 1]
+        if marked:
+            pick = marked[:1]
+        elif own:
+            pick = before                                   # ", al año dos horas" → "Al año"
+        elif after and len(after) <= LABEL_WORDS and closes[after[-1]]:
+            pick = after                                    # "dos minutos por semana," → "Por semana"
+        elif before:
+            pick = before[-LABEL_WORDS - 1:]
+        else:
+            pick = after[:LABEL_WORDS]
+        while pick and (plain[pick[0]] in LEADING or plain[pick[0]] in DETERMINERS):
+            pick = pick[1:]
+        while pick and plain[pick[-1]] in LABEL_STOP:
+            pick = pick[:-1]
+        pick = pick[-LABEL_WORDS:]
+        used.update(pick)
+        label = " ".join(_clean(words[k][0]) for k in pick).strip()
+        labels.append(_capital(label) if label else f"{n + 1}")
+    if len(set(labels)) < len(labels):
+        return None
+    if best[0]["base"]:
+        small = min(best, key=lambda f: f["base"])
+        unit = SHORT_UNITS.get(small["unit"], small["said"])
+        values = [f["value"] * f["base"] / small["base"] for f in best]
+    else:
+        unit = SHORT_UNITS.get(best[0]["unit"], best[0]["said"])
+        values = [f["value"] for f in best]
+    data = ", ".join(f"{label}:{v:g}" for label, v in zip(labels, values))
+    return {"template": "bars", "data": data, "unit": unit, "at": words[best[0]["i"]][1]}
+
+
+def _capital(text: str) -> str:
+    """First letter up, unless the first word is written that way on purpose ("iPhone")."""
+    first = text.split()[0] if text.split() else ""
+    return text if any(c.isupper() for c in first[1:]) else text[:1].upper() + text[1:]
+
+
+def said_data(words: list[tuple[str, float]]) -> dict | None:
+    """What a sentence says that is shown as data rather than searched for: figures compared → `bars`,
+    a source quoted → `headline`. The spec plus "at" (when it starts being said), or None."""
+    return comparison(words) or quote(words)
+
+
+def quote(words: list[tuple[str, float]]) -> dict | None:
+    """"Según X, …" / "X publicó que …" / "according to X, …" as a `headline`: what was said, and who said
+    it as the outlet. → the spec plus "at" (the second the source is named), or None."""
+    plain = ["".join(tokens(w)) for w, _ in words]
+    text = [w for w, _ in words]
+    for k, w in enumerate(plain):
+        lead = 2 if w == "according" and k + 1 < len(plain) and plain[k + 1] == "to" else 1 if w in ("segun",) else 0
+        if lead:
+            stop = k + lead
+            while stop < len(words) and stop - k - lead < 4 and not text[stop].rstrip().endswith(CLAUSE_END):
+                stop += 1
+            if stop >= len(words) or stop - k - lead >= 4:
+                continue
+            outlet = " ".join(_clean(x) for x in text[k + lead:stop + 1])
+            said = " ".join(text[stop + 1:]).strip(" .")
+            before = " ".join(text[:k]).strip(" ,")
+            said = said or before
+            if any(x[:1].isupper() for x in outlet.split()) and len(said.split()) >= 3 and "?" not in said:
+                return {"template": "headline", "text": said[:1].upper() + said[1:], "outlet": outlet,
+                        "at": words[k][1]}
+        if w in QUOTE_VERBS and 0 < k <= 4 and k + 1 < len(plain) and plain[k + 1] in ("que", "that"):
+            outlet = " ".join(_clean(x) for x in text[:k])
+            said = " ".join(text[k + 2:]).strip(" .")
+            if outlet[:1].isupper() and len(said.split()) >= 3:
+                return {"template": "headline", "text": said[:1].upper() + said[1:], "outlet": outlet,
+                        "at": words[0][1]}
+    return None
+
+
 def enumeration(text: str) -> list[str] | None:
     """3 to 6 short items said in a row ("A, B y C") or None."""
     body = str(text).strip(" .?!¿¡…")
@@ -234,7 +400,9 @@ def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, las
     title = {"template": "title", "text": phrase(words, at) or str(sentence.get("text") or ""),
              "icon": (after or named or [main])[0]}
     items = enumeration(sentence.get("text") or "")
-    options = [x for x in (figure(words), {"template": "list", "items": "; ".join(items), "marks": "n"} if items else None,
+    data = said_data(words)
+    data = {k: v for k, v in data.items() if k != "at"} if data else None
+    options = [x for x in (data, figure(words), {"template": "list", "items": "; ".join(items), "marks": "n"} if items else None,
                            scene_for(words, at, main), title) if x]
     fresh = [x for x in options if x["template"] != last]
     return (fresh or options)[0]
@@ -275,16 +443,34 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset()) -> list[dict
             clock, opening = 0.0, False
             continue
         allowed = limit_open if opening else limit
+        words = [(str(w[0]), float(w[1])) for w in s["words"]]
+        data = said_data(words) if k < len(sentences) - 1 else None
+        if data and data["template"] != last:              # data said aloud is shown as it is said
+            at = max(float(data.pop("at")), start + max(MIN_FACE - clock, LEAD_IN))
+            due = start + max(allowed - clock, MIN_FACE - clock, LEAD_IN)
+            if at > due + 1e-6:                             # waiting for the figure would keep the face too long
+                at = next((t for w, t in words if due - 1e-6 <= t <= at), due)
+            if end - at < shortest:
+                at = start + LEAD_IN
+            if end - at >= shortest:
+                said = next((w for w, t in words if t >= at - 1e-6), words[0][0])
+                out.append({"type": "graphic", **data, "at_sentence": n, "until_sentence": n,
+                            "from_word": [s["source"], round(at, 3)], "note": f"«{said.strip('¿?¡!.,;:')}»",
+                            "_auto": "director"})
+                last = data["template"]
+                clock, opening = 0.0, False
+                continue
         if k == len(sentences) - 1 or clock + (end - start) <= allowed:
             clock += end - start
             continue
         earliest = start + max(allowed - clock, 0.0)
-        words = [(str(w[0]), float(w[1])) for w in s["words"]]
         if clock >= allowed and end - start >= shortest:            # already over: cover it from its start
             room = [(words[0][0], start)]
         else:                                                       # a word after the face had its moment
             first = start + max(MIN_FACE - clock, LEAD_IN)
             room = [(w, t) for w, t in words if t >= first - 1e-6 and end - t >= shortest]
+            if not room and clock >= MIN_FACE and end - start >= shortest:
+                room = [(words[0][0], start)]                   # no word in reach: from the sentence's start
         if not room:
             clock += end - start
             continue

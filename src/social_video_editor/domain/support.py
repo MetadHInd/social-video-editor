@@ -23,13 +23,13 @@ from .graphics.icons import ALONE, find_icon
 from .script import tokens
 
 MAX_ITEMS = 6               # notes in one overlay (the callouts template has six places)
-MAX_PER_SENTENCE = 3
-MIN_GAP = 0.8               # seconds between two notes
+MAX_PER_SENTENCE = 4
+MIN_GAP = 0.6               # seconds between two notes
 GROUP_SECONDS = 7.0         # an overlay holds its notes at most this long before starting over
-QUIET_SECONDS = 1.5         # a sentence with nothing to show gets a key word when nothing appeared for this long
+QUIET_SECONDS = 1.0         # a sentence with nothing to show gets a key word when nothing appeared for this long
 ORDER = (("figure", "icon"), ("word",), ("emphasis",))   # who takes their place first; the rest fill the room left
 SHORT_KEY_WORD = 5          # letters of the word a sentence with nothing else to show may use
-KEY_WORD_LETTERS = 7        # shortest word that can stand alone as a note…
+KEY_WORD_LETTERS = 6        # shortest word that can stand alone as a note…
 NOUN_LETTERS = 4            # …unless it follows an article or a possessive (a noun)
 DETERMINERS = {"es": set("el la los las un una unos unas tu tus su sus mi mis este esta estos estas ese esa cada otro otra".split()),
                "en": set("the a an your my his her its our their this that these those each another".split())}
@@ -140,12 +140,22 @@ def _pick(notes: list[dict], last: float | None) -> list[dict]:
 
 def propose(plan: dict, language: str = "es") -> list[dict]:
     """Cutaway entries (`callouts` overlays) for the sentences said on camera with nothing else on
-    screen. The plan is not changed. Sentences under any cutaway of the plan are left alone."""
+    screen. The plan is not changed. Sentences under a cutaway of the plan are left alone; a sentence
+    whose cutaway starts at one of its words (from_word) keeps notes on its part said on camera."""
     taken: set[int] = set()
+    cover_from: dict[int, tuple[int, float]] = {}          # sentence → (source, second) a cutaway covers it from
     for c in plan.get("cutaways") or []:
-        if c.get("at_sentence") is not None:
-            a = int(c["at_sentence"])
-            taken.update(range(a, int(c.get("until_sentence", a)) + 1))
+        if c.get("at_sentence") is None or c.get("_auto") == "support":
+            continue
+        a = int(c["at_sentence"])
+        u = int(c.get("until_sentence", a))
+        if c.get("from_word"):
+            src, t = int(c["from_word"][0]), float(c["from_word"][1])
+            if a not in cover_from or t < cover_from[a][1]:
+                cover_from[a] = (src, t)
+            taken.update(range(a + 1, u + 1))
+        else:
+            taken.update(range(a, u + 1))
     out: list[dict] = []
     group: dict | None = None
     recent: set[str] = set()               # labels of the previous overlay: not repeated right away
@@ -172,9 +182,11 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
             if isinstance(s, dict) and s.get("start") is not None and s.get("end") is not None:
                 clock += float(s["end"]) - float(s["start"])
             continue
-        length = float(s["end"]) - float(s["start"])
         n = int(s["n"])
-        alone_after = k + 1 < len(sentences) and on_camera(sentences[k + 1])     # the next sentence is on camera too
+        cut = cover_from.get(n)
+        until = cut[1] if cut and cut[0] == s["source"] else float(s["end"])   # a cutaway covers the rest from there
+        length = until - float(s["start"])
+        alone_after = cut is None and k + 1 < len(sentences) and on_camera(sentences[k + 1])   # the next one starts on camera
         if group and (clock - group["since"] > GROUP_SECONDS or len(group["items"]) >= MAX_ITEMS):
             flush()
         same = last_note is not None and last_note[0] == s["source"]
@@ -182,7 +194,8 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
         shown = {x.lower() for x in group["items"]} if group else set()
         offered = [note for note in sentence_notes(s["words"], language, key_word=quiet and length >= 1.2)
                    if clock + (note["t"] - float(s["start"])) >= OPENING_SECONDS
-                   and (alone_after or float(s["end"]) - note["t"] >= LAST_SECONDS)
+                   and note["t"] < until
+                   and (alone_after or until - note["t"] >= LAST_SECONDS)
                    and note["label"].lower() not in recent and note["label"].lower() not in shown]
         for note in _pick(offered, last_note[1] if same else None):
             if group and len(group["items"]) >= MAX_ITEMS:
@@ -195,6 +208,8 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
             last_note = (s["source"], note["t"])
         if group:
             group["last"] = n
-        clock += length
+        clock += float(s["end"]) - float(s["start"])
+        if cut is not None:                    # the picture changes inside this sentence: the notes end with it
+            flush()
     flush()
     return out

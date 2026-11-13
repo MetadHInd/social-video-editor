@@ -204,7 +204,7 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
 | `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
 | `sve broll <project> [--dry-run] [--force]` | `tomas` (`--simular`, `--forzar`) | Fetches a clip for every `broll` cutaway of the plan from the allowed sources into `footage/`, records where it comes from (`footage/credits.json`) and adds the credit caption. `--dry-run` only lists the candidates. Keys: `PEXELS_API_KEY`, `PIXABAY_API_KEY` (environment variables). |
-| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review and summary. |
+| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review, the engine's own fixes (re-rendered, ≤ 3 renders) and the decisions left for you (`review.json`). |
 | `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music), the b-roll sources and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):

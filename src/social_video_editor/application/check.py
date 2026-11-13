@@ -131,7 +131,7 @@ class Checker:
             self.warnings.append(f"silence {a_:.2f}–{b_:.2f} s ({b_ - a_:.1f} s below {th['silence_db']} dBFS)")
             self.moment("silence", a_, 1 + (b_ - a_) / th["silence_sec"], f"{b_ - a_:.1f} s of silence")
         jumps = ck.cut_jumps(L["t"], L["momentary"], self.sound_cuts())
-        big = [j for j in jumps if abs(j["jump_lu"]) > th["cut_jump_lu"]]
+        big = [j for j in jumps if abs(j["jump_lu"]) > th["cut_jump_lu"] and not ck.pause_to_voice(j, I)]
         self.metrics["audio"]["cut_jump_max_lu"] = max((abs(j["jump_lu"]) for j in jumps), default=None)
         self.metrics["audio"]["cut_jumps"] = big
         for j in big:
@@ -306,7 +306,9 @@ class Checker:
             boxes = ck.estimated_boxes(texts, self.cfg["texts"]["styles"], self.W, self.H)
             self.notes.append("text boxes not recorded (old render): estimated from the styles (no right-edge check)")
         issues = ck.box_issues(boxes, self.W, self.H, self.th)
-        self.metrics["text_boxes"] = {"count": len(boxes), "outside_safe_zone": len(issues)}
+        self.metrics["text_boxes"] = {"count": len(boxes), "outside_safe_zone": len(issues),
+                                      "issues": [{k: i[k] for k in ("text", "start", "end", "issues") if k in i}
+                                                 for i in issues]}
         for i in issues:
             self.warnings.append(f"text \"{i['text'][:30]}\" ({i['start']:.1f}–{i['end']:.1f} s) outside the safe "
                                  f"zone: {', '.join(i['issues'])}" + (" (estimated)" if i["estimated"] else ""))

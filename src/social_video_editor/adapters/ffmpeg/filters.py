@@ -17,6 +17,7 @@ XFADE = {
     "whip": "smoothleft", "slide_up": "slideup", "slide_left": "slideleft", "circle": "circleopen",
     "pixel": "pixelize", "blur": "hblur", "radial": "radial", "curtain": "vertopen",
     "soft_slide": "smoothleft", "soft_zoom": "zoomin", "soft_cut": "fade",
+    "dissolve": "fade",
 }
 
 
@@ -395,8 +396,10 @@ def cutaways(video: str, items: list[dict], first_input: int, fps: int) -> tuple
 
     An item with "file" is a clip (the next input, counted from first_input) that covers the frame
     from its "start" to its "end" (seconds of the final video); "alpha": it is transparent where it
-    draws nothing. Its timestamps are moved to its start, so it plays from its first frame when it
-    appears; before that the overlay has no frame and after its last one the main picture passes.
+    draws nothing. Its timestamps are moved to its start (on the frame grid), so it plays from its first
+    frame when it appears; its last frame is repeated until its window closes. "fade_in" / "fade_out"
+    (seconds): it dissolves in / out (domain/cutaways.soften); "hold": it stays that long after its end,
+    under the next picture fading in.
 
     An item with "pip" is the presenter's window: the part "crop" (x, y, w, h) of the joined video
     itself, as it is BEFORE any item, scaled into "rect" (x, y, w, h) between "start" and "end" —
@@ -408,9 +411,12 @@ def cutaways(video: str, items: list[dict], first_input: int, fps: int) -> tuple
         video = "[vjoined]"
     n = first_input
     for k, c in enumerate(items):
-        start, end = float(c["start"]), float(c["end"])
-        # half a frame early on both sides: frame times are multiples of 1 / fps with rounding noise
-        a, b = max(start - 0.5 / fps, 0.0), end - 0.5 / fps
+        # on the frame grid: a clip placed between two frames would leave one frame of the picture under it
+        # uncovered where it meets the next one. Half a frame early on both sides of the window (rounding noise)
+        first, last = int(round(float(c["start"]) * fps)), int(round(float(c["end"]) * fps))
+        start, end = first / fps, last / fps
+        hold = max(float(c.get("hold") or 0), 0.0)        # stays under the next picture while that one fades in
+        a, b = max(start - 0.5 / fps, 0.0), end + hold - 0.5 / fps
         when = f"enable='between(t,{a:.6f},{b:.6f})'"
         out = f"[vcut{k}]"
         if c.get("pip"):
@@ -421,7 +427,15 @@ def cutaways(video: str, items: list[dict], first_input: int, fps: int) -> tuple
         else:
             pixel = "format=rgba," if c.get("alpha") else ""
             fmt = "format=auto:" if c.get("alpha") else ""
-            parts.append(f"[{n}:v]fps={fps},{pixel}setpts=PTS-STARTPTS+{start:.6f}/TB[cut{k}];"
+            fade_in, fade_out = float(c.get("fade_in") or 0), float(c.get("fade_out") or 0)
+            # its last frame repeated: a clip a frame short (or held under the next one) still covers its window
+            tail = f",tpad=stop_mode=clone:stop_duration={hold + 2 / fps:.4f}"
+            fades = ("" if c.get("alpha") or not (fade_in or fade_out) else ",format=yuva420p")
+            if fade_in > 0:
+                fades += f",fade=t=in:st={start:.6f}:d={fade_in:.4f}:alpha=1"
+            if fade_out > 0:
+                fades += f",fade=t=out:st={max(end - fade_out, start):.6f}:d={fade_out:.4f}:alpha=1"
+            parts.append(f"[{n}:v]fps={fps},{pixel}setpts=PTS-STARTPTS+{start:.6f}/TB{tail}{fades}[cut{k}];"
                          f"{video}[cut{k}]overlay=0:0:{fmt}eof_action=pass:{when}{out}")
             n += 1
         video = out

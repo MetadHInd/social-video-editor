@@ -41,6 +41,10 @@ def test_cut_jumps_typing_and_beats():
     jumps = ck.cut_jumps(t, m, [2.0, 4.0])
     assert jumps[0]["jump_lu"] == -15.0 and jumps[1]["jump_lu"] == 0.0
     assert ck.cut_jumps(t, [-80.0] * 50, [2.0]) == []                 # silence on both sides: ignored
+    pause = {"t": 37.3, "jump_lu": 12.6, "before": -33.4, "after": -20.8}
+    assert ck.pause_to_voice(pause, -14.1)                              # a clean pause, then the voice: not a jump
+    assert not ck.pause_to_voice({**pause, "after": -8.0}, -14.1)       # …but blasting out of it is
+    assert not ck.pause_to_voice({**pause, "before": -28.0, "after": -15.0}, -14.1)   # two levels of sound: a jump
     bursts = ck.typing_bursts([0.0, 0.03, 0.06, 0.09, 1.0, 1.1])
     assert bursts == [[0.0, 0.09, 4], [1.0, 1.1, 2]]
     assert ck.burst_rate(bursts[0]) == pytest.approx(33.3, abs=0.1) and ck.burst_rate(bursts[1]) == 0
