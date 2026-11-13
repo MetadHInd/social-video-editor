@@ -31,6 +31,7 @@ TRANSITIONS: dict[str, Transition] = {t.name: t for t in (
     Transition("cut", 0.0),
     Transition("fade", 0.35, fixed=True),
     Transition("soft_cut", 0.12, fixed=True),     # near-invisible crossfade: shortened pauses in speech
+    Transition("dissolve", 0.2, fixed=True),      # short crossfade: the explainer's cuts between sentences
     Transition("fade_black", 0.4, fixed=True),
     Transition("flash", 0.18, sound="flash"),
     Transition("zoom", 0.25, sound="whoosh"),

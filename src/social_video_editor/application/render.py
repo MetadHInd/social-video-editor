@@ -55,6 +55,8 @@ from .products import visual_search
 from .services import Services
 
 SEGMENT_VERSION = 7
+CLEAN_VOICE_VERSION = 1     # change to clean every recording again (adapters/ffmpeg/voice.py)
+SOURCE_COLOR_FRAMES = 24      # frames measured across a whole recording (color.per_source)
 STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
 SHOT_SIGNATURE_KEYS = ("source", "start", "end", "speed", "effects", "zoom", "focus_x", "focus_y", "volume_db",
                        "mute", "freeze", "color", "_beats")
@@ -80,6 +82,7 @@ class ShotRenderer:
         self.jobs = max(1, int(jobs))
         self.segments: list[Path | None] = [None] * len(timeline)
         self._claims: dict[Path, threading.Lock] = {}
+        self._source_stats: dict[int, dict] = {}       # color.per_source: one measurement per recording
         self._claims_guard = threading.Lock()
         self._stop = threading.Event()                # set when a pooled shot fails: the pending ones are skipped
         self._theme: dict | None = None               # graphics theme, built on the first graphic shot
@@ -155,10 +158,37 @@ class ShotRenderer:
         with self._claim(path):
             if self.svc.cache.has(path):
                 return path
+            stats = self._color_stats(shot.source, info, d)
+            clean = self._clean_voice(info)
+            return self.svc.encoder.encode_shot(d, {**info, "clean_audio": clean} if clean else info, self.cfg, stats,
+                                                has_voice(an, d["start"], d["end"]), self.W, self.H, self.draft, path)
+
+    def _clean_voice(self, info: dict) -> Path | None:
+        """audio.clean_voice: the recording's whole audio cleaned once (cached), so every shot takes its
+        piece of the same clean track and the noise reduction never restarts at a cut."""
+        a = self.cfg.get("audio") or {}
+        if not a.get("clean_voice") or not info.get("has_audio") or not a.get("use_original", True):
+            return None
+        mix, highpass = float(a.get("clean_mix", 1.0)), int(a.get("highpass") or 0)
+        key = hashlib.sha1(json.dumps([info["path"], info.get("id"), mix, highpass, CLEAN_VOICE_VERSION]).encode())
+        path = self.svc.cache.file(self.cache, f"voice/{info.get('id', 'source')}_{key.hexdigest()[:10]}.wav")
+        with self._claim(path):
+            if not self.svc.cache.has(path):
+                log(f"Voice: cleaning the background noise of {Path(info['path']).name} (once, whole recording)…")
+                self.svc.encoder.clean_voice(info, path, mix, highpass)
+        return path
+
+    def _color_stats(self, source: int, info: dict, d: dict) -> dict:
+        """Color statistics the shot is corrected from: its own frames, or with color.per_source the
+        whole recording's (one correction for all its shots, so the light does not jump at the cuts)."""
+        if not (self.cfg.get("color") or {}).get("per_source"):
             times = np.linspace(d["start"] + 0.05, max(d["end"] - 0.05, d["start"] + 0.06), 6)
-            stats = color_math.measure(self.svc.video.read_frames(info["proxy"], times))
-            return self.svc.encoder.encode_shot(d, info, self.cfg, stats, has_voice(an, d["start"], d["end"]),
-                                                self.W, self.H, self.draft, path)
+            return color_math.measure(self.svc.video.read_frames(info["proxy"], times))
+        if source not in self._source_stats:
+            length = float(info.get("duration") or d["end"])
+            times = np.linspace(min(0.5, length / 4), max(length - 0.5, length * 3 / 4), SOURCE_COLOR_FRAMES)
+            self._source_stats[source] = color_math.measure(self.svc.video.read_frames(info["proxy"], times))
+        return self._source_stats[source]
 
     # ── drawn shots ──────────────────────────────────────────────────────────
     def _drawn_path(self, shot, refs: list[int], audio: dict | None = None) -> tuple[dict, Path]:

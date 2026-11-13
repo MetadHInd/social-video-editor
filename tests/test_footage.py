@@ -757,6 +757,25 @@ def test_make_does_everything_with_one_command(workspace, monkeypatch, capsys):
 
 @pytest.mark.integration
 @requires_ffmpeg
+def test_make_leaves_what_it_cannot_fix_as_decisions(workspace, monkeypatch, capsys):
+    monkeypatch.chdir(workspace.parent)
+    d = explainer_project(workspace, 'How does a message travel?\n[broll query="a phone on a table"]\nAnd they travel apart.\n'
+                                     'Nobody ever said this sentence out loud.\n',
+                          {"broll": {"sources": ["stock"], "credit": False}})
+    fake_services(monkeypatch, {"stock": FakeSource("stock", "stock", [stock_clip()], "0x1EC81E")})
+    cli.main(["make", "demo"])
+    out = capsys.readouterr().out
+    assert "DECISIONS (1)" in out and "was not found in the recording" in out
+    saved = json.loads((d / "review.json").read_text(encoding="utf-8"))
+    assert saved["version"] == "v1Borrador" and saved["renders"] == 1
+    assert [x["code"] for x in saved["pending"]] == ["sentence_unmatched"]
+    cli.main(["report", "demo"])
+    out = capsys.readouterr().out
+    assert "MAKE v1Borrador: 0 fixed by the engine" in out and "record it again and run sve make" in out
+
+
+@pytest.mark.integration
+@requires_ffmpeg
 def test_clips_with_printed_text_are_skipped_and_wide_clips_are_cropped(workspace, monkeypatch, capsys):
     monkeypatch.chdir(workspace.parent)
     d = explainer_project(workspace, 'How does a message travel?\n[broll query="a phone on a table"]\nAnd they travel apart.\n',

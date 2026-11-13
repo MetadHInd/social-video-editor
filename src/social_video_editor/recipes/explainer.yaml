@@ -6,7 +6,8 @@
 # picture moving: small notes pop up around you as you name things (script.support), jump cuts and long
 # shots (between sentences) rotate three framings (wide, punch-in, close-up) and every shot drifts slowly.
 # Long pauses are shortened. (pip.enabled: true would keep you in a corner window over the graphics.)
-# Neutral, steady sound and picture (the same processing in every shot, so nothing jumps at a cut).
+# Neutral, steady sound and picture (the same processing in every shot, so nothing jumps at a cut): a natural
+# look, soft 0.2 s dissolves between sentences and in / out of every full-frame graphic or clip.
 explainer: true
 script:
   file: script.md
@@ -19,8 +20,20 @@ framing:
   slow_push: 0           # no drift: it would restart at every cut
   face: true             # frame on the presenter's face (may download a ≈230 KB face model once)
 effects: {zoom_on_peaks: false, zoom_ratio: 0}
+color:                   # natural: the camera's own look, only evened out (no punchy grade)
+  per_source: true       # one correction for the whole recording: the light does not jump at the cuts
+  levels: false
+  white_balance: 0
+  target_luma: 0.42      # exposure is only nudged (gamma 0.95…1.05) when the recording is clearly dark or bright
+  gamma_min: 0.95
+  gamma_max: 1.05
+  contrast: 1.0
+  saturation: 1.0
+  vibrance: 0
+  sharpen: 0
 audio:
-  denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)
+  denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)…
+  clean_voice: true      # …so the whole recording is cleaned once instead (RNNoise): fans, room, street out
   gain_without_voice_db: 0
 music:
   file: none             # set a track you have the rights to use; it stays under the voice

@@ -29,6 +29,7 @@ def workspace(tmp_path, monkeypatch) -> Path:
     monkeypatch.delenv("MOTOR_ESPACIO", raising=False)
     monkeypatch.setenv("SVE_WORKSPACE", str(ws))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "user_cache"))
+    monkeypatch.setenv("SVE_OFFLINE", "1")                 # no model downloads in the tests
     return ws
 
 

@@ -133,6 +133,7 @@ Preview one without rendering: `sve graphic <project> --shot N`.
 | `cut` | 0 | — |
 | `fade` | 0.35 s (fixed) | — |
 | `soft_cut` | 0.12 s (fixed) | — (near-invisible crossfade; the planner uses it for shortened pauses) |
+| `dissolve` | 0.2 s (fixed) | — (short crossfade; the explainer joins its camera shots with it) |
 | `fade_black` | 0.4 s (fixed) | — |
 | `flash` | `transitions.duration` | flash |
 | `zoom`, `whip`, `slide_up`, `slide_left` | `transitions.duration` | whoosh |
@@ -257,6 +258,7 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `color.temperature` | `null` | Kelvin, e.g. 6000 = warmer. |
 | `color.reference` | `null` | A video whose look to copy (path, relative to the project or the workspace). `render` measures ~24 frames of it and brings every shot to its brightness, black/white points, saturation and color cast (replaces the automatic levels/white balance/exposure). |
 | `color.reference_strength` | 1.0 | 0…1: how much of the reference look. |
+| `color.per_source` | `false` (`true` in `explainer`) | One correction measured over the whole recording, the same for all its shots. |
 | `color.fade` | 0 | Soft "matte" look: blacks lifted to this level, whites lowered by half of it (0.1–0.2 typical). |
 | `color.tint` | 0 | Green ↔ magenta: + = pink/magenta, − = green (−1…1; 0.3 is subtle). |
 | `color.sharpen` | 0.35 | CAS sharpening (0 = none). |
@@ -286,7 +288,9 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | Key | Default | Meaning |
 |---|---|---|
 | `audio.use_original` | true | Keep the sources' own sound. |
-| `audio.denoise` | 10 | Noise reduction in dB (0 = off). |
+| `audio.denoise` | 10 | Noise reduction in dB (0 = off), shot by shot. |
+| `audio.clean_voice` | `false` (`true` in `explainer` and `talk`) | The background noise of each recording (a fan, the room, the street) taken out **once, over the whole recording** with RNNoise (FFmpeg `arnndn`, a ≈300 KB speech model downloaded once to the user cache; `SVE_OFFLINE=1` never downloads, and FFmpeg's FFT denoiser is used instead). Every shot takes its piece of that clean track, so the noise reduction never restarts at a cut; `denoise` is then skipped. |
+| `audio.clean_mix` | 1.0 | How much of the cleaned voice is used (0.8 keeps a little of the room). |
 | `audio.highpass` | 80 | High-pass filter (Hz). |
 | `audio.voice_eq` | true | Voice presence EQ + de-esser on shots with speech. |
 | `audio.compressor` | true | Gentle compression. |
@@ -412,7 +416,8 @@ renumbered. Existing plans are not changed (only `sve plan` does this).
 With `talk: true` (the `talk` recipe: meetings, classes, screen recordings) every video source is
 kept whole and in order, and only its pauses are shortened (leading and trailing silence keep half
 of `keep_pause`). The recipe also keeps every shot's look and sound the same (`color.auto: false`,
-no per-shot denoise or compressor), since per-shot processing would change at every cut.
+no per-shot denoise or compressor), since per-shot processing would change at every cut; the noise is
+taken out of each whole recording once instead (`audio.clean_voice`).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -477,7 +482,10 @@ sentence was said several times, the **last** take whose score is within 0.1 of 
 and a sentence that was not said is reported as missing: nothing is invented. Sentences may be
 recorded in any order, in one clip or several.
 
-Each sentence keeps `script.pad_start` / `pad_end` seconds of air around it. Consecutive sentences
+Each sentence keeps `script.pad_start` / `pad_end` seconds of air around it, and it never begins or ends
+inside a stretch of speech: up to three words said right against its edges (less than 0.12 s apart) that no
+other sentence uses are kept with it — a word the transcription split or misheard ("sc reens" for
+"screens") is not chopped in half. Consecutive sentences
 that were also said one after the other (less than `script.join_gap` apart) stay in one shot.
 Afterwards the long pauses inside the shots are shortened like in any recipe (previous section).
 At every **visible** jump cut inside the same clip the zoom alternates between 1 and
@@ -545,8 +553,11 @@ cue of its own, `sve plan` looks at the script's words and proposes `callouts` o
 memory, battery… the table in [GRAPHICS.md](GRAPHICS.md)) becomes that illustration with the word under
 it, a noun (the word after an article or a possessive) becomes a label underlined by hand where there
 is room, and a sentence with none of those gets its longest word that reads well alone. Each note pops
-up **when its word is said**, at least 0.8 s apart, at most three per sentence and six per overlay (then
-a new overlay starts), never in the first second of the video nor right before a full-frame cutaway.
+up **when its word is said**, at least 0.6 s apart, at most four per sentence and six per overlay (then
+a new overlay starts), never in the first second of the video nor right before a full-frame cutaway. A
+sentence whose footage starts at one of its words (`from_word`) gets notes on the part said on camera;
+notes around the presenter (`callouts`, `bullets`) always end when a full-frame cutaway comes in, and
+`sve make` proposes them again whenever its review changes the cutaways.
 The proposals are ordinary entries of `cutaways` marked `"_auto": "support"`: edit their `items`,
 delete the ones you do not want, or write your own cue for that sentence (a sentence under a cue gets
 no proposal). `sve report` marks them with `~`.
@@ -571,6 +582,12 @@ illustration — phone, battery, memory… — gives a stock-friendly English se
 script's topic) — plus `query_local`, a search in the video's language from the nouns of the sentence,
 and `said`, the sentence itself — and it carries a `fallback`: what the engine draws when no clip passes. The last sentence (the closing) stays on camera; the
 face shows at least 1.5 s before footage covers it. `sve broll` fetches them like any other.
+Data said aloud is shown, not searched for: two or more figures of the same kind set against each other
+("two minutes a week, two hours a year"; "15 % before, 40 % today"; "8 GB on one, 12 GB on the other") become
+`bars` — times in the smallest unit said, each bar named by "before / today" or by the words next to its
+figure — and a quoted source ("according to X, …", "X published that …") becomes a `headline` with X as its
+outlet. They start when the figure (or the source) is said and are proposed wherever the sentence is not
+already covered, whatever the clock says.
 
 **Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
 presenter is seen in between). When it is on, while a full-frame graphic or
@@ -591,6 +608,15 @@ of that every camera shot zooms slowly while it plays (`script.drift`: in when i
 is punched in, continuous across the joins of its shortened pauses). These slow zooms are effects the
 planner writes on the shots (`"auto": true`) and rewrites every time `sve plan` runs.
 
+**Soft joins, no stray frames.** Camera shots are joined with `script.transition` (`dissolve`: a 0.2 s
+crossfade of picture and sound; each side gets 0.1 s more, so the crossfade is centered on the old cut and
+no word gets quieter). Every full-frame graphic or clip fades in over the presenter and back out in
+`script.cutaway_fade` seconds; two in a row dissolve one over the other, so the presenter never shows
+between them. Clips are laid on the frame grid and their last frame is held to the end of their window.
+The `explainer` recipe keeps the camera's own look (`color`: no levels, white balance, contrast,
+saturation or sharpening; exposure only nudged) and measures it once for the whole recording
+(`color.per_source`), so the light does not change at the cuts.
+
 ### Settings
 
 | Key | Default | Meaning |
@@ -610,6 +636,8 @@ planner writes on the shots (`"auto": true`) and rewrites every time `sve plan` 
 | `script.auto_broll` | `false` (`true` in `explainer`) | The director: footage where the presenter would stay alone on camera too long. |
 | `script.opening` / `max_camera` | 2.5 / 4.0 | Seconds of camera at the start / afterwards before the director cuts to footage. |
 | `script.auto_min` | 1.8 | Shortest footage the director proposes. |
+| `script.transition` | `dissolve` | How two camera shots are joined (`cut` = a plain jump cut). |
+| `script.cutaway_fade` | 0.2 | Seconds a full-frame graphic / clip fades in and out (0 = hard cut). |
 | `pip.enabled` | `false` | The presenter stays in a window over full-frame cutaways (a cutaway's own `pip` wins). |
 | `pip.corner` | `bottom_right` | `bottom_right`, `bottom_left`, `top_right` or `top_left` (inside the graphics' safe zone). |
 | `pip.size` | 0.32 | Window width as a share of the frame's short side (its height is 1.22 × that). |
@@ -627,6 +655,36 @@ the beat) and puts the subtitles in the band under the graphics (`subtitles.y: 0
 (fetched, or drawn by the engine when no clip is good enough), a draft render (`--final`: final quality),
 the automatic review (`sve check`) and a short summary. Running it again keeps the plan, the clips and the
 rendered segments.
+
+**It reviews and fixes itself** (explainer projects; `domain/review.py`). Before rendering, the engine
+places the plan on the video (nothing is rendered for this) and looks for what a viewer would notice; each
+finding has a fixed remedy, applied once, and the footage is fetched again for anything it added:
+
+| Finding | Remedy |
+|---|---|
+| `cutaway_too_short`: less on screen than it takes to come in and be read | proposed by the engine: it starts a word earlier when the presenter was already seen 1.5 s, else it is removed · written by hand: a decision |
+| `cutaway_left_out`: it does not fit (its sentence is missing, the next one starts at once) | proposed: removed · by hand: a decision |
+| `text_too_long_to_read`: its words need longer than it is shown (`review.read_cps`; words the voice says at the same time count 30 %: they are read along) | an engine card is shortened (fewer words, fewer items, no line under a figure) · by hand: a decision |
+| `cutaway_too_long`: a full-frame graphic or photo over `review.graphic_max` | it ends earlier and the presenter comes back for the rest of the sentence (a cue spanning several sentences: a decision) |
+| `camera_too_long`: the presenter alone longer than the director allows (+ `review.camera_slack`) | the director proposes footage for that stretch · nothing to propose: a decision |
+| `sentence_unmatched`: a script sentence not found in the recording | a decision |
+
+Then it renders and runs `sve check`; what the check finds on screen is fixed the same way and the video
+rendered again (only what changed; at most `review.rounds` renders): a clip that stops moving
+(`frozen_picture`) ends where it stops; text outside the safe zone and any error of the check are
+decisions. A plan entry a remedy changed keeps the codes in `_fixed`; a remedy that did not hold is
+never tried twice, and what was removed is never proposed again.
+
+What was fixed and the **decisions** left — each with its options — are printed and written to
+`<project>/review.json`; `sve report` shows them under `MAKE`. That list is the only thing a person
+(or the assistant coordinating the engine) has to answer.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `review.rounds` | 3 | At most this many renders. |
+| `review.read_cps` | 15 | Characters a viewer reads per second. |
+| `review.graphic_max` | 6.0 | Seconds a full-frame graphic or photo stays at most (0 = off). |
+| `review.camera_slack` | 1.5 | Seconds the presenter alone may run over the director's limits before it counts. |
 
 ## Third-party footage (`sve broll`)
 
@@ -693,7 +751,7 @@ is downloaded is looked at:
   abstract loop, a wallpaper, a shop front, a still), a little more when it clearly moves, less when it is
   a still picture. Under `broll.min_interest` (0.05) it is not used: dull clips are left out.
 - **Nothing passed?** With `broll.fallback_card` (on) the engine draws the moment instead, by what the
-  sentence says: a figure → `number`; three or more items → `list`; something doing something → `scene`
+  sentence says: figures compared → `bars`; a quoted source → `headline`; a figure → `number`; three or more items → `list`; something doing something → `scene`
   (an animated illustration: an app swiped away, a battery draining…); else a `title` with the
   illustration of what it names. The director never draws the same kind twice in a row, and a figure is
   shown directly (it is not searched for).

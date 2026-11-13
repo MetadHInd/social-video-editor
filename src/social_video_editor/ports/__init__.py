@@ -31,6 +31,9 @@ class VideoEncoder(Protocol):
     def extract_wav(self, info: dict, out: Path) -> Path:
         """Mono 16 kHz audio for transcription / analysis."""
 
+    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80) -> Path:
+        """The source's whole audio track with the background noise taken out (48 kHz stereo WAV)."""
+
     def encode_shot(self, shot: dict, info: dict, cfg: dict, stats: dict, has_voice: bool,
                     W: int, H: int, draft: bool, out: Path) -> Path:
         """Renders one video shot from the ORIGINAL source (color, framing, speed, effects, audio)."""

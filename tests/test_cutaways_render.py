@@ -19,6 +19,7 @@ from social_video_editor.adapters.system.tools import FFMPEG, FFPROBE
 from social_video_editor.application.analyze import prepare_source
 from social_video_editor.container import build_services
 from social_video_editor.domain import pip
+from social_video_editor.domain.cutaways import soften
 
 W, H, FPS = 180, 320, 30
 RED, BLUE, GREEN = (200, 30, 30), (30, 30, 200), (30, 200, 30)
@@ -69,11 +70,55 @@ def loudness(video: Path, start: float, end: float) -> float:
 # ── the filter and the composition ───────────────────────────────────────────
 def test_cutaway_filter_shifts_each_clip_to_its_start():
     text, label = filters.cutaways("[v1]", [{"start": 1.0, "end": 2.0}, {"start": 3.0, "end": 4.5, "alpha": True}], 5, 30)
-    assert "[5:v]fps=30,setpts=PTS-STARTPTS+1.000000/TB[cut0]" in text
+    assert "[5:v]fps=30,setpts=PTS-STARTPTS+1.000000/TB,tpad=stop_mode=clone:stop_duration=0.0667[cut0]" in text
     assert "[v1][cut0]overlay=0:0:eof_action=pass:enable='between(t,0.983333,1.983333)'[vcut0]" in text
-    assert "[6:v]fps=30,format=rgba,setpts=PTS-STARTPTS+3.000000/TB[cut1]" in text
+    assert "[6:v]fps=30,format=rgba,setpts=PTS-STARTPTS+3.000000/TB,tpad=" in text
     assert "[vcut0][cut1]overlay=0:0:format=auto:eof_action=pass:enable='between(t,2.983333,4.483333)'[vcut1]" in text
     assert label == "[vcut1]"
+
+
+def test_cutaway_filter_puts_clips_on_the_frame_grid_and_fades_them():
+    items = [{"start": 1.59, "end": 3.053, "fade_in": 0.2, "hold": 0.2333}, {"start": 3.053, "end": 4.0, "fade_in": 0.2,
+                                                                            "fade_out": 0.2}]
+    text, _ = filters.cutaways("[v1]", items, 1, 30)
+    assert "setpts=PTS-STARTPTS+1.600000/TB" in text                 # 1.59 s is not a frame: 1.6 s is
+    assert "tpad=stop_mode=clone:stop_duration=0.3000" in text       # held under the next one, + 2 frames
+    assert "between(t,1.583333,3.283300)" in text                    # its window reaches into the next one
+    assert "format=yuva420p,fade=t=in:st=1.600000:d=0.2000:alpha=1" in text
+    assert "fade=t=out:st=3.800000:d=0.2000:alpha=1" in text
+
+
+def solid_colors(items: list[dict], fps: int = 30) -> str:
+    """The composed picture, frame by frame: R = the video under the clips, B / G = the clips, ? = a mix."""
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", f"color=red:s=32x32:r={fps}:d=4"]
+    for c in items:
+        n = int(round((c["end"] - c["start"]) * fps))
+        cmd += ["-f", "lavfi", "-i", f"color={c['color']}:s=32x32:r={fps},trim=end_frame={n}"]
+    text, label = filters.cutaways("[0:v]", items, 1, fps)
+    raw = subprocess.run(cmd + ["-filter_complex", text, "-map", label, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         capture_output=True, check=True).stdout
+    px = np.frombuffer(raw, np.uint8).reshape(-1, 32, 32, 3)[:, 16, 16]
+    return "".join("R" if p[0] > 230 and p[2] < 25 else "B" if p[2] > 230 and p[0] < 25
+                   else "G" if p[1] > 100 and p[0] < 25 and p[2] < 25 else "?" for p in px)
+
+
+@requires_ffmpeg
+def test_two_clips_in_a_row_never_show_the_picture_under_them():
+    # the first starts between two frames: before, one frame of the presenter showed where they meet
+    frames = solid_colors([{"start": 1.59, "end": 3.053, "color": "blue"}, {"start": 3.053, "end": 3.5, "color": "green"}])
+    inside = frames[48:105]
+    assert "R" not in inside and "B" in inside and "G" in inside
+
+
+@requires_ffmpeg
+def test_faded_clips_dissolve_over_each_other_not_over_the_presenter():
+    items = soften([{"start": 0.59, "end": 1.59, "color": "blue"}, {"start": 1.59, "end": 2.6, "color": "green"}],
+                   0.2, 30, 4.0)
+    frames = solid_colors(items)
+    assert "?" in frames[17:24]                       # red → blue: a dissolve, not a cut
+    between = frames[24:78]
+    assert "R" not in between and "?" in between      # blue → green: one over the other
+    assert "?" in frames[72:80] and frames[-1] == "R"  # green → back to the presenter, softly
 
 
 def test_presenter_window_reads_the_joined_picture_and_uses_no_input():
@@ -214,7 +259,8 @@ def test_explainer_from_script_to_video(workspace, monkeypatch, capsys):
     plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
     shots = plan["shots"]
     assert [s["sentences"] for s in shots] == [[0], [1], [2]]
-    assert [round(s["start"], 2) for s in shots] == [0.92, 9.92, 5.92]          # script order; the second "And that…"
+    assert [round(s["start"], 2) for s in shots] == [0.92, 9.82, 5.82]          # script order; the second "And that…"
+    assert [s["transition"] for s in shots] == ["cut", "dissolve", "dissolve"]  # 0.1 s more on each side of a dissolve
     assert [s.get("zoom") for s in shots] == [None, 1.08, 1.08]                 # a punch-in at the visible jump cut only
     assert all((s["focus_x"], s["focus_y"]) == (0.5, 0.35) for s in shots)
     assert plan["sentences"][1]["takes"] == 2 and plan["sentences"][3] == {
@@ -236,14 +282,16 @@ def test_explainer_from_script_to_video(workspace, monkeypatch, capsys):
     summary = json.loads((vdir / "summary.json").read_text(encoding="utf-8"))
     (cut,) = summary["cutaways"]
     assert cut["type"] == "photo" and cut["sentences"] == [2, 2] and summary["cutaway_warnings"] == []
-    before = sum(s["end"] - s["start"] for s in shots[:2])
+    # two 0.2 s dissolves overlap the shots; each shot starts 0.1 s before its sentence
+    before = sum(s["end"] - s["start"] for s in shots[:2]) - 0.4
     total = before + shots[2]["end"] - shots[2]["start"]
-    assert cut["start"] == pytest.approx(before, abs=0.05) and cut["end"] == pytest.approx(total, abs=0.05)
+    assert cut["start"] == pytest.approx(before + 0.1, abs=0.05) and cut["end"] == pytest.approx(total, abs=0.05)
     top = (0.1, 0.9, 0.1, 0.5)                                # above the subtitles
     assert [tint(final, t, top) for t in (0.5, before - 0.4, (cut["start"] + cut["end"]) / 2)] == ["red", "red", "blue"]
     assert loudness(final, cut["start"] + 0.3, cut["end"] - 0.3) > 0.02     # the voice goes on under the photo
     assert duration(final, "v:0") == pytest.approx(total, abs=0.15)
     assert abs(duration(final, "v:0") - duration(final, "a:0")) < 0.1
+    assert len(list((d / "cache" / "voice").glob("*.wav"))) == 1        # the recording's voice cleaned once, whole
 
 
 @pytest.mark.integration

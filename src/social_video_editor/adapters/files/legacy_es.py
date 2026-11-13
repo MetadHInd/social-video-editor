@@ -60,7 +60,8 @@ def _value(v, table: dict):
 # ── enum values ──────────────────────────────────────────────────────────────
 
 TRANSITIONS = {"corte": "cut", "fundido": "fade", "negro": "fade_black", "slide_arriba": "slide_up",
-               "desliz_izq": "slide_left", "circulo": "circle", "difuminar": "blur", "cortina": "curtain"}
+               "desliz_izq": "slide_left", "circulo": "circle", "difuminar": "blur", "cortina": "curtain",
+               "disolvencia": "dissolve"}
 # unchanged: flash, zoom, whip, pixel, radial
 EFFECT_TYPES = {"zoom_golpe": "zoom_punch", "empuje": "push_in", "alejar": "pull_out", "sacudida": "shake",
                 "congelar": "freeze", "pulso_ritmo": "beat_pulse"}
@@ -109,7 +110,8 @@ COLOR = Ctx(keys={"hdr_blanco": "hdr_white", "niveles": "levels", "balance_blanc
                   "luma_objetivo": "target_luma", "contraste": "contrast", "saturacion": "saturation",
                   "temperatura": "temperature", "nitidez": "sharpen", "vineta": "vignette",
                   "calidez": "warmth", "desvanecido": "fade", "tinte": "tint",
-                  "referencia": "reference", "fuerza_referencia": "reference_strength"})
+                  "referencia": "reference", "fuerza_referencia": "reference_strength",
+                  "por_fuente": "per_source"})
 # unchanged: auto, gamma_min, gamma_max, vibrance, lut
 
 TEXT_STYLE_KEYS = {"tam": "size", "fuente": "font", "fondo": "background", "mayusculas": "uppercase",
@@ -148,7 +150,7 @@ CONFIG = Ctx(
           "exportar": "export", "verificacion": "check", "visión": "vision", "foto": "photo",
           "presentacion": "slideshow", "llamada": "cta", "charla": "talk", "pausas": "pauses",
           "graficos": "graphics", "explicativo": "explainer", "guion": "script", "ventana": "pip",
-          "tomas_externas": "broll"},
+          "tomas_externas": "broll", "revision": "review"},
     removed=frozenset({"cierre"}),
     children={
         "output": Ctx(keys={"ancho": "width", "alto": "height"}, removed=frozenset({"perfiles"})),
@@ -162,8 +164,8 @@ CONFIG = Ctx(
                             "acercamiento": "punch_in", "subtitulos": "subtitles", "reencuadre_cada": "reframe_every",
                             "deriva": "drift", "apoyos": "support", "primer_plano": "close_up",
                             "tomas_auto": "auto_broll", "apertura": "opening", "camara_max": "max_camera",
-                            "toma_min": "auto_min"},
-                      values={"take": SCRIPT_TAKES, "subtitles": SCRIPT_SUBTITLES}),
+                            "toma_min": "auto_min", "transicion": "transition", "fundido_tomas": "cutaway_fade"},
+                      values={"take": SCRIPT_TAKES, "subtitles": SCRIPT_SUBTITLES, "transition": TRANSITIONS}),
         "pip": Ctx(keys={"activo": "enabled", "esquina": "corner", "tam": "size", "segundos_min": "min_seconds"},
                    values={"corner": PIP_CORNERS}),
         "duration": Ctx(keys={"objetivo": "target", "maximo": "max"}, removed=frozenset({"minimo"})),
@@ -191,7 +193,8 @@ CONFIG = Ctx(
                              "pulso_cantidad": "pulse_amount", "zoom_proporcion": "zoom_ratio",
                              "flash_en_reveal": "flash_on_reveal", "barra_progreso": "progress_bar",
                              "color_barra": "progress_bar_color"}),
-        "audio": Ctx(keys={"usar_original": "use_original", "ruido": "denoise", "paso_alto": "highpass",
+        "audio": Ctx(keys={"usar_original": "use_original", "ruido": "denoise",
+                           "voz_limpia": "clean_voice", "mezcla_limpieza": "clean_mix", "paso_alto": "highpass",
                            "eq_voz": "voice_eq", "compresor": "compressor",
                            "ganancia_sin_voz_db": "gain_without_voice_db", "pico": "true_peak",
                            "ganancia_max_master_db": "master_max_gain_db", "dibujadas_db": "drawn_shot_db"}),
@@ -227,6 +230,8 @@ CONFIG = Ctx(
                            "seguro_abajo": "safe_bottom", "seguro_derecha": "safe_right",
                            "columna_botones": "right_rail", "tolerancia_duracion": "duration_tolerance",
                            "escuchar_max": "listen_max", "escuchar_seg": "listen_sec"}),
+        "review": Ctx(keys={"vueltas": "rounds", "lectura_cps": "read_cps", "grafico_max": "graphic_max",
+                            "holgura_camara": "camera_slack"}),
         "vision": VISION,
         "photo": PHOTO,
         "graphics": Ctx(keys={"paquete": "pack", "tema": "theme"}),      # the theme's own keys are English only

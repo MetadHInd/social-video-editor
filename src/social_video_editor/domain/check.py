@@ -280,6 +280,16 @@ def cut_jumps(t: list[float], momentary: list[float], cuts: list[float], floor: 
     return out
 
 
+PAUSE_LUFS = -30.0          # momentary loudness of a pause in speech (the room, no voice)
+
+
+def pause_to_voice(jump: dict, integrated: float | None, pause: float = PAUSE_LUFS) -> bool:
+    """A cut between a pause and the voice at its normal level (≤ integrated + 3 LU): speech starting or
+    stopping, not a loudness jump — with a clean voice the pauses are near silence."""
+    quiet, loud = min(jump["before"], jump["after"]), max(jump["before"], jump["after"])
+    return quiet < pause and integrated is not None and loud <= integrated + 3
+
+
 def window_level(t: list[float], m: list[float], a: float, b: float) -> float:
     """Energy-mean momentary loudness of the windows ending inside [a + 0.2, b + 0.4]."""
     tt = np.asarray(t)

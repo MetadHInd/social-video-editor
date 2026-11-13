@@ -12,7 +12,8 @@ framing: {slow_push: 0}
 effects: {zoom_on_peaks: false, zoom_ratio: 0}
 color: {auto: false, sharpen: 0, contrast: 1.0, saturation: 1.0, vibrance: 0}   # same look in every shot
 audio:
-  denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)
+  denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)…
+  clean_voice: true      # …so the whole recording is cleaned once instead (RNNoise)
   compressor: false
   voice_eq: false
   gain_without_voice_db: 0
