@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ...domain.decide import settings as decider_settings
 from ..files.workspace import subdir, workspace
 from . import fonts
 from .tools import FFMPEG, FFPROBE, ffmpeg_version, user_cache_dir
@@ -117,6 +118,25 @@ def face_check() -> Check:
     return "optional", "face framing", "the face model (≈230 KB) is downloaded on first use with framing.face: true"
 
 
+def decider_checks(classifier=None, reasoner=None, settings: dict | None = None) -> list[Check]:
+    """The decider's local models (decider.*): the small zero-shot classifier (installed, downloaded) and
+    the language model server (running, model pulled). Nothing is downloaded or loaded; the server is
+    only asked for its list of models (a local request; none with SVE_OFFLINE)."""
+    s = decider_settings(settings)
+    use = "decider.enabled: auto or true" if str(s["enabled"]).lower() in ("false", "none", "0", "no") else None
+    out: list[Check] = []
+    for name, part, model in (("decider: classifier", classifier, s["nli_model"]),
+                              ("decider: language model", reasoner, s["llm_model"])):
+        if part is None:
+            continue
+        why = part.ready(s)
+        if why:
+            out.append(("optional", name, f"{why} — closed questions the rules are unsure of"))
+        else:
+            out.append(("ok", name, f"{model}" + (f" (used with {use})" if use else "")))
+    return out
+
+
 def footage_checks(sources: dict | None) -> list[Check]:
     """The b-roll sources (`sve broll`): which can be used now and what the others lack (an API key
     in an environment variable, a program). Nothing is contacted."""
@@ -149,7 +169,8 @@ def diagnose(svc=None, settings: dict | None = None) -> list[Check]:
     packs = svc.packs.available() if svc is not None and getattr(svc, "packs", None) is not None else None
     return [*ffmpeg_checks(), *font_checks(),
             *part_checks(getattr(svc, "graphics", None), getattr(svc, "visual", None), getattr(svc, "upscaler", None), settings),
-            face_check(), *footage_checks(getattr(svc, "footage", None)), *workspace_checks(packs)]
+            face_check(), *decider_checks(getattr(svc, "classifier", None), getattr(svc, "reasoner", None), settings),
+            *footage_checks(getattr(svc, "footage", None)), *workspace_checks(packs)]
 
 
 def doctor_lines(checks: list[Check]) -> list[str]:
