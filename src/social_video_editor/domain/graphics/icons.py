@@ -4,7 +4,8 @@ lights that blink, waves that go out, a satellite that orbits.
 
 Each one is drawn in a 100 × 100 box centered on the origin through a Pen; draw_icon places it.
 `find_icon("Celular")` gives the illustration a word asks for (Spanish and English), so a diagram
-written with plain names gets pictures instead of boxes. Packs add or replace illustrations:
+written with plain names gets pictures instead of boxes; `describe_icon` says what each one shows (for
+the decider, domain/decide.py). Packs add or replace illustrations:
 
     from social_video_editor.domain.graphics.icons import icon
 
@@ -57,6 +58,40 @@ def find_icon(label: str) -> str | None:
         if word.endswith("s") and word[:-1] in WORDS:
             return WORDS[word[:-1]]
     return None
+
+
+DESCRIPTIONS = {        # icon → what it shows, for a model that picks one (Spanish, English); packs may add theirs
+    "phone": ("un teléfono celular", "a mobile phone"),
+    "router": ("un router de wifi", "a wifi router"),
+    "globe": ("internet o el mundo", "the internet or the world"),
+    "cloud": ("la nube (servicios en internet)", "the cloud (online services)"),
+    "server": ("un servidor", "a server"),
+    "laptop": ("una computadora", "a computer"),
+    "chip": ("un procesador", "a processor chip"),
+    "ram": ("la memoria RAM", "memory (RAM)"),
+    "disk": ("el almacenamiento o un disco", "storage or a disk"),
+    "battery": ("una batería o la energía", "a battery or energy"),
+    "tower": ("una antena o la señal", "a cell tower or the signal"),
+    "app": ("una aplicación", "an app"),
+    "user": ("una persona", "a person"),
+    "lock": ("un candado o la seguridad", "a lock or security"),
+}
+NO_ICON = ("ninguna de estas cosas", "none of these things")
+
+
+def describe_icon(name: str, language: str = "es") -> str:
+    """A short description of an illustration ("none" too) in the video's language; its name when it has none."""
+    pair = NO_ICON if name == "none" else DESCRIPTIONS.get(name, (name, name))
+    return pair[0] if language == "es" else pair[1]
+
+
+def match_icon(label: str) -> tuple[str, bool] | None:
+    """find_icon with how it matched: (icon, exact) — exact when the label (one word) is a name of the
+    illustration as it is, not a plural or a longer label around it."""
+    found = find_icon(label)
+    if found is None:
+        return None
+    return found, _norm(label).strip("¿?¡!.,;:«»\"'()…") in WORDS
 
 
 def icon_ink(st: Stage, name: str, given: str | None = None) -> tuple[str, str | None]:

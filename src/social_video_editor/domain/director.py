@@ -20,15 +20,21 @@ the topic of the script (its most named thing).
 Proposals carry "_auto": "director" (editable, removable) and a "fallback": an illustrated title card with
 what is being said; `sve broll` fetches them like any other and, when no clip passes its checks, puts
 the card instead, so the presenter is never alone too long even without a good clip.
+
+The language judgments (which words make the title, whether figures are compared, the name of each
+bar, what a scene shows the thing doing, which illustration, which drawing) are the hand rules' by
+default; with a `decide` (domain/decide.py) each one is also a closed question whose options are what
+the rules found, so a local model may pick a better one. A proposal a model answer changed carries
+"_decided": the stage that answered ("nli" / "llm").
 """
 from __future__ import annotations
 
 import re
 from collections import Counter
 
-from .decide import Decide
-from .graphics.icons import ALONE, find_icon
-from .graphics.scenes import ACTIONS, action_of
+from .decide import Answer, Decide, Option, Question, ask
+from .graphics.icons import ALONE, ICONS, describe_icon, find_icon, match_icon
+from .graphics.scenes import ACTIONS, action_of, action_text, actions_in
 from .script import tokens
 
 DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8}
@@ -65,11 +71,80 @@ FEWEST = 3
 CLAUSE_END = (",", ";", ":")
 LEADING = set("y e pero que o u entonces asi and but so or that then".split())
 COVERING = ("graphic", "photo", "broll")
+TRAILING = LEADING | DETERMINERS | set("de del a al en con por para sin to of in on with for at".split())
+TITLE_CANDIDATES = 4
+PRONOUNS = set("it they this that these those he she we one ello eso esto esta este estos estas el ella ellos ellas "
+               "lo le les yo nosotros".split())
+NAMELESS = PRONOUNS | TRAILING | set("by from into than desde hasta sobre".split())     # never a bar's name alone
+ES_WORDS = set("el la los las de del que y en un una unos unas es son por para con se su sus tu tus pero si lo al mas "
+               "muy como".split())
+EN_WORDS = set("the an of to and in is are it you your that for on with but this these was were".split())
+PROMPTS = {                 # topic → the question (Spanish, English)
+    "title_span": ("¿Cuál de estos textos cortos funciona mejor como título en pantalla para la frase? "
+                   "Debe entenderse solo.",
+                   "Which of these short texts works best as an on-screen title for the sentence? "
+                   "It must make sense on its own."),
+    "is_comparison": ("¿La frase compara entre sí estas cifras: {}?", "Does the sentence compare these figures: {}?"),
+    "bar_labels": ("En un gráfico de barras de la frase, ¿qué nombre corto lleva la barra de «{}»?",
+                   "In a bar chart of the sentence, which short name goes on the bar for “{}”?"),
+    "action": ("¿Qué acción describe la frase? Elige la que se puede dibujar como una escena animada.",
+               "Which action does the sentence describe? Pick the one that can be drawn as an animated scene."),
+    "icon": ("¿Qué ilustración muestra mejor de qué habla la frase?",
+             "Which illustration best shows what the sentence is about?"),
+    "card_type": ("¿Qué dibujo explica mejor la frase en pantalla?", "Which drawing best explains the sentence on screen?"),
+}
+ABOUT = ("Esta frase habla de {}.", "This sentence is about {}.")            # zero-shot templates
+COMPARES = ("Esta frase {}.", "This sentence {}.")
+COMPARE_OPTIONS = (("compara cifras entre sí", "compares figures with each other"),
+                   ("dice cifras sin compararlas", "states figures without comparing them"))
 
 
 def settings(cfg: dict) -> dict:
     s = (cfg or {}).get("script") or {}
     return {k: s.get(k, v) if s.get(k) is not None else v for k, v in DEFAULTS.items()}
+
+
+# ── the decider's questions ─────────────────────────────────────────────────────────────────────
+
+class _Asker:
+    """ask() for one proposal, keeping the stages whose answer differed from the rules'."""
+
+    def __init__(self, decide: Decide, language: str):
+        self.decide, self.language, self.sources = decide, language, []
+
+    def __call__(self, topic: str, kind: str, options, context: str, default: str, confidence: float,
+                 hypothesis: tuple[str, str] | None = None, fill: str | None = None) -> Answer:
+        prompt = self.text(PROMPTS[topic])
+        q = Question(topic, kind, prompt.format(fill) if fill is not None else prompt, tuple(options), context,
+                     (default,), round(float(confidence), 4), self.language,
+                     None if hypothesis is None else self.text(hypothesis))
+        a = ask(self.decide, q)
+        if a.source != "rules" and tuple(a.values) != q.default:
+            self.sources.append(a.source)
+        return a
+
+    def text(self, pair: tuple[str, str]) -> str:
+        return pair[0] if self.language == "es" else pair[1]
+
+
+def language_of(words, language: str | None = None) -> str:
+    """"es" or "en": the video's language when given, else what the words look like (Spanish when unsure)."""
+    lang = str(language or "").strip().lower()
+    if lang and lang != "auto":
+        return "es" if lang.startswith("es") else "en"
+    plain = ["".join(tokens(str(w[0] if isinstance(w, (list, tuple)) else w))) for w in words]
+    return "en" if sum(w in EN_WORDS for w in plain) > sum(w in ES_WORDS for w in plain) else "es"
+
+
+def _said(words) -> str:
+    return " ".join(str(w) for w, _ in words).strip()
+
+
+def _decided(got: dict | None, rules: dict | None, asker: _Asker) -> dict | None:
+    """The proposal, marked with the stage that changed it when a model answer did."""
+    if got is not None and got != rules and asker.sources:
+        return {**got, "_decided": asker.sources[0]}
+    return got
 
 
 def _icon_of(word: str) -> str | None:
@@ -83,10 +158,24 @@ def topic(sentences: list[dict]) -> str:
     return seen.most_common(1)[0][0] if seen else TOPIC_DEFAULT
 
 
-def phrase(words: list[tuple[str, float]], at: float, most: int = PHRASE_WORDS) -> str:
+def phrase(words: list[tuple[str, float]], at: float, most: int = PHRASE_WORDS, decide: Decide | None = None,
+           language: str | None = None) -> str:
     """What is said around the cut, as a short title (the illustrated card used when no footage is found):
     the clause the cut falls in (its last `most` words when it is longer), at least FEWEST words, without
-    a leading "and / but / then"; capitalized (after an opening ¿ or ¡), no final stop."""
+    a leading "and / but / then"; capitalized (after an opening ¿ or ¡), no final stop. With `decide`,
+    a model may pick another short span of the sentence (`title_span`)."""
+    return _phrase(words, at, most, _Asker(decide, language_of(words, language)) if decide else None)
+
+
+def _title(words: list[tuple[str, float]], closes: list[bool], begin: int, end: int) -> str:
+    text = " ".join(w for w, _ in words[begin:end + 1]).strip(" ,;:.…")
+    if end < len(words) - 1 and not closes[end]:
+        text += "…"
+    lead = len(text) - len(text.lstrip("¿¡\"'«("))
+    return text[:lead] + text[lead:lead + 1].upper() + text[lead + 1:]
+
+
+def _phrase(words: list[tuple[str, float]], at: float, most: int, asker: _Asker | None) -> str:
     if not words:
         return ""
     ends = CLAUSE_END + (".", "?", "!", "…")
@@ -111,11 +200,48 @@ def phrase(words: list[tuple[str, float]], at: float, most: int = PHRASE_WORDS) 
             end += 1
             if closes[end] and end - begin + 1 >= FEWEST:
                 break
-    text = " ".join(w for w, _ in words[begin:end + 1]).strip(" ,;:.…")
-    if end < len(words) - 1 and not closes[end]:
-        text += "…"
-    lead = len(text) - len(text.lstrip("¿¡\"'«("))
-    return text[:lead] + text[lead:lead + 1].upper() + text[lead + 1:]
+    text = _title(words, closes, begin, end)
+    if asker is None:
+        return text
+    plain = ["".join(tokens(w)) for w, _ in words]
+
+    def clause(i: int) -> tuple[int, int]:
+        a, b = i, i
+        while a > 0 and not closes[a - 1]:
+            a -= 1
+        while b < len(words) - 1 and not closes[b]:
+            b += 1
+        return a, b
+
+    def fit(a: int, b: int) -> str | None:                  # FEWEST to `most` words, from the start of [a, b]
+        while a <= b and plain[a] in LEADING:
+            a += 1
+        last = min(b, a + most - 1)
+        while a < last < b and plain[last] in TRAILING:     # a cut short ends on a word that says something
+            last -= 1
+        return _title(words, closes, a, last) if FEWEST <= last - a + 1 <= most else None
+
+    ca, cb = clause(cut)
+    lead = ca
+    while lead < cb and plain[lead] in LEADING:
+        lead += 1
+    full = begin == lead and end == cb
+    spans = [fit(ca, cb)]
+    joints = [k for k in range(ca + 1, cb + 1) if plain[k] in LEADING | CONNECTORS]
+    for a, b in zip([ca, *joints], [k - 1 for k in joints] + [cb]):          # its parts, at "y / pero / que…"
+        spans.append(fit(a, b))
+    if ca > 0:
+        spans.append(fit(*clause(ca - 1)))
+    if cb < len(words) - 1:
+        spans.append(fit(*clause(cb + 1)))
+    texts = [text]
+    for t in spans:
+        if t and t not in texts and len(texts) < TITLE_CANDIDATES:
+            texts.append(t)
+    if len(texts) < 2:
+        return text
+    a = asker("title_span", "choice", [Option(t, t) for t in texts], _said(words), text, 0.9 if full else 0.5)
+    return a.value or text
 
 
 NUMBER_WORDS = {
@@ -221,11 +347,33 @@ def _figures(words: list[tuple[str, float]]) -> list[dict]:
     return out
 
 
-def comparison(words: list[tuple[str, float]]) -> dict | None:
+def comparison(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None) -> dict | None:
     """Two to six figures of the same kind compared in one sentence ("dos minutos por semana, al año dos
     horas"; "de 15 % antes a 40 % hoy") as `bars`: times are put in the smallest unit said; each bar is
     named by a word such as "antes / hoy" next to it, else by the words after it (or before it).
-    → the spec plus "at" (the second the first figure is said), or None."""
+    → the spec plus "at" (the second the first figure is said), or None. With `decide`, a model may
+    say whether figures the rules are unsure of are compared (`is_comparison`) and name a bar whose
+    name the rules guessed (`bar_labels`)."""
+    rules = _comparison(words, None)
+    if decide is None:
+        return rules
+    asker = _Asker(decide, language_of(words, language))
+    return _decided(_comparison(words, asker), rules, asker)
+
+
+def _bar_label(words: list[tuple[str, float]], plain: list[str], pick: list[int]) -> tuple[str, list[int]]:
+    """A bar's name from some words (and the words it uses): no leading connector or article, no trailing
+    verb or preposition, at most LABEL_WORDS words, capitalized."""
+    while pick and (plain[pick[0]] in LEADING or plain[pick[0]] in DETERMINERS):
+        pick = pick[1:]
+    while pick and plain[pick[-1]] in LABEL_STOP:
+        pick = pick[:-1]
+    pick = pick[-LABEL_WORDS:]
+    label = " ".join(_clean(words[k][0]) for k in pick).strip()
+    return (_capital(label) if label else ""), pick
+
+
+def _comparison(words: list[tuple[str, float]], asker: _Asker | None) -> dict | None:
     found = _figures(words)
     for f in found:
         f["base"] = TIME_UNITS.get(f["unit"])
@@ -240,7 +388,14 @@ def comparison(words: list[tuple[str, float]]) -> dict | None:
     apart = any(closes[k] for f, g in zip(best, best[1:]) for k in range(f["end"] - 1, g["i"]))
     other = any(plain[k] in ("y", "e", "and") and k + 1 < len(words) and plain[k + 1] in DETERMINERS
                 for f, g in zip(best, best[1:]) for k in range(f["end"], g["i"]))
-    if not (best[0]["base"] or apart or other or any(w in MARKERS | COMPARING for w in plain)):
+    sure = apart or any(w in MARKERS | COMPARING for w in plain)
+    compared = bool(sure or best[0]["base"] or other)
+    if asker is not None and not sure:                      # times or "y el / and the" only: the rules guess
+        said = ", ".join(" ".join(_clean(w) for w, _ in words[f["i"]:f["end"]]) for f in best)
+        a = asker("is_comparison", "yesno", [Option(v, asker.text(t)) for v, t in zip(("yes", "no"), COMPARE_OPTIONS)],
+                  _said(words), "yes" if compared else "no", 0.5, COMPARES, said)
+        compared = a.value == "yes"
+    if not compared:
         return None                                         # figures one after another, not set against each other
     used = {k for f in best for k in range(f["i"], f["end"])}
     labels = []
@@ -261,6 +416,7 @@ def comparison(words: list[tuple[str, float]]) -> dict | None:
                 break
         marked = [k for k in reversed(before) if plain[k] in MARKERS] or [k for k in after if plain[k] in MARKERS]
         own = before and len(before) <= LABEL_WORDS and before[0] > 0 and closes[before[0] - 1]
+        weak = False
         if marked:
             pick = marked[:1]
         elif own:
@@ -268,17 +424,29 @@ def comparison(words: list[tuple[str, float]]) -> dict | None:
         elif after and len(after) <= LABEL_WORDS and closes[after[-1]]:
             pick = after                                    # "dos minutos por semana," → "Por semana"
         elif before:
-            pick = before[-LABEL_WORDS - 1:]
+            pick, weak = before[-LABEL_WORDS - 1:], True
         else:
-            pick = after[:LABEL_WORDS]
-        while pick and (plain[pick[0]] in LEADING or plain[pick[0]] in DETERMINERS):
-            pick = pick[1:]
-        while pick and plain[pick[-1]] in LABEL_STOP:
-            pick = pick[:-1]
-        pick = pick[-LABEL_WORDS:]
+            pick, weak = after[:LABEL_WORDS], True
+        label, pick = _bar_label(words, plain, pick)
+        label = label or f"{n + 1}"
+        pronoun = len(label.split()) == 1 and "".join(tokens(label)) in PRONOUNS | DETERMINERS
+        if asker is not None and (weak or pronoun):         # a guess: the words near its figure may name it better
+            ahead = next((after[:j] for j, k in enumerate(after) if plain[k] in LEADING), after)   # not the next one's
+            windows = [x for k in range(1, LABEL_WORDS + 1) for x in (before[-k:], before[:k], ahead[:k])]
+            options = {label: pick}
+            for w in windows:
+                text, ks = _bar_label(words, plain, [k for k in w if k not in used])
+                if text and text not in options and text not in labels and \
+                        not (len(ks) == 1 and (plain[ks[0]] in NAMELESS or len(plain[ks[0]]) < 3)):
+                    options[text] = ks
+            if len(options) >= 2:
+                said = " ".join(_clean(w) for w, _ in words[f["i"]:f["end"]])
+                a = asker("bar_labels", "choice", [Option(t, t) for t in options], _said(words), label,
+                          0.3 if pronoun else 0.5, None, said)
+                label = a.value or label
+                pick = options[label]
         used.update(pick)
-        label = " ".join(_clean(words[k][0]) for k in pick).strip()
-        labels.append(_capital(label) if label else f"{n + 1}")
+        labels.append(label)
     if len(set(labels)) < len(labels):
         return None
     if best[0]["base"]:
@@ -298,10 +466,14 @@ def _capital(text: str) -> str:
     return text if any(c.isupper() for c in first[1:]) else text[:1].upper() + text[1:]
 
 
-def said_data(words: list[tuple[str, float]]) -> dict | None:
+def said_data(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None) -> dict | None:
     """What a sentence says that is shown as data rather than searched for: figures compared → `bars`,
     a source quoted → `headline`. The spec plus "at" (when it starts being said), or None."""
-    return comparison(words) or quote(words)
+    return comparison(words, decide, language) or quote(words)
+
+
+def _said_data(words: list[tuple[str, float]], asker: _Asker | None) -> dict | None:
+    return _comparison(words, asker) or quote(words)
 
 
 def quote(words: list[tuple[str, float]]) -> dict | None:
@@ -344,15 +516,34 @@ def enumeration(text: str) -> list[str] | None:
     return [x[:1].upper() + x[1:] for x in parts]
 
 
-def scene_for(words: list[tuple[str, float]], at: float, main: str) -> dict | None:
+def scene_for(words: list[tuple[str, float]], at: float, main: str, decide: Decide | None = None,
+              language: str | None = None) -> dict | None:
     """An illustrated scene (graphics/scenes.py) when the sentence says what something does: the verb
-    said at or after the cut first, else the one before it."""
+    said at or after the cut first, else the one before it. With `decide`, a model may pick the action
+    among all of them, or none (`action`), and the title (`title_span`)."""
+    rules = _scene_for(words, at, main, None)
+    if decide is None:
+        return rules
+    asker = _Asker(decide, language_of(words, language))
+    return _decided(_scene_for(words, at, main, asker), rules, asker)
+
+
+def _scene_for(words: list[tuple[str, float]], at: float, main: str, asker: _Asker | None) -> dict | None:
     cut = next((k for k, (_, t) in enumerate(words) if t >= at - 1e-6), 0)
     found = action_of([w for w, _ in words[cut:]])
     if found:
         found = (found[0], found[1] + cut)
     else:
         found = action_of([w for w, _ in words])
+    if asker is not None:
+        said = actions_in([w for w, _ in words])
+        clear = bool(found) and any((a, i) == found and plain for a, i, plain in said)
+        rules = found[0] if found else "none"
+        a = asker("action", "choice", [Option(x, action_text(x, asker.language)) for x in (*ACTIONS, "none")],
+                  _said(words), rules, 0.85 if clear else 0.5, ABOUT)
+        if a.value != rules:
+            where = [i for x, i, _ in said if x == a.value]
+            found = None if a.value == "none" else (a.value, (where or [cut])[0])
     if not found:
         return None
     action, where = found
@@ -367,7 +558,7 @@ def scene_for(words: list[tuple[str, float]], at: float, main: str) -> dict | No
     if action in ("send", "store"):
         others = [i for i in things if i != subject]
         target = "ram" if action == "store" and "ram" in others else (others[0] if others else target)
-    spec = {"template": "scene", "action": action, "text": phrase(words, at)}
+    spec = {"template": "scene", "action": action, "text": _phrase(words, at, PHRASE_WORDS, asker)}
     if subject:
         spec["subject"] = subject
     if target and action in ("send", "store", "swipe", "open"):
@@ -390,24 +581,76 @@ def local_query(words: list[tuple[str, float]], at: float, icon: str | None, lan
 
 
 def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, last: str | None = None,
-         decide: Decide | None = None) -> dict:
+         decide: Decide | None = None, language: str | None = None) -> dict:
     """What the engine draws for a sentence when no footage is good enough, by what the sentence says:
     a figure → `number`; three or more items → `list`; something doing something → `scene` (an animated
     illustration); else a `title` with the illustration of what it names. `last`: the template used
-    just before — another one is chosen when there is one, so the same kind does not come twice."""
+    just before — another one is chosen when there is one, so the same kind does not come twice.
+    With `decide`, a model may change each judgment (title, illustration, action, data) and pick the
+    drawing among those that fit (`card_type`); language: the video's ("es", "en"; None = guessed)."""
+    rules = _card(sentence, at, main, last, None)
+    if decide is None:
+        return rules
+    asker = _Asker(decide, language_of(sentence.get("words") or [], language))
+    return _decided(_card(sentence, at, main, last, asker), rules, asker)
+
+
+def describe(spec: dict, language: str = "es") -> str:
+    """A drawing in one line, with what it says (for a model that picks one)."""
+    es = language == "es"
+    kind = spec.get("template")
+    if kind == "number":
+        said = " ".join(str(spec.get(k) or "") for k in ("label", "value", "unit", "sub")).split()
+        return ("una cifra grande: " if es else "a big figure: ") + " ".join(said)
+    if kind == "bars":
+        return ("barras que comparan: " if es else "bars comparing: ") + f"{spec.get('data')} {spec.get('unit') or ''}".strip()
+    if kind == "headline":
+        return (f"un titular de noticia: «{spec.get('text')}» ({spec.get('outlet')})" if es
+                else f"a news headline: “{spec.get('text')}” ({spec.get('outlet')})")
+    if kind == "list":
+        return ("una lista: " if es else "a list: ") + str(spec.get("items"))
+    if kind == "scene":
+        who = describe_icon(spec["subject"], language) if spec.get("subject") else ""
+        what = action_text(str(spec.get("action")), language)
+        return (f"una escena animada: {who}, {what}" if es else f"an animated scene: {who}, {what}") if who else \
+            (f"una escena animada: {what}" if es else f"an animated scene: {what}")
+    icon = f" ({describe_icon(spec['icon'], language)})" if spec.get("icon") else ""
+    return (f"un título: «{spec.get('text')}»" if es else f"a title: “{spec.get('text')}”") + icon
+
+
+def _title_icon(words: list[tuple[str, float]], at: float, main: str, asker: _Asker | None) -> str | None:
+    """The illustration above a title card: the first thing named from the cut on, else in the sentence,
+    else the script's topic. With a decider, a model may pick another one, or none (`icon`)."""
+    hits = [(w, i) for w, t in words if t >= at - 1e-6 and (i := _icon_of(w))] or \
+        [(w, i) for w, t in words if (i := _icon_of(w))]
+    icon = hits[0][1] if hits else main
+    if asker is None or icon not in ICONS:
+        return icon
+    confidence = (0.9 if (match_icon(hits[0][0]) or (None, False))[1] else 0.6) if hits else 0.5
+    a = asker("icon", "choice", [Option(x, describe_icon(x, asker.language)) for x in (*ICONS, "none")],
+              _said(words), icon, confidence, ABOUT)
+    return None if a.value == "none" else a.value
+
+
+def _card(sentence: dict, at: float | None, main: str, last: str | None, asker: _Asker | None) -> dict:
     words = [(str(w[0]), float(w[1])) for w in sentence.get("words") or []]
     at = float(sentence.get("start") or 0) if at is None else at
-    named = [i for w, t in words if (i := _icon_of(w))]
-    after = [i for w, t in words if t >= at - 1e-6 and (i := _icon_of(w))]
-    title = {"template": "title", "text": phrase(words, at) or str(sentence.get("text") or ""),
-             "icon": (after or named or [main])[0]}
+    title = {"template": "title", "text": _phrase(words, at, PHRASE_WORDS, asker) or str(sentence.get("text") or "")}
+    icon = _title_icon(words, at, main, asker)
+    if icon:
+        title["icon"] = icon
     items = enumeration(sentence.get("text") or "")
-    data = said_data(words)
+    data = _said_data(words, asker)
     data = {k: v for k, v in data.items() if k != "at"} if data else None
     options = [x for x in (data, figure(words), {"template": "list", "items": "; ".join(items), "marks": "n"} if items else None,
-                           scene_for(words, at, main), title) if x]
-    fresh = [x for x in options if x["template"] != last]
-    return (fresh or options)[0]
+                           _scene_for(words, at, main, asker), title) if x]
+    pool = [x for x in options if x["template"] != last] or options
+    if asker is None or len(pool) < 2:
+        return pool[0]
+    strong = [x for x in pool if x["template"] != "title"]
+    a = asker("card_type", "choice", [Option(x["template"], describe(x, asker.language)) for x in pool],
+              _said(words), pool[0]["template"], 0.85 if len(strong) <= 1 else 0.6)
+    return next((x for x in pool if x["template"] == a.value), pool[0])
 
 
 def covered(plan: dict, overlay: set[str]) -> set[int]:
@@ -434,6 +677,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
         return []
     under = covered(plan, overlay)
     main = topic(sentences)
+    language = language_of([w for s in sentences for w in s["words"]], (cfg or {}).get("language"))
     turns: Counter = Counter()
     last_query = None
     last: str | None = None
@@ -446,7 +690,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
             continue
         allowed = limit_open if opening else limit
         words = [(str(w[0]), float(w[1])) for w in s["words"]]
-        data = said_data(words) if k < len(sentences) - 1 else None
+        data = said_data(words, decide, language) if k < len(sentences) - 1 else None
         if data and data["template"] != last:              # data said aloud is shown as it is said
             at = max(float(data.pop("at")), start + max(MIN_FACE - clock, LEAD_IN))
             due = start + max(allowed - clock, MIN_FACE - clock, LEAD_IN)
@@ -490,13 +734,16 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
             query = options[turns[icon] % len(options)]
         turns[icon] += 1
         last_query = query
-        drawn = card(s, at, main, last, decide=decide)
+        drawn = card(s, at, main, last, decide=decide, language=language)
         where = {"at_sentence": n, "until_sentence": n, "from_word": [s["source"], round(at, 3)],
                  "note": f"«{word.strip('¿?¡!.,;:')}»", "_auto": "director"}
+        if drawn.get("_decided"):
+            where["_decided"] = drawn["_decided"]
         if drawn["template"] == "number":                   # a figure is shown, not searched for
             out.append({"type": "graphic", **drawn, **where})
         else:
-            out.append({"type": "broll", "query": query, "query_lang": "en", "query_local": local_query(words, at, icon, str(cfg.get("language", "es"))),
+            out.append({"type": "broll", "query": query, "query_lang": "en",
+                        "query_local": local_query(words, at, icon, str(cfg.get("language", "es"))),
                         "said": str(s.get("text") or ""), **where, "fallback": drawn})
         last = drawn["template"]
         clock, opening = 0.0, False
