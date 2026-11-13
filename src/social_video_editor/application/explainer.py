@@ -12,6 +12,7 @@ from ..domain.timebase import mmss
 from ..domain.timeline import compute_timeline
 from ..log import log
 from .cutaways import place_cutaways
+from .decide import run_decided
 from .graphic import build_scene, graphics_theme
 from .services import Services
 
@@ -34,14 +35,25 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
     plan = explainer.build_plan(script, matches, cfg, name)
     cues = len(plan["cutaways"])
     overlay = {name for name, t in TEMPLATES.items() if getattr(t, "overlay", False)}
-    if director.settings(cfg)["auto_broll"]:                # footage where the presenter would stay alone too long
-        cuts = director.propose(plan, cfg, overlay)
-        plan["cutaways"] = sorted(plan["cutaways"] + cuts, key=lambda c: c.get("at_sentence", 0))
-        plan["note"] += f", {len(cuts)} b-roll proposed (sve broll fetches them)"
-    if explainer.script_settings(cfg).get("support"):       # notes around the presenter where nothing else is on screen
-        notes = support.propose(plan, cfg.get("language", "es"))
-        plan["cutaways"] = sorted(plan["cutaways"] + notes, key=lambda c: c.get("at_sentence", 0))
-        plan["note"] += f", {len(notes)} proposed overlays"
+    auto_broll = bool(director.settings(cfg)["auto_broll"])
+    notes_on = bool(explainer.script_settings(cfg).get("support"))
+
+    def propose(decide) -> tuple[list[dict], list[dict]]:
+        """The director's footage (where the presenter would stay alone too long), then notes around the
+        presenter where nothing else is on screen; the plan is not changed (this may run more than once)."""
+        cuts = director.propose(plan, cfg, overlay, decide=decide) if auto_broll else []
+        merged = {**plan, "cutaways": sorted(plan["cutaways"] + cuts, key=lambda c: c.get("at_sentence", 0))}
+        notes = support.propose(merged, cfg.get("language", "es"), decide=decide) if notes_on else []
+        return cuts, notes
+
+    if auto_broll or notes_on:
+        cuts, notes = run_decided(svc, project, propose)
+        if auto_broll:
+            plan["cutaways"] = sorted(plan["cutaways"] + cuts, key=lambda c: c.get("at_sentence", 0))
+            plan["note"] += f", {len(cuts)} b-roll proposed (sve broll fetches them)"
+        if notes_on:
+            plan["cutaways"] = sorted(plan["cutaways"] + notes, key=lambda c: c.get("at_sentence", 0))
+            plan["note"] += f", {len(notes)} proposed overlays"
     auto = Counter(c.get("_auto") for c in plan["cutaways"] if c.get("_auto"))
     log(f"Script {name}: {len(script.sentences)} sentences, {sum(m is not None for m in matches)} found, {cues} cues"
         + (f", {auto['director']} b-roll proposed" if auto.get("director") else "")
