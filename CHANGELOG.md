@@ -11,6 +11,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   that the transcription split or misheard are kept, so no word is cut in half.
 
 ### Added
+- **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
+  and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
+  answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),
+  then a language model through Ollama (`qwen3.5:9b`, Apache-2.0, which also sees a frame of borderline b-roll).
+  A model only replaces an answer with a valid, surer one; answers are cached per project, one model is in
+  memory at a time, and with no models the plan is byte-identical. Covers notes (verbs are not notes), card
+  titles, bar labels, scene actions, card illustrations, the drawing chosen, shortened cards and borderline
+  clips. Entries a model chose carry `_decided`. `sve doctor` reports both models.
 - **Clean voice** (`audio.clean_voice`, on in `explainer` and `talk`): the background noise of each recording is
   taken out once, over the whole recording, with RNNoise (FFmpeg `arnndn`; a ≈300 KB speech model downloaded
   once to the user cache, FFT denoiser without it or with `SVE_OFFLINE=1`); every shot reads its piece of the

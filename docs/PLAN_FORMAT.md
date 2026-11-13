@@ -530,6 +530,7 @@ the transcription misheard is still written right; `speech` shows what was heard
 | `seconds` | At most this long on screen. |
 | `pip` | `true` / `false`: the presenter's window over this cutaway, whatever `pip.enabled` says. |
 | `item_times` | Written by `sve plan` for overlays whose items follow the voice: `[[source, seconds], …]`, the moment each item is said. They become the graphic's `times` when the cutaways are placed (so they survive pause shortening). |
+| `_decided` | `"nli"` / `"llm"` / `"clip"` on a cutaway whose content a local model chose (see [Local decider](#local-decider-optional)). |
 | `_auto` | `"support"` on the notes the engine proposed (see below); `"director"` on the footage the director proposed; `"credit"` on the credit captions `sve broll` adds; `"card"` on a cue turned into an illustrated card. |
 | `start`, `end` | Instead of sentences: seconds of the final video (`end` optional: `seconds`, or 3 s). |
 
@@ -685,6 +686,44 @@ What was fixed and the **decisions** left — each with its options — are prin
 | `review.read_cps` | 15 | Characters a viewer reads per second. |
 | `review.graphic_max` | 6.0 | Seconds a full-frame graphic or photo stays at most (0 = off). |
 | `review.camera_slack` | 1.5 | Seconds the presenter alone may run over the director's limits before it counts. |
+
+## Local decider (optional)
+
+Some of the engine's judgments are closed questions asked by the pure domain code (`domain/decide.py`):
+
+| Question | Asked by | Options |
+|---|---|---|
+| `label_words` | the notes around the presenter | the unsure candidate words (a verb is not a note) |
+| `title_span` | an illustrated card's title | 2–4 short spans of the sentence |
+| `is_comparison` / `bar_labels` | bars drawn from a sentence | yes / no · candidate names per bar |
+| `action` | an animated `scene` | the 13 actions + none |
+| `icon` | a card's illustration | the illustrations + none |
+| `card_type` | what the director draws | the candidate drawings |
+| `shorten` | a card too long to read | shorter versions |
+| `clip_shows` / `clip_lively` | b-roll near the thresholds | yes / no, with a frame of the clip |
+
+The rules answer each with a confidence. Questions under `decider.threshold` go, in batches, first to a
+small zero-shot classifier (when the question has a hypothesis), then to a local language model through
+Ollama (which sees the frame for clip questions); the vision model is unloaded before it and every model
+after its batch. A model's answer replaces the previous one only when it is one of the options and at least
+as sure (and, for the language model, at least `decider.llm_min`). The language model answers with an
+option letter; its confidence comes from the token probabilities (when the server cannot force the answer's
+format it answers in free text and the letter is read from it). `sve plan`, `sve broll` and `sve make` run
+their step twice: once with the rules (writing down the questions) and again with the answers, which are
+kept in `cache/decisions_<id>.json` (asked again when the models or `ROUTES_VERSION` change).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `decider.enabled` | `false` (`auto` in `explainer`) | `auto` = use what is installed · `true` = may download the small model · `false` = rules only. |
+| `decider.threshold` | 0.8 | The rules' answers less sure than this go to the models. |
+| `decider.nli_model` | `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` | The small classifier (`pip install 'social-video-editor[decider]'`). |
+| `decider.llm` | `auto` | `auto` = when a local Ollama server has `llm_model` · `false` = never. |
+| `decider.llm_model` | `qwen3.5:9b` | The local language model (`ollama pull qwen3.5:9b`). |
+| `decider.llm_min` | 0.5 | A language-model answer less sure than this keeps the previous one. |
+| `decider.timeout` | 60 | Seconds per language-model request. |
+| `decider.device` | `cpu` | Device of the small classifier (`cpu`, `mps`, `cuda`). |
+
+`OLLAMA_HOST` (default `127.0.0.1:11434`) points to another server; `SVE_OFFLINE=1` uses neither model.
 
 ## Third-party footage (`sve broll`)
 

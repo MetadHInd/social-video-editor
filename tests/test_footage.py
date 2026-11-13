@@ -338,6 +338,11 @@ def test_download_is_abandoned_when_too_big(monkeypatch, tmp_path):
     with pytest.raises(FootageError, match="larger than"):
         http.fetch("https://cdn.example/a.mp4", tmp_path / "f" / "b.mp4", max_bytes=2048)
     assert sorted(p.name for p in (tmp_path / "f").iterdir()) == ["a.mp4"]          # nothing half-written is left
+    clock = iter([0.0, 1.0, 500.0, 501.0])                                        # a server that trickles
+    monkeypatch.setattr(http.time, "monotonic", lambda: next(clock))
+    with pytest.raises(FootageError, match="longer than 180 s"):
+        http.fetch("https://cdn.example/a.mp4", tmp_path / "f" / "c.mp4")
+    assert sorted(p.name for p in (tmp_path / "f").iterdir()) == ["a.mp4"]
 
 
 def test_pack_brands_and_doctor(workspace, monkeypatch):
@@ -597,6 +602,25 @@ def test_no_clip_becomes_an_illustrated_card_and_the_director_cuts_in(workspace,
     (cut,) = json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"]
     assert cut == {"type": "graphic", "template": "scene", "action": "send", "text": "Every time you send one",
                    "subject": "phone", "target": "globe", "at_sentence": 1, "until_sentence": 1, "_auto": "card"}
+
+
+def test_a_card_without_a_text_is_drawn_too(workspace, monkeypatch, capsys):
+    # the fallback of a sentence that lists things is a list (items, no text): it is drawn, not dropped
+    monkeypatch.chdir(workspace.parent)
+    d = explainer_project(workspace, 'How does a message travel?\n[broll query="a phone on a table"]\n'
+                                     'Every time you send one, it splits again.\n[camera]\nAnd they travel apart.\n',
+                          {"broll": {"sources": ["stock"], "credit": False}})
+    fake_services(monkeypatch, {"stock": FakeSource("stock", "stock", [], "0x1EC81E")})
+    cli.main(["plan", "demo"])
+    plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+    plan["cutaways"][0]["fallback"] = {"template": "list", "items": "Bread; Milk; Eggs", "marks": "n"}
+    plan["cutaways"][0]["_auto"] = "director"
+    (d / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    capsys.readouterr()
+    cli.main(["broll", "demo"])
+    assert "an illustrated card instead (list “Bread; Milk; Eggs”)" in capsys.readouterr().out
+    (cut,) = json.loads((d / "plan.json").read_text(encoding="utf-8"))["cutaways"]
+    assert cut["template"] == "list" and cut["items"] == "Bread; Milk; Eggs"
 
 
 @pytest.mark.integration

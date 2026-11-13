@@ -38,6 +38,7 @@ SEARCH_TTL = 24 * 3600                      # stock libraries ask for search ans
 PREVIEWS = "footage_preview"                # in the project cache: small copies of long videos, deleted after use
 SHOWN = 3                                   # candidates listed per cue by --dry-run
 PAD = 0.5                                   # seconds kept around the piece of a long video
+CARD_CONTENT = ("text", "items", "value", "data")   # what makes a drawn card show something
 AUTO_DIRECTOR = "director"                  # "_auto" of the b-roll the director proposed (domain/director.py)
 LOOK_FPS = 1.0                              # frames per second the vision model looks at in a downloaded clip
 MOTION_FRAMES = (0.15, 0.4, 0.65, 0.9)      # where in the chosen piece its motion is measured
@@ -343,10 +344,11 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
                 continue
             card = cards.get(e["n"]) or {}
             keep = {k: c[k] for k in ("at_sentence", "until_sentence", "from_word", "seconds", "note", "_decided") if k in c}
-            if card.get("template") and card.get("text"):
+            shown = next((str(card[k]) for k in CARD_CONTENT if card.get(k)), "")
+            if card.get("template") and shown:          # a title, a scene, a list, a figure, bars… anything with content
                 plan["cutaways"][e["n"]] = {"type": "graphic", **card, **keep, "_auto": c.get("_auto") or "card"}
                 e["status"] = "card"
-                e["notes"].append(f"no clip passed: an illustrated card instead ({card['template']} “{card['text']}”)")
+                e["notes"].append(f"no clip passed: an illustrated card instead ({card['template']} “{shown}”)")
             elif c.get("_auto") == AUTO_DIRECTOR:
                 plan["cutaways"][e["n"]] = None
                 e["status"] = "dropped"
