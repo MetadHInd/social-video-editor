@@ -89,6 +89,9 @@ def letters(text: str, keys: list[str], many: bool) -> list[tuple[str, int]]:
         end = text.find("\n", start)
         region = text[:end] if many and end >= 0 else text
         found = [(x.group(1).lower(), x.start(1)) for x in _LETTER.finditer(region)]
+        word = region.strip().strip(_STRIP).lower()
+        if many and not found and word and all(ch in keys_set or ch in ", ;" for ch in word):
+            found = [(ch, region.find(ch)) for ch in word if ch in keys_set]      # letters written together: "ab"
         found = found if many else found[:1]
     out: list[tuple[str, int]] = []
     for letter, pos in found:

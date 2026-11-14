@@ -26,7 +26,8 @@ def _spoken(*sentences, gap: float = 0.6) -> dict:
 
 
 def _drop(word: str):
-    return {"label_words": lambda q: [v for v in q.values() if v != word]}
+    """A decider that says `word` is a verb (and nothing else is)."""
+    return {"label_words": lambda q: [v for v in q.values() if v == word]}
 
 
 def test_a_verb_the_decider_drops_is_not_a_note():
@@ -37,25 +38,31 @@ def test_a_verb_the_decider_drops_is_not_a_note():
     assert [n["label"] for n in notes] == [x for x in rules if x != "Guardan"]
     (q,) = fake.asked                                         # one question for the sentence
     assert q.topic == "label_words" and q.kind == "multi" and q.context == VERB and q.hypothesis is None
-    assert q.values() == ("Vecinos", "Guardan") and q.default == ("Vecinos", "Guardan")   # a noun ending like a verb, a long word
+    assert q.values() == ("Vecinos", "Guardan")              # "cajas" goes with its figure, "casa" is a sure noun
+    assert q.default == ()                                    # the rules see no verb among the words they keep
     assert [o.text for o in q.options] == ["vecinos", "guardan"] and q.confidence == 0.5
-    assert "sustantivo" in q.prompt
+    assert "verbo conjugado" in q.prompt
+    # the other words of a sentence become notes when they are not verbs: a verb leaves room for them
+    said = "Ellas guardan los platos limpios."
+    swapped = sentence_notes(_words(said), "es", decide=FakeDecider(_drop("Guardan")))
+    assert "Guardan" not in [n["label"] for n in swapped] and "Platos" in [n["label"] for n in swapped]
 
 
 def test_sure_candidates_are_never_asked_about():
-    fake = FakeDecider({"label_words": []})                   # the decider would drop every unsure word
+    fake = FakeDecider({"label_words": lambda q: q.values()})     # the decider says every word offered is a verb
     notes = sentence_notes(_words("La gente del mundo guarda 3 cajas en el sótano."), "es", decide=fake)
     kinds = {n["label"]: n["kind"] for n in notes}
     assert kinds == {"Gente": "icon", "Mundo": "icon", "3 cajas": "figure", "Sótano": "word"}
     for q in fake.asked:
         assert not {"Gente", "Mundo", "3 cajas", "Sótano"} & set(q.values())
-    fake = FakeDecider({"label_words": []})
+    fake = FakeDecider({"label_words": lambda q: q.values()})
     english = sentence_notes(_words("The workers carry 5 boxes to their garage."), "en", decide=fake)
-    assert [n["label"] for n in english] == ["Workers", "5 boxes", "Garage"] and fake.asked == []
+    assert [n["label"] for n in english] == ["Workers", "5 boxes", "Garage"]
+    assert all(set(q.values()) == {"Carry"} and q.default == ("Carry",) for q in fake.asked)   # the rules leave it out
 
 
 def test_a_sentence_without_anything_else_asks_about_its_key_word():
-    fake = FakeDecider({"label_words": []})
+    fake = FakeDecider({"label_words": lambda q: q.values()})
     assert sentence_notes(_words("Hay que traerlas luego."), "es", key_word=True, decide=fake) == []
     (q,) = fake.asked
     assert q.values() == ("Luego",) and q.confidence == 0.4
@@ -107,7 +114,7 @@ def test_shorten_offers_other_versions_and_takes_the_deciders_choice():
 
 
 def test_notes_proposed_again_by_make_go_through_the_decider(tmp_path):
-    llm = FakeReasoner(answer=lambda prompt, keys: ([k for k in keys if f"{k}) guardan" not in prompt], 0.9))
+    llm = FakeReasoner(answer=lambda prompt, keys: ([k for k in keys if f"{k}) guardan" in prompt] or [keys[-1]], 0.9))
     svc, project = decider_services(tmp_path, reasoner=llm)
     project.cfg["script"] = {"support": True}
     plan = _spoken("Aquí empieza todo lo demás de hoy.", SAID, "Y sigue así.")

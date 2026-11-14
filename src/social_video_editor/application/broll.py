@@ -48,6 +48,8 @@ TEXT_FPS = 4.0                              # frames per second searched for pri
 CROP_FRAMES = (0.2, 0.5, 0.8)               # where in the chosen piece the crops are compared
 TEXT_SHARE = 0.25                           # a clip whose best piece shows text in more of its frames is not used
 EXTRA_TRIES = 2                             # more downloads per source when candidates are turned down for text
+REJECTED = "footage_rejected.json"     # in the project cache: [source, id] of clips the language model turned down
+DROP_SURE = 0.85                        # a clip is turned down only when the model is this sure it is bad
 BORDER = 0.03                               # a clip this close to broll.min_match / min_interest passed only just
 FRAMES = "footage_frames"                   # in the project cache: the frame the language model looks at
 
@@ -201,7 +203,7 @@ def _describe(c: dict) -> str:
             f"{size} · {float(c.get('duration') or 0):.0f} s · {c.get('page') or ''}")
 
 
-def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: bool = False) -> dict:
+def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: bool = False, _retry: bool = False) -> dict:
     """Fetches a clip for every broll cutaway that has none (all of them with force) → what happened:
     {"cues": [{"n", "query", "status", "file", "source", "author", "license", "seconds", "score", "notes",
     "candidates"}], "fetched", "missing", "dry_run"}. status: fetched | kept (already has its file) |
@@ -233,6 +235,8 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
     doubts: list[dict] = []                 # clips that passed only just: the decider may look at them
 
     said_in = {x.get("n"): str(x.get("text") or "") for x in plan.get("sentences") or [] if isinstance(x, dict)}
+    rejected_path = project.cache / REJECTED
+    turned_down = {tuple(x) for x in svc.projects.read_json(rejected_path) or [] if isinstance(x, list) and len(x) == 2}
     taken = set()                           # clips the video already shows: never the same one in two places
     for _, c in cues:
         rec = records.get(str(c.get("file") or ""))
@@ -281,7 +285,8 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
                 entry["notes"].append(f"{name}: {failed}")
                 continue
             ranked, rejected = footage.rank(found, W, H, need, s, brand)
-            ranked = [x for x in ranked if (x.get("source"), str(x.get("id"))) not in taken]   # never the same clip twice
+            ranked = [x for x in ranked if (x.get("source"), str(x.get("id"))) not in taken     # never the same clip twice
+                      and (x.get("source"), str(x.get("id"))) not in turned_down]                 # nor one turned down
             if not ranked:
                 why = f" ({rejected[0][1]})" if rejected else ""
                 entry["notes"].append(f"{name}: nothing usable among {len(found)} results{why}")
@@ -319,6 +324,7 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
             if near is not None:
                 doubts.append({"n": i, "entry": entry, "before": before, "old": old, "old_rec": old_rec, "file": file,
                                "at": round(start + need / 2, 2), "said": said or query, "clip": f"{name} {cand.get('id')}",
+                               "key": (cand.get("source"), str(cand.get("id"))),
                                "match": near[0], "interest": near[1]})
             changed = True
             break
@@ -338,6 +344,14 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
                     _drop(svc, project, plan, records, d, by[d["n"]])
                 elif d["n"] in by:
                     plan["cutaways"][d["n"]]["_decided"] = by[d["n"]]
+            if drop and not _retry:         # a clip turned down: the next candidate is tried before any drawing
+                turned_down |= {d["key"] for d in doubts if d["n"] in drop}
+                svc.projects.write_json(rejected_path, sorted(list(k) for k in turned_down))
+                svc.projects.write_json(cache_path, cache)
+                svc.projects.write_json(project.dir / footage.FOLDER / footage.RECORD, [records[k] for k in sorted(records)])
+                svc.projects.save_plan(project, plan)
+                log(f"B-roll: {len(drop)} clip(s) turned down; trying the next candidates")
+                return fetch_broll(svc, project, dry_run, False, _retry=True)
         for e in out["cues"]:
             c = plan["cutaways"][e["n"]]
             if e["status"] != "missing" or not s.get("fallback_card", True):
@@ -502,11 +516,10 @@ def clip_questions(d: dict, image: str, language: str) -> tuple[dd.Question, dd.
     """(does the frame show what is said?, does it show something happening, clearly?) of a clip that
     passed only just; the rules' answer is yes to both (the clip is kept)."""
     es = language == "es"
-    shows = (f"¿Esta imagen muestra lo que dice la frase? Frase: «{d['said']}»" if es else
-             f"Does this picture show what the sentence says? Sentence: “{d['said']}”")
-    lively = ("¿La imagen muestra algo pasando (manos, un objeto en uso, movimiento) y se ve clara, no oscura ni borrosa?"
-              if es else "Does the picture show something happening (hands, a thing in use, movement) and look "
-                         "clear, not dark or blurry?")
+    shows = (f"¿Esta imagen tiene relación con lo que dice la frase, aunque no sea exacta? Frase: «{d['said']}»" if es
+             else f"Is this picture related to what the sentence says, even loosely? Sentence: “{d['said']}”")
+    lively = ("¿La imagen se ve clara, es decir, no está oscura, borrosa ni vacía?" if es else
+              "Does the picture look clear, that is, not dark, blurry or empty?")
     opts = dd.yes_no(language)
     return (dd.Question("clip_shows", "yesno", shows, opts, "", ("yes",), sureness(d["match"]), language, image=image),
             dd.Question("clip_lively", "yesno", lively, opts, "", ("yes",), sureness(d["interest"]), language, image=image))
@@ -538,7 +551,7 @@ def _settle(svc: Services, project: Project, plan: dict, cues: list[dict], doubt
                 continue
             answers = [dd.ask(decide, q) for q in clip_questions(d, str(frames[d["n"]]), language)]
             judged = [a for a in answers if a.source != "rules"]
-            no = [a for a in answers if a.value == "no"]
+            no = [a for a in answers if a.value == "no" and a.confidence >= DROP_SURE]   # only a clearly bad clip goes
             if no:
                 drop[d["n"]] = no[0].source
             if judged:

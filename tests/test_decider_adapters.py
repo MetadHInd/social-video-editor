@@ -318,3 +318,11 @@ def test_live_ollama_answers_a_closed_question(monkeypatch, capsys):
                   f"fields the runner rejected: {sorted(r._unsupported.get(S['llm_model'], ()))}")
     finally:
         r.release(S)
+
+
+def test_letters_written_together_are_read_one_by_one():
+    from social_video_editor.adapters.ollama.reasoner import letters
+    assert [x for x, _ in letters("ab", ["a", "b", "c"], True)] == ["a", "b"]
+    assert [x for x, _ in letters("a, c", ["a", "b", "c"], True)] == ["a", "c"]
+    assert letters("ab", ["a", "b", "c"], False) == []           # one answer expected: "ab" is not one letter
+    assert letters("hello", ["a", "b", "c"], True) == []

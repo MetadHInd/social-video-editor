@@ -21,7 +21,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   clips. Entries a model chose carry `_decided`. `sve doctor` reports both models. Routes measured on 215
   labeled real questions: the language model answers notes, titles, shortened cards and borderline clips;
   the rest stays with the rules (they were right more often). A failed answer never empties a choice, a
-  several-answer question has a "none" option, and a shorter version never drops a negation.
+  several-answer question has a "none" option, and a shorter version never drops a negation. Notes: the model
+  marks which words are conjugated verbs (every other word stays a note, so the presenter keeps as many notes);
+  b-roll: only a clip the model is sure is bad is turned down, and the next candidate is fetched instead of a card.
 - **Clean voice** (`audio.clean_voice`, on in `explainer` and `talk`): the background noise of each recording is
   taken out once, over the whole recording, with RNNoise (FFmpeg `arnndn`; a ≈300 KB speech model downloaded
   once to the user cache, FFT denoiser without it or with `SVE_OFFLINE=1`); every shot reads its piece of the

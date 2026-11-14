@@ -29,6 +29,8 @@ from .script import tokens
 
 MAX_ITEMS = 6               # notes in one overlay (the callouts template has six places)
 MAX_PER_SENTENCE = 4
+MAX_EXTRA = 6               # other words of a sentence offered to the decider (to replace a verb with a noun)
+EXTRA_CONFIDENCE = 0.6      # the rules leave those out; a question is asked when a sentence offers some
 MIN_GAP = 0.6               # seconds between two notes
 GROUP_SECONDS = 7.0         # an overlay holds its notes at most this long before starting over
 QUIET_SECONDS = 1.0         # a sentence with nothing to show gets a key word when nothing appeared for this long
@@ -70,10 +72,15 @@ CONFIDENCE = {"figure": 1.0, "icon": 0.95, "word": 0.85, "verb_like": 0.5, "emph
 SURE = 0.8
 # endings of verb forms (and verbs with a pronoun stuck to them): a "noun" ending so may be a verb ("las guardan")
 _VERB_LIKE = {"es": re.compile(r"(?:an|en|ar|er|ir|l[aeo]s?|te|se|me|nos)$")}
-PROMPT = {"es": "¿Cuáles de estas palabras de la frase sirven como apunte corto en pantalla? Un buen apunte nombra "
-                "una cosa o una idea clave (un sustantivo); un verbo no sirve.",
-          "en": "Which of these words of the sentence work as a short note on screen? A good note names a thing "
-                "or a key idea (a noun); a verb does not."}
+# The question is which words are conjugated verbs (a precise, grammatical question a language model
+# answers well): every other word stays a note. Asking "which words make good notes" instead made the
+# model keep one word or none, and the presenter went without notes.
+PROMPT = {"es": "Marca TODAS las palabras de esta lista que en la frase funcionan como verbo conjugado (por ejemplo "
+                "«cierras», «guardan», «gasta», «vaya», «usan», «déjalas»); puede haber varias. Un sustantivo, un "
+                "adjetivo, un participio usado como adjetivo, un infinitivo o un número no cuentan.",
+          "en": "Mark EVERY word of this list that works as a conjugated verb in the sentence (for example «closes», "
+                "«keeps», «spends», «uses»); there may be several. A noun, an adjective, a participle used as an "
+                "adjective, an infinitive or a number does not count."}
 
 
 def _clean(word: str) -> str:
@@ -114,7 +121,7 @@ def _candidates(words: list[list], language: str, key_word: bool) -> list[dict]:
             continue
         figure = _FIGURE.match(word)
         if figure:
-            label = figure.group(1).strip()
+            label = figure.group(1).strip().rstrip(".,")
             if i + 1 < len(words) and lower[i + 1].isalpha() and len(lower[i + 1]) >= 2 and plain[i + 1] not in stop:
                 label, unit = f"{label} {_clean(words[i + 1][0])}", i + 1     # "2 minutes", "20 apps"
             out.append(note(i, label, None, "figure", CONFIDENCE["figure"]))
@@ -147,22 +154,50 @@ def _candidates(words: list[list], language: str, key_word: bool) -> list[dict]:
     return sorted(out, key=lambda n: n["t"])
 
 
+def _extra_words(words: list[list], language: str, taken: set[float], shown: set[str]) -> list[dict]:
+    """Other words of the sentence that may name something (4+ letters, not a stopword, not already a
+    note): offered to the decider as well, so a verb it turns down can be replaced by a noun. The rules
+    never keep them (they are not in the rules' answer)."""
+    stop = STOPWORDS.get(language, STOPWORDS["en"])
+    weak = _WEAK.get(language, _WEAK["en"])
+    out = []
+    for i, (word, start, _end) in enumerate(words):
+        if _FIGURE.match(word) or (i and _FIGURE.match(words[i - 1][0])):    # a figure and its unit are a note already
+            continue
+        token = "".join(tokens(_clean(word).lower()))
+        label = _label(word)
+        if (len(token) < NOUN_LETTERS or token in stop or token in ALONE or weak.search(token)
+                or float(start) in taken or label.lower() in shown):
+            continue
+        shown.add(label.lower())
+        out.append({"label": label, "icon": find_icon(_clean(word).lower()), "t": float(start), "kind": "word",
+                    "conf": EXTRA_CONFIDENCE, "word": _clean(word)})
+    return out[:MAX_EXTRA]
+
+
 def _notes(words: list[list], language: str, key_word: bool, decide: Decide | None) -> tuple[list[dict], str | None]:
     """(the notes of sentence_notes, the source of the answer when a model changed them, else None)."""
     out = _candidates(words, language, key_word)
     changed = None
-    unsure = [n for n in out if n["conf"] < SURE]
-    if unsure:
+    sure_labels = {n["label"].lower() for n in out if n["conf"] >= SURE}
+    unsure = [n for n in out if n["conf"] < SURE and n["label"].lower() not in sure_labels]
+    extra = _extra_words(words, language, {n["t"] for n in out}, {n["label"].lower() for n in out})
+    if unsure or extra:
         options: dict[str, str] = {}
-        for n in unsure:
+        for n in unsure + extra:
             options.setdefault(n["label"], n["word"])
+        kept_by_rules = set(n["label"] for n in unsure)
+        default = tuple(label for label in options if label not in kept_by_rules)   # the rules leave the extras out
         q = Question("label_words", "multi", PROMPT.get(language, PROMPT["en"]),
                      tuple(Option(label, word) for label, word in options.items()),
-                     " ".join(str(w[0]) for w in words), tuple(options), min(n["conf"] for n in unsure), language)
+                     " ".join(str(w[0]) for w in words), default,
+                     min([n["conf"] for n in unsure] + ([EXTRA_CONFIDENCE] if extra else [])), language)
         answer = ask(decide, q)
-        keep = set(answer.values)
-        out = [n for n in out if n["conf"] >= SURE or n["label"] in keep]
-        if answer.source != "rules" and keep != set(q.default):
+        verbs = set(answer.values)                               # the words that are verbs: never a note
+        out = [n for n in out if n["conf"] >= SURE or (n["label"] not in verbs and n["label"].lower() not in sure_labels)]
+        out += [n for n in extra if n["label"] not in verbs]     # the other words: notes too
+        out.sort(key=lambda n: n["t"])
+        if answer.source != "rules" and verbs != set(q.default):
             changed = answer.source
     return [{k: n[k] for k in ("label", "icon", "t", "kind")} for n in out], changed
 

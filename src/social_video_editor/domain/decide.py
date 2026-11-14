@@ -46,7 +46,7 @@ DEFAULTS = {
 # illustrations and the kind of drawing the rules were right more often (82 / 60 / 74 %) than either
 # model, and the zero-shot classifier helped nowhere — those stay with the rules (an empty route).
 ROUTES: dict[str, tuple[str, ...]] = {
-    "label_words": ("llm",),            # which words of a sentence make good on-screen notes
+    "label_words": ("llm",),            # which words of a sentence are conjugated verbs (never a note)
     "title_span": ("llm",),             # which part of a sentence reads well as a card title
     "shorten": ("llm",),                # which shorter version of a card's text still says it
     "clip_shows": ("llm",),             # does this picture show what is said? (with the picture; not measured yet)
@@ -57,7 +57,7 @@ ROUTES: dict[str, tuple[str, ...]] = {
     "icon": (),                         # which illustration a sentence names
     "card_type": (),                    # which drawing fits a sentence (figure, list, scene, title…)
 }
-ROUTES_VERSION = 2
+ROUTES_VERSION = 3            # 3: label_words asks which words are verbs (not which make good notes)
 
 
 @dataclass(frozen=True)

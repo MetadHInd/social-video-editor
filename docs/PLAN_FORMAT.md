@@ -693,14 +693,14 @@ Some of the engine's judgments are closed questions asked by the pure domain cod
 
 | Question | Asked by | Options |
 |---|---|---|
-| `label_words` | the notes around the presenter | the unsure candidate words (a verb is not a note) |
+| `label_words` | the notes around the presenter | the unsure candidates and the sentence's other words: which are conjugated verbs (those are never notes; every other word is) |
 | `title_span` | an illustrated card's title | 2–4 short spans of the sentence |
 | `is_comparison` / `bar_labels` | bars drawn from a sentence | yes / no · candidate names per bar |
 | `action` | an animated `scene` | the 13 actions + none |
 | `icon` | a card's illustration | the illustrations + none |
 | `card_type` | what the director draws | the candidate drawings |
 | `shorten` | a card too long to read | shorter versions |
-| `clip_shows` / `clip_lively` | b-roll near the thresholds | yes / no, with a frame of the clip |
+| `clip_shows` / `clip_lively` | b-roll near the thresholds | is it related, even loosely? · does it look clear? (yes / no, with a frame); only a sure "no" (≥ 0.85) turns a clip down, and the next candidate is fetched before any drawing (`cache/footage_rejected.json`) |
 
 Which stages may answer each question is `ROUTES` in `domain/decide.py`, set from a labeled set of 215
 real questions: the language model beat the rules on notes (words picked right 20 % → 75 %), titles

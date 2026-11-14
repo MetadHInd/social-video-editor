@@ -42,7 +42,8 @@ class EdgeVision(FakeVision):
         self.log.append("clip-release")
 
 
-def setup(workspace, monkeypatch, title: str, answer: str = "b", decider: dict | None = None, reason: str | None = None):
+def setup(workspace, monkeypatch, title: str, answer: str = "b", decider: dict | None = None, reason: str | None = None,
+          sure: float = 0.9):
     """(project folder, the fake language model, the log of model calls) of a one-cue project."""
     monkeypatch.chdir(workspace.parent)
     d = explainer_project(workspace, SCRIPT, {"broll": {"sources": ["stock"], "credit": False, "candidates": 1},
@@ -52,7 +53,7 @@ def setup(workspace, monkeypatch, title: str, answer: str = "b", decider: dict |
     svc = fake_services(monkeypatch, {"stock": FakeSource("stock", "stock", [stock_clip(id="7", title=title)], "0x1EC81E")})
     svc.visual = EdgeVision(calls)
     svc.classifier = None
-    svc.reasoner = FakeReasoner(answer=lambda prompt, keys: ([answer], 0.9), reason=reason, log=calls)
+    svc.reasoner = FakeReasoner(answer=lambda prompt, keys: ([answer], sure), reason=reason, log=calls)
     cli.main(["plan", "demo"])
     return d, svc.reasoner, calls
 
@@ -77,11 +78,41 @@ def test_a_clip_that_passed_only_just_and_is_turned_down_becomes_a_drawn_card(wo
     assert "dropped" in out and "an illustrated card instead" in out and "0 fetched" in out
     assert not (d / "footage" / "stock_7_edge_case.mp4").exists()
     (asked,) = clip_prompts(reasoner)                    # the interest is clearly fine: only "does it show it?"
-    assert asked.startswith("¿Esta imagen muestra lo que dice la frase? Frase: «Every time you send one")
+    assert asked.startswith("¿Esta imagen tiene relación con lo que dice la frase, aunque no sea exacta? Frase: «Every time")
     (image,) = [i for p, i in zip(reasoner.prompts, reasoner.images) if p == asked]
     assert image.suffix == ".jpg" and image.is_file() and image.parent.name == broll.FRAMES
     first = calls.index("llm")
     assert "clip-release" in calls[:first] and "clip" not in calls[first:]     # CLIP is unloaded before the language model
+
+
+@pytest.mark.integration
+@requires_ffmpeg
+def test_a_clip_turned_down_makes_way_for_the_next_one_and_an_unsure_no_keeps_it(workspace, monkeypatch, capsys):
+    monkeypatch.chdir(workspace.parent)
+    d = explainer_project(workspace, SCRIPT, {"broll": {"sources": ["stock"], "credit": False, "candidates": 1},
+                                              "vision": {"enabled": True}, "decider": {"enabled": "auto"}})
+    calls: list = []
+    svc = fake_services(monkeypatch, {"stock": FakeSource("stock", "stock", [stock_clip(id="7", title="edge case"),
+                                                                             stock_clip(id="8", title="edge too")],
+                                                           "0x1EC81E")})
+    svc.visual = EdgeVision(calls)
+    svc.classifier = None
+    answers = iter([(["b"], 0.95)])                       # the first clip: a sure "no"; then "yes"
+    svc.reasoner = FakeReasoner(answer=lambda prompt, keys: next(answers, (["a"], 0.9)), log=calls)
+    cli.main(["plan", "demo"])
+    cli.main(["broll", "demo"])
+    (cut,) = plan_of(d)
+    assert cut["type"] == "broll" and cut["file"] == "footage/stock_8_edge_too.mp4"     # the next clip, not a drawing
+    assert json.loads((d / "cache" / broll.REJECTED).read_text(encoding="utf-8")) == [["stock", "7"]]
+
+
+@pytest.mark.integration
+@requires_ffmpeg
+def test_a_no_the_model_is_not_sure_of_keeps_the_clip(workspace, monkeypatch):
+    d, reasoner, _ = setup(workspace, monkeypatch, "edge case", answer="b", sure=0.7)   # under DROP_SURE
+    cli.main(["broll", "demo"])
+    (cut,) = plan_of(d)
+    assert cut["type"] == "broll" and cut["file"] == "footage/stock_7_edge_case.mp4" and clip_prompts(reasoner)
 
 
 @pytest.mark.integration
@@ -133,11 +164,11 @@ def test_the_questions_and_a_decider_that_says_no():
     d = {"said": "Every time you send one", "match": 0.01, "interest": 0.15}
     shows, lively = broll.clip_questions(d, "frame.jpg", "en")
     assert (shows.topic, lively.topic) == ("clip_shows", "clip_lively")
-    assert shows.prompt == "Does this picture show what the sentence says? Sentence: “Every time you send one”"
+    assert shows.prompt == "Is this picture related to what the sentence says, even loosely? Sentence: “Every time you send one”"
     assert shows.default == lively.default == ("yes",) and shows.image == lively.image == "frame.jpg"
     assert shows.confidence < 0.8 <= lively.confidence      # only the doubtful one goes to the models
     es = broll.clip_questions(d, "frame.jpg", "es")[1]
-    assert es.prompt.startswith("¿La imagen muestra algo pasando") and es.options[0].text == "sí"
+    assert es.prompt.startswith("¿La imagen se ve clara") and es.options[0].text == "sí"
 
     plan = {"cutaways": [{"type": "broll", "query": "q", "file": "footage/x.mp4"}]}
     cues = [{"n": 0, "status": "fetched"}]
