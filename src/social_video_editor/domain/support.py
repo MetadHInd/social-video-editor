@@ -76,7 +76,7 @@ _VERB_LIKE = {"es": re.compile(r"(?:an|en|ar|er|ir|l[aeo]s?|te|se|me|nos)$")}
 # answers well): every other word stays a note. Asking "which words make good notes" instead made the
 # model keep one word or none, and the presenter went without notes.
 PROMPT = {"es": "Marca TODAS las palabras de esta lista que en la frase funcionan como verbo conjugado (por ejemplo "
-                "«cierras», «guardan», «gasta», «vaya», «usan», «déjalas»); puede haber varias. Un sustantivo, un "
+                "«corres», «guardan», «gasta», «vaya», «usan», «dímelo»); puede haber varias. Un sustantivo, un "
                 "adjetivo, un participio usado como adjetivo, un infinitivo o un número no cuentan.",
           "en": "Mark EVERY word of this list that works as a conjugated verb in the sentence (for example «closes», "
                 "«keeps», «spends», «uses»); there may be several. A noun, an adjective, a participle used as an "
