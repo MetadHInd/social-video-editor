@@ -428,15 +428,17 @@ def cutaways(video: str, items: list[dict], first_input: int, fps: int) -> tuple
             pixel = "format=rgba," if c.get("alpha") else ""
             fmt = "format=auto:" if c.get("alpha") else ""
             fade_in, fade_out = float(c.get("fade_in") or 0), float(c.get("fade_out") or 0)
-            # its last frame repeated: a clip a frame short (or held under the next one) still covers its window
-            tail = f",tpad=stop_mode=clone:stop_duration={hold + 2 / fps:.4f}"
+            # its last frame repeated: a clip a frame short (or held under the next one) still covers its window.
+            # The overlay repeats it (eof_action=repeat) until `enable` closes the window: tpad's clone is ignored
+            # by FFmpeg 7 in this chain, and the picture under the clip showed through where it should be held
+            tail = ""
             fades = ("" if c.get("alpha") or not (fade_in or fade_out) else ",format=yuva420p")
             if fade_in > 0:
                 fades += f",fade=t=in:st={start:.6f}:d={fade_in:.4f}:alpha=1"
             if fade_out > 0:
                 fades += f",fade=t=out:st={max(end - fade_out, start):.6f}:d={fade_out:.4f}:alpha=1"
             parts.append(f"[{n}:v]fps={fps},{pixel}setpts=PTS-STARTPTS+{start:.6f}/TB{tail}{fades}[cut{k}];"
-                         f"{video}[cut{k}]overlay=0:0:{fmt}eof_action=pass:{when}{out}")
+                         f"{video}[cut{k}]overlay=0:0:{fmt}eof_action=repeat:{when}{out}")
             n += 1
         video = out
     return ";".join(parts), video

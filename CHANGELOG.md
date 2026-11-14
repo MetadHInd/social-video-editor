@@ -7,6 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Fixed
+- A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
+  (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
+  one frame of the presenter showed through).
 - A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
   that the transcription split or misheard are kept, so no word is cut in half.
 

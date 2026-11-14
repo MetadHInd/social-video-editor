@@ -70,10 +70,10 @@ def loudness(video: Path, start: float, end: float) -> float:
 # ── the filter and the composition ───────────────────────────────────────────
 def test_cutaway_filter_shifts_each_clip_to_its_start():
     text, label = filters.cutaways("[v1]", [{"start": 1.0, "end": 2.0}, {"start": 3.0, "end": 4.5, "alpha": True}], 5, 30)
-    assert "[5:v]fps=30,setpts=PTS-STARTPTS+1.000000/TB,tpad=stop_mode=clone:stop_duration=0.0667[cut0]" in text
-    assert "[v1][cut0]overlay=0:0:eof_action=pass:enable='between(t,0.983333,1.983333)'[vcut0]" in text
-    assert "[6:v]fps=30,format=rgba,setpts=PTS-STARTPTS+3.000000/TB,tpad=" in text
-    assert "[vcut0][cut1]overlay=0:0:format=auto:eof_action=pass:enable='between(t,2.983333,4.483333)'[vcut1]" in text
+    assert "[5:v]fps=30,setpts=PTS-STARTPTS+1.000000/TB[cut0]" in text
+    assert "[v1][cut0]overlay=0:0:eof_action=repeat:enable='between(t,0.983333,1.983333)'[vcut0]" in text
+    assert "[6:v]fps=30,format=rgba,setpts=PTS-STARTPTS+3.000000/TB[cut1]" in text
+    assert "[vcut0][cut1]overlay=0:0:format=auto:eof_action=repeat:enable='between(t,2.983333,4.483333)'[vcut1]" in text
     assert label == "[vcut1]"
 
 
@@ -82,7 +82,7 @@ def test_cutaway_filter_puts_clips_on_the_frame_grid_and_fades_them():
                                                                             "fade_out": 0.2}]
     text, _ = filters.cutaways("[v1]", items, 1, 30)
     assert "setpts=PTS-STARTPTS+1.600000/TB" in text                 # 1.59 s is not a frame: 1.6 s is
-    assert "tpad=stop_mode=clone:stop_duration=0.3000" in text       # held under the next one, + 2 frames
+    assert "tpad" not in text and text.count("eof_action=repeat") == 2   # its last frame held by the overlay…
     assert "between(t,1.583333,3.283300)" in text                    # its window reaches into the next one
     assert "format=yuva420p,fade=t=in:st=1.600000:d=0.2000:alpha=1" in text
     assert "fade=t=out:st=3.800000:d=0.2000:alpha=1" in text
@@ -127,7 +127,7 @@ def test_presenter_window_reads_the_joined_picture_and_uses_no_input():
              {"file": "frame.mov", "start": 1.0, "end": 3.0, "alpha": True}]
     text, label = filters.cutaways("[v1]", items, 4, 30)
     assert text.startswith("[v1]split=2[vjoined][pipsrc1];[4:v]")           # the picture before any cutaway, kept aside
-    assert "[vjoined][cut0]overlay=0:0:eof_action=pass" in text
+    assert "[vjoined][cut0]overlay=0:0:eof_action=repeat" in text
     assert ("[pipsrc1]crop=90:110:10:20,scale=60:74:flags=bicubic[pip1];"
             "[vcut0][pip1]overlay=80:150:eof_action=pass:enable='between(t,0.983333,2.983333)'[vcut1]") in text
     assert "[5:v]fps=30,format=rgba," in text and label == "[vcut2]"          # the frame is the next input, not the 6th
