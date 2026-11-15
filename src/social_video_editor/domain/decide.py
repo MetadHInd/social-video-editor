@@ -52,6 +52,8 @@ ROUTES: dict[str, tuple[str, ...]] = {
     "shorten": ("llm",),                # which shorter version of a card's text still says it
     "clip_shows": ("llm",),             # does this picture show what is said? (with the picture; not measured yet)
     "clip_lively": ("llm",),            # does this picture show something happening? (with the picture; not measured yet)
+    "product_name": ("llm",),           # which of CLIP's names fits the product in its best frame (with the picture;
+                                        # unboxing set: exact names 8 → 10 of 16 over CLIP on the same frames)
     "is_comparison": (),                # are these figures set against each other?
     "bar_labels": (),                   # the name of each bar
     "action": (),                       # what an illustrated scene shows the thing doing

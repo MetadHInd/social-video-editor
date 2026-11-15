@@ -136,7 +136,9 @@ VISION = Ctx(
           "estrellas": "stars", "vocabulario": "vocabulary", "plan_productos": "product_plan",
           "busqueda_producto": "product_search", "tarjetas": "cards", "contadores": "counters",
           "efecto_producto": "product_effect", "apertura_max": "opening_max",
-          "sin_empaque": "unpacked", "empaques": "packaging"},
+          "sin_empaque": "unpacked", "empaques": "packaging",
+          "nombres": "naming", "fotogramas_nombre": "name_frames", "candidatos_nombre": "name_candidates"},
+    values={"naming": {"fotogramas": "frames", "decididor": "decider"}},
     # unchanged: fps
     children={"weights": Ctx(keys={"indicaciones": "prompts", "objeto": "objectness", "novedad": "novelty",
                                    "nitidez": "sharpness"})},
