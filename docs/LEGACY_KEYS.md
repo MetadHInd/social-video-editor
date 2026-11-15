@@ -305,6 +305,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 |---|---|
 | `muestras_por_seg` | `samples_per_sec` |
 | `umbral_escena` | `scene_threshold` |
+| `trabajos` | `jobs` |
 
 ### Keys of `config.transcription`
 
@@ -314,6 +315,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `idioma` | `language` |
 | `contexto` | `context` |
 | `prob_min` | `min_probability` |
+| `motor` | `engine` |
 
 ### Keys of `config.color`
 

@@ -242,6 +242,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   A word that says again what a sure note shows (its plural, the same illustration) is not asked about.
 - `domain/flow.py`: a sentence describing a flow ("A manda B a C", "pasa de X a Y y luego a Z", "goes from X
   to Y") gives the ordered stops of a diagram (not wired to the director yet).
+- **Sources analyzed side by side** (`analysis.jobs`, Spanish `trabajos`; `auto` = `render.jobs` / `$SVE_JOBS`,
+  `1` = one after another): every source's 16 kHz wav is extracted first and Whisper transcribes them one after
+  another on its own thread while the proxies and the picture / scene / sound analysis run. Results and cache
+  files are the same as one at a time (a file listed twice is worked on once). 4 synthetic 30 s talking clips
+  (`scripts/bench.py --scenario analyze`, M1 Pro, 3 runs each, alternated): 26.2 s → 18.4 s (−30 %).
+- `transcription.engine` (Spanish `motor`): `faster-whisper` (default, unchanged), `mlx` (Whisper on the Apple
+  GPU through mlx-whisper, `[apple]` extra) or `auto`. Same words contract; an engine that cannot run or fails
+  falls back to faster-whisper; the analysis records which engine, model and device transcribed it
+  (`transcription` in `<id>_analysis.json`) and `sve doctor` says which engine the settings pick. Transcripts
+  stay cached per source: changing the engine never re-transcribes a finished project, and with `auto` a source
+  analyzed again (`sve analyze --force`) keeps the engine its words came from. mlx stays opt-in: on a real 47 s
+  Spanish recording (model `small`) its greedy decoding changed 9 % of the words and the script alignment found
+  one sentence fewer, and it was 0.7–1.8× as fast as faster-whisper, not the 2× needed to adopt it.
+- `scripts/bench.py --scenario analyze` (analysis and transcription time, engine / model / device recorded,
+  `--engine`, `--analysis-jobs`) and `--scenario explainer75` (final render of a ~75 s explainer: a presenter-like
+  recording, 6 full-frame graphics, subtitles). Both run only when named.
 - `vision.naming` (default `clip`: names exactly as before): `frames` names each product from its frames
   with the highest product score, against the packaged vocabulary embedded with the image model's own text
   encoder; `decider` then lets the decider's local language model look at the best frame and pick among
