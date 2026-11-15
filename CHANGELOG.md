@@ -19,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   author is shortened (a commons' "Name derivative work of / …" keeps the name); `credits.json` keeps it whole.
 
 ### Added
+- `sve broll <project> --unused` (`--sin-usar`) lists the clips no plan uses any more and the search cache, with
+  their size; `--yes` (`--si`) deletes them (clip, record, cached frame). A clip a plan names is never deleted.
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
   and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
   answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),

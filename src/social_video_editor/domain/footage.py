@@ -497,4 +497,36 @@ def issues(used: list[dict], total: float, s: dict) -> list[tuple[str, str]]:
     return out
 
 
+def plan_files(plan) -> set[str]:
+    """Every clip of footage/ a plan names, anywhere in it (a cutaway's `file`, a shot's…), as
+    "footage/<name>" — written relative, absolute or with backslashes."""
+    out: set[str] = set()
+
+    def walk(x) -> None:
+        if isinstance(x, dict):
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+        elif isinstance(x, str):
+            t = x.replace("\\", "/")
+            if t.startswith(f"{FOLDER}/") or f"/{FOLDER}/" in t:
+                out.add(f"{FOLDER}/" + t.rsplit(f"{FOLDER}/", 1)[1])
+    walk(plan)
+    return out
+
+
+def unused_clips(records: list[dict], referenced: set[str]) -> tuple[list[dict], list[dict]]:
+    """(the records no plan names — whatever their `used` flag says, it may be older than the plan —,
+    the records marked `"used": false` that a plan still names: those are never deleted)."""
+    unused = [r for r in records if str(r.get("file")) not in referenced]
+    kept = [r for r in records if str(r.get("file")) in referenced and r.get("used") is False]
+    return unused, kept
+
+
+def megabytes(n: int | float) -> str:
+    return f"{n / 1e6:.1f} MB" if n >= 1e5 else f"{n / 1e3:.0f} kB"
+
+
 SOURCE_NAMES = {"pexels": "Pexels", "pixabay": "Pixabay", "wikimedia": "Wikimedia Commons", "official": "Official channel"}

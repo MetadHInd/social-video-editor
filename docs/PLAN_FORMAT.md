@@ -825,6 +825,14 @@ quality. Search answers are cached for a day in the project cache.
 A cutaway that already has its file is left alone (`--force` fetches again). A file outside `footage/`
 is your own clip: it needs no record.
 
+**Cleaning up.** Clips that were turned down or replaced stay in `footage/` (`"used": false` in
+`credits.json`), and search answers stay in `cache/footage_search.json`. `sve broll <project> --unused`
+(`--sin-usar`) lists them with their size and deletes nothing; with `--yes` (`--si`) it deletes them: the
+clip, its record and its cached frame (`cache/footage_frames/`), and the search cache. A clip that
+`plan.json` or `plan_previous.json` names (relative, absolute or with backslashes) is never deleted, whatever
+its `used` flag says; a file in `footage/` without a record is yours and is never touched. `sve report`
+shows the count and size of unused clips with this command.
+
 **Limits and checks.** No number of seconds makes other people's footage safe to use; short pieces,
 allowed sources and a record of every file lower the risk and leave a trail. `sve check` warns about:
 `third_party_too_long` (a clip on screen longer than `broll.max_seconds` of its kind),

@@ -15,12 +15,13 @@
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
   sve graphic [<project>] --proof | --shot N | --cue '…'   (preview animated graphics; --pack NAME, --video)
   sve broll   <project> [--dry-run] [--force]   (fetches a clip for every [broll query="…"] cue → footage/ + credits.json)
+  sve broll   <project> --unused [--yes]        (clips no plan uses + the search cache, with sizes; --yes deletes them)
   sve make    <project> [--final] [--force]       (everything: plan if missing, footage, render, review)
   sve doctor                               (checks FFmpeg, fonts, models and optional parts)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
 productos, mejorar, grafico, tomas, hacer and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
---hasta, --cada, --simular.
+--hasta, --cada, --simular, --sin-usar, --si.
 """
 from __future__ import annotations
 
@@ -153,6 +154,15 @@ def cmd_graphic(svc, a):
 def cmd_broll(svc, a):
     from .application.broll import broll_lines, fetch_broll
 
+    if a.unused:
+        from .application.broll_unused import unused_footage, unused_lines
+
+        print("\n".join(unused_lines(unused_footage(svc, _project(svc, a.project), delete=a.yes))))
+        return
+    if a.yes:
+        from .domain.models import UserError
+
+        raise UserError("--yes only goes with --unused (sve broll <project> --unused --yes)")
     print("\n".join(broll_lines(fetch_broll(svc, _project(svc, a.project), dry_run=a.dry_run, force=a.force))))
 
 
@@ -238,6 +248,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--dry-run", "--simular", action="store_true", dest="dry_run",
                    help="list what would be fetched; download nothing, change nothing")
     s.add_argument("--force", "--forzar", action="store_true", help="fetch again the cutaways that already have a clip")
+    s.add_argument("--unused", "--sin-usar", action="store_true",
+                   help="list the clips no plan uses and the search cache, with their size (deletes nothing)")
+    s.add_argument("--yes", "--si", action="store_true", help="with --unused: delete them")
     s.set_defaults(f=cmd_broll)
     s = sub.add_parser("make", aliases=["hacer"], help="the whole video: plan if missing, footage, render, review")
     s.add_argument("project")

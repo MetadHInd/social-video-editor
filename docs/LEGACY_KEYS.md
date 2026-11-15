@@ -96,6 +96,8 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--cada` | `--every` |
 | `--salida` | `--out` |
 | `--simular` | `--dry-run` |
+| `--sin-usar` | `--unused` |
+| `--si` | `--yes` |
 
 ## Recipes and project settings
 

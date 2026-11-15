@@ -226,6 +226,13 @@ class YamlProjectRepository:
     def exists(self, path: Path) -> bool:
         return Path(path).exists()
 
+    def file_size(self, path: Path) -> int:
+        """Bytes of a file, or of everything inside a folder; 0 when it does not exist."""
+        path = Path(path)
+        if path.is_dir():
+            return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+        return path.stat().st_size if path.is_file() else 0
+
     def file_hash(self, path: Path) -> str | None:
         """SHA-256 of a file's content, None if it is not a file."""
         path = Path(path)
