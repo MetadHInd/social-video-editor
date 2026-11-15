@@ -99,6 +99,8 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--sin-usar` | `--unused` |
 | `--si` | `--yes` |
 | `--completo` | `--full` |
+| `--corto` | `--short` |
+| `--cortos` | `--shorts` |
 
 ## Recipes and project settings
 
@@ -189,6 +191,10 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `toma_min` | `auto_min` |
 | `transicion` | `transition` |
 | `fundido_tomas` | `cutaway_fade` |
+| `cortos` | `shorts` |
+| `cortos_max` | `shorts_max` |
+| `corto_min` | `short_min` |
+| `corto_max` | `short_max` |
 
 ### Values of `config.script.take`
 
@@ -450,6 +456,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `borde_color` | `stroke_color` |
 | `sombra` | `shadow` |
 | `animacion` | `animation` |
+| `estilo` | `style` |
 
 ### Values of `config.subtitles.animation`
 
@@ -457,6 +464,14 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `escribir` | `typewriter` |
 | `ninguna` | `none` |
+
+### Values of `config.subtitles.style`
+
+| Spanish | English |
+|---|---|
+| `caja` | `caption` |
+| `recuadro` | `caption` |
+| `normal` | `pillow` |
 
 ### Keys of `config.texts`
 
@@ -945,6 +960,9 @@ A cutaway or a cue also takes every graphic key of `plan.shots` (`plantilla`, `t
 | `camara` | `camera` |
 | `foto` | `photo` |
 | `toma` | `broll` |
+
+The marks of a short, `[corto nombre]` … `[/corto]` (also `[corto nombre="…"]`), are `[short name]` … `[/short]`
+(read by the script parser itself, domain/script.py).
 
 ### Keys of `plan.texts`
 

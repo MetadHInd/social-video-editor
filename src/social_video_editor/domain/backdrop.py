@@ -8,8 +8,9 @@ from .graphics.scene import Scene
 
 
 def has_picture(info: dict) -> bool:
-    """Whether a media source has a picture (a photo or a video stream); a voice memo has none."""
-    return bool(info.get("image")) or bool(info.get("width"))
+    """Whether a media source has a picture: False only for sound without a video stream (a voice
+    memo: ffprobe found audio and no width)."""
+    return bool(info.get("image")) or bool(info.get("width")) or not info.get("has_audio")
 
 
 class Backdrop(Scene):
