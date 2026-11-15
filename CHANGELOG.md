@@ -12,15 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   one frame of the presenter showed through).
 - A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
   that the transcription split or misheard are kept, so no word is cut in half.
-- `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included
-  (it failed with "Version folder not found: …/v1" when only drafts existed), skips failed renders and says
-  which version it checked.
-- `credits.txt` (the video's description) is written in the project's language (Spanish by default) and the
-  author is shortened (a commons' "Name derivative work of / …" keeps the name); `credits.json` keeps it whole.
 
 ### Added
-- `sve broll <project> --unused` (`--sin-usar`) lists the clips no plan uses any more and the search cache, with
-  their size; `--yes` (`--si`) deletes them (clip, record, cached frame). A clip a plan names is never deleted.
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
   and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
   answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),
@@ -162,10 +155,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `color.reference`: copy the color look of a reference video (brightness, black/white points,
   saturation, color cast), with `color.reference_strength`.
 - Color look: `color.fade` (lifted blacks, softer whites) and `color.tint` (green ↔ magenta).
+- `sve broll <project> --unused` (`--sin-usar`) lists the clips no plan uses any more and the search cache, with
+  their size; `--yes` (`--si`) deletes them (clip, record, cached frame). A clip a plan names is never deleted.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
   laid on the frame grid and hold their last frame to the end of their window.
+- `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included
+  (it failed with "Version folder not found: …/v1" when only drafts existed), skips failed renders and says
+  which version it checked.
+- `credits.txt` (the video's description) is written in the project's language (Spanish by default) and the
+  author is shortened (a commons' "Name derivative work of / …" keeps the name); `credits.json` keeps it whole.
 
 ## [0.5.1] - 2026-11-04
 
