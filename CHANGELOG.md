@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   one frame of the presenter showed through).
 - A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
   that the transcription split or misheard are kept, so no word is cut in half.
+- `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included
+  (it failed with "Version folder not found: …/v1" when only drafts existed), skips failed renders and says
+  which version it checked.
 
 ### Added
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language

@@ -108,6 +108,8 @@ def cmd_check(svc, a):
     from .domain.check import report_lines
 
     result, notes = check_version(svc, a.project, a.version, a.out)
+    if not a.version:
+        print(f"Checking the latest rendered version: {result['version']} (another one: --version vN)")
     print("\n".join(report_lines(result, notes)))
 
 
@@ -212,7 +214,7 @@ def parser() -> argparse.ArgumentParser:
     s.set_defaults(f=cmd_music)
     s = sub.add_parser("check", aliases=["verificar"], help="automatic review of a render (check.json + listen/)")
     s.add_argument("project")
-    s.add_argument("--version", dest="version", help="version folder (default: latest vN)")
+    s.add_argument("--version", dest="version", help="version folder (default: the latest rendered one, draft included)")
     s.add_argument("--out", "--salida", dest="out", help="write check.json and snippets here instead")
     s.set_defaults(f=cmd_check)
     s = sub.add_parser("products", aliases=["productos"], help="products recognized by the vision model")
