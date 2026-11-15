@@ -23,3 +23,34 @@ def test_lower_third_stays_clear_of_landscape_subtitles_and_is_unchanged_in_vert
     tall = make_scene(spec, stage(VERTICAL))
     st = stage(VERTICAL)
     assert tall.y + tall.h == st.safe[3]                              # vertical: the bottom of the safe zone, as before
+
+
+def test_report_names_who_heard_the_words_the_shorts_and_what_the_sound_passes_did(workspace, capsys):
+    import json
+
+    import report_projects as rp
+    from social_video_editor.cli import main
+
+    d = rp.busy_explainer(workspace)
+    main(["report", d.name])
+    out = capsys.readouterr().out
+    assert "SOURCES 1 · 06:40.00 total · words: faster-whisper small (CPU (int8))" in out
+    assert "SHORTS 2 (1 proposed ~) · packets: sentences 1–4" in out
+    assert "~ auto-1: sentences 10–16" in out and "starts with a question" in out
+    assert "breaths: 34 pauses lowered 12 dB (21 with a breath or mouth noise, 9.6 s)" in out
+    assert "music: 10 dB under the voice while it speaks, 4 dB in pauses" in out
+    assert "PRODUCTS" not in out                                     # an explainer never detects products
+    analysis = d / "cache" / "lesson_0_analysis.json"
+    analysis.write_text(json.dumps({"words": []}), encoding="utf-8")     # analyzed before the engine was recorded
+    main(["report", d.name])
+    assert "words: faster-whisper (not recorded)" in capsys.readouterr().out
+
+
+def test_report_says_how_products_are_named(workspace, capsys):
+    import report_projects as rp
+    from social_video_editor.cli import main
+
+    d = rp.unboxing(workspace)
+    main(["report", d.name])
+    out = capsys.readouterr().out
+    assert "named by clip · ⚠ 4 low confidence: names unsure" in out

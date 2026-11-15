@@ -148,7 +148,12 @@ def busy_explainer(ws: Path) -> Path:
     brolls = [c for c in plan["cutaways"] if c.get("type") == "broll"]
     for c in brolls[:2]:
         c["file"] = f"footage/pexels_{brolls.index(c)}_phone.mp4"
+    plan["shorts"] = [{"name": "packets", "from_sentence": 1, "to_sentence": 4},
+                      {"name": "auto-1", "from_sentence": 10, "to_sentence": 16, "_auto": "shorts", "score": 5.4,
+                       "why": "starts with a question, a graphic inside, about 40 s"}]
     _json(d / "plan.json", plan)
+    _json(d / "cache" / "lesson_0_analysis.json", {"words": words, "transcription": {
+        "engine": "faster-whisper", "model": "small", "device": "CPU (int8)"}})
     (d / "script.md").write_text("\n".join(lines), encoding="utf-8")
     records = [{"file": f"footage/pexels_{k}_phone.mp4", "source": "pexels", "used": k < 2, "query": "a phone"}
                for k in range(5)]
@@ -160,6 +165,11 @@ def busy_explainer(ws: Path) -> Path:
     for v in ("v1Borrador", "v1Borrador_2", "v1", "v1SinMusica", "v2Borrador"):
         _version(d, v, f"lesson{'' if v[2:3] == '' else ''}.mp4")
     _version(d, "v2", "lesson.mp4", _check("v2", 5, 9))
+    summary = json.loads((d / "v2" / "summary.json").read_text(encoding="utf-8"))
+    summary["breaths"] = {"lesson_0": {"pauses": 34, "with_sound": 21, "seconds": 9.6, "depth_db": 12, "words": 230}}
+    summary["music_levels"] = {"voice_lufs": -18.2, "music_lufs": -20.1, "gain_db": -11.9, "under_voice_db": 10,
+                               "under_pause_db": 4, "intro_db": 4, "speech_spans": 31}
+    _json(d / "v2" / "summary.json", summary)
     _json(d / "review.json", {"version": "v2", "renders": 2, "fixed": ["text 1 moved up", "clip 3 replaced"],
                               "pending": [{"code": "sentence_unmatched", "message": f"sentence {k} was not found in the "
                                            "recording: record it again and run sve make",
