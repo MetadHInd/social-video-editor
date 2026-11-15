@@ -32,12 +32,20 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from . import flow as flows
 from .decide import Answer, Decide, Option, Question, ask
+from .graphics import suggest
 from .graphics.icons import ALONE, ICONS, describe_icon, find_icon, match_icon
 from .graphics.scenes import ACTIONS, TARGETED, action_of, action_text, actions_in
 from .script import tokens
 
-DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8}
+DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8,
+            "auto_line_chart": True, "auto_versus": True, "auto_code": True, "auto_screen": True,
+            "auto_diagram": True, "figure_context": True, "scene_fit": True}
+# the graphics the director chooses by itself besides footage and its cards (each one a setting); all
+# False = the director of before them, exactly
+CHOICES = ("auto_line_chart", "auto_versus", "auto_code", "auto_screen", "auto_diagram", "figure_context", "scene_fit")
+OFF = {k: False for k in CHOICES}
 LEAD_IN = 0.3               # a cutaway never starts in the first moment of a sentence (the word before it is heard)
 MIN_FACE = 1.5              # the presenter is on screen at least this long before footage covers them
 QUERIES = {                 # what stock libraries show well for each illustration, in turns
@@ -69,6 +77,9 @@ OWNERS = {"swipe": ("app",), "open": ("app",), "sleep": ("app", "phone", "laptop
           "faster": ("phone", "laptop", "app"), "slower": ("phone", "laptop", "app"),
           "delete": ("photo", "file", "folder", "app", "video", "message"),        # what is deleted
           "download": ("cloud", "globe", "server")}                                 # where it comes from
+OBJECTS = {"open": ("app", "phone", "laptop", "video", "photo", "file", "folder", "message", "camera"),
+           "swipe": ("app", "phone", "laptop", "video", "photo", "file", "folder", "message", "camera")}
+# script.scene_fit: what these actions are done to, when the word after the verb names an illustration
 TARGET_OWN = {"download": ("phone", "laptop", "disk", "ram", "camera", "speaker"),   # where it comes down to
               "delete": ("trash",)}   # the target is one of these when one is named
 CONNECTORS = set("pero si cuando porque entonces aunque como mientras but if when because then so although".split())
@@ -395,10 +406,11 @@ def _clean(word: str) -> str:
     return str(word).strip("¿?¡!.,;:«»\"'()…")
 
 
-def figure(words: list[tuple[str, float]]) -> dict | None:
+def figure(words: list[tuple[str, float]], context: bool = False) -> dict | None:
     """A figure the sentence says ("20", "dos minutos", "17 mil apps", "ciento sesenta y uno") as a `number`
     graphic: the value, its unit (the word after it), what comes before it in its clause as the label and
-    after it as the line under it. A figure with a unit is preferred ("dos minutos" over "veinte al día")."""
+    after it as the line under it. A figure with a unit is preferred ("dos minutos" over "veinte al día").
+    context (script.figure_context): a range without a unit ("de siete a nueve") is a time, not a figure."""
     plain = ["".join(tokens(w)) for w, _ in words]
     said = [w for w, _ in words]
     found = []
@@ -411,6 +423,9 @@ def figure(words: list[tuple[str, float]]) -> dict | None:
             continue
         number, after = got
         skip = after
+        if context and (ends := _range_end(said, plain, after)) is not None:
+            skip = ends
+            continue
         raw = _clean(w)
         value = raw if after == i + 1 and raw.replace(".", "").replace(",", "").replace("%", "").isdigit() else _shown(number)
         unit = ""
@@ -448,6 +463,8 @@ LABEL_STOP = UNIT_STOP | set("son es eran fue is are was were vs versus contra f
                              "tardaba tardan takes took gasta gastan usa usan uses use pesa pesan cuesta cuestan costs cost "
                              "mide miden".split())
 LABEL_WORDS = 3
+RANGE_JOINS = set("a al hasta to till until".split())
+VERB_SUBJECTS = set("tú yo nosotros you i we".split())     # "tú duermes", "you sleep": the bar is the verb
 PERIOD_HEADS = set("al por cada a per each every an".split())
 PERIOD_NOUNS = set("dia dias semana semanas mes meses ano anos hora horas minuto minutos segundo segundos "
                    "day days week weeks month months year years hour hours minute minutes second seconds".split())
@@ -480,8 +497,26 @@ def _unit_key(word: str) -> str:
     return w[:-1] if w.endswith("s") and len(w) > 3 else w
 
 
-def _figures(words: list[tuple[str, float]]) -> list[dict]:
-    """Every figure said with its unit: [{"i", "end" (index after the unit), "value", "unit", "said"}]."""
+def _range_end(said: list[str], plain: list[str], after: int) -> int | None:
+    """When the figure that ends before word `after` opens a range without a unit ("de siete a nueve de
+    la noche", "from 7 to 9"): the index after the range's second figure, else None."""
+    if after + 1 >= len(plain) or plain[after] not in RANGE_JOINS or said[after - 1].rstrip().endswith(_EDGE):
+        return None
+    got = spelled(said, after + 1)
+    return got[1] if got and _elided(said, plain, got[1]) else None
+
+
+def _elided(said: list[str], plain: list[str], after: int) -> bool:
+    """Whether the figure that ends before word `after` leaves its unit unsaid ("…y el Pixel, 18.",
+    "a cincuenta y cuatro."): it ends its clause, or a preposition / article follows it ("cinco en el celular")."""
+    return after >= len(plain) or said[after - 1].rstrip().endswith(_EDGE) or plain[after] in UNIT_STOP | PREPOSITIONS
+
+
+def _figures(words: list[tuple[str, float]], context: bool = False, prev: dict | None = None) -> list[dict]:
+    """Every figure said with its unit: [{"i", "end" (index after the unit), "value", "unit", "said"}].
+    context (script.figure_context): a figure whose unit is left unsaid takes the unit of the figure said
+    before it (in the sentence, else `prev`, the previous sentence's), marked "elided"; a range of figures
+    without a unit ("de siete a nueve") is not a figure."""
     plain = ["".join(tokens(w)) for w, _ in words]
     out = []
     said_words = [w for w, _ in words]
@@ -496,6 +531,16 @@ def _figures(words: list[tuple[str, float]]) -> list[dict]:
             continue
         value, after = got
         skip = after
+        if context and not pct and (after >= len(words) or _clean(words[after][0]) not in ("%", "por ciento")):
+            ends = _range_end(said_words, plain, after)
+            if ends is not None:
+                skip = ends                                 # "de siete a nueve de la noche": when, not how much
+                continue
+            before = out[-1] if out else prev
+            if before and _elided(said_words, plain, after):
+                out.append({"i": i, "end": after, "value": float(value), "unit": before["unit"], "said": before["said"],
+                            "elided": True})
+                continue
         unit, said, end = ("porciento", "%", after) if pct else ("", "", after)
         if not pct and end < len(words) and _clean(words[end][0]) in ("%", "por ciento"):
             unit, said, end = "porciento", "%", end + 1
@@ -509,18 +554,21 @@ def _figures(words: list[tuple[str, float]]) -> list[dict]:
     return out
 
 
-def comparison(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None) -> dict | None:
+def comparison(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None,
+               context: bool = False) -> dict | None:
     """Two to six figures of the same kind compared in one sentence ("dos minutos por semana, al año dos
     horas"; "de 15 % antes a 40 % hoy") as `bars`: times are put in the smallest unit said; each bar is
     named by a word such as "antes / hoy" next to it, else by the words after it (or before it).
     → the spec plus "at" (the second the first figure is said), or None. With `decide`, a model may
     say whether figures the rules are unsure of are compared (`is_comparison`) and name a bar whose
-    name the rules guessed (`bar_labels`)."""
-    rules = _comparison(words, None)
+    name the rules guessed (`bar_labels`). context (script.figure_context): a figure whose unit is left
+    unsaid takes the one said before it ("duermes ocho horas y pasas cinco en el celular"), and a bar
+    whose only name is the verb it is said with is named by that verb ("Duermes")."""
+    rules = _comparison(words, None, context)
     if decide is None:
         return rules
     asker = _Asker(decide, language_of(words, language))
-    return _decided(_comparison(words, asker), rules, asker)
+    return _decided(_comparison(words, asker, context), rules, asker)
 
 
 def _bar_label(words: list[tuple[str, float]], plain: list[str], pick: list[int]) -> tuple[str, list[int]]:
@@ -569,8 +617,26 @@ def _names_thing(words: list[tuple[str, float]], plain: list[str], pick: list[in
     return first in DETERMINERS or first in PREPOSITIONS or first in POSSESSIVES or named
 
 
-def _comparison(words: list[tuple[str, float]], asker: _Asker | None) -> dict | None:
-    found = _figures(words)
+def _verb_label(words: list[tuple[str, float]], plain: list[str], closes: list[bool], pick: list[int]) -> str:
+    """A bar named by the verb it is said with, when nothing else names it: one word that opens its clause,
+    or comes right after "tú / yo / you / I / we" ("Duermes ocho horas", "You sleep eight hours" → "Sleep");
+    not a word that only links ("es", "tiene", "uses"), a pronoun or a past form ("medí"). Else ""."""
+    ks = list(pick)
+    while ks and (plain[ks[0]] in LEADING or _clean(words[ks[0]][0]).lower() in VERB_SUBJECTS):
+        ks = ks[1:]
+    if len(ks) != 1:
+        return ""
+    k = ks[0]
+    word = _clean(words[k][0])
+    opens = k == 0 or closes[k - 1] or plain[k - 1] in LEADING or _clean(words[k - 1][0]).lower() in VERB_SUBJECTS
+    if not opens or len(plain[k]) < 4 or plain[k] in LABEL_STOP | SUBJECTS | DETERMINERS | PRONOUNS | MARKERS \
+            or word[-1:].lower() in "áéíóú" or not word.isalpha():
+        return ""
+    return _capital(word)
+
+
+def _comparison(words: list[tuple[str, float]], asker: _Asker | None, context: bool = False) -> dict | None:
+    found = _figures(words, context)
     for f in found:
         f["base"] = TIME_UNITS.get(f["unit"])
     groups: dict[str, list[dict]] = {}
@@ -633,6 +699,8 @@ def _comparison(words: list[tuple[str, float]], asker: _Asker | None) -> dict | 
             pick = whole
             label = _capital(" ".join(_clean(words[k][0]) for k in pick))
         good = bool(label) and _names_thing(words, plain, whole, not weak)
+        if context and not good and (verb := _verb_label(words, plain, closes, whole)):
+            label, pick, good = verb, [k for k in whole if _clean(words[k][0]).lower() not in VERB_SUBJECTS], True
         label = label or f"{n + 1}"
         pronoun = len(label.split()) == 1 and "".join(tokens(label)) in PRONOUNS | DETERMINERS
         if asker is not None and (weak or pronoun or not good):     # a guess: the words near its figure may name it better
@@ -677,14 +745,32 @@ def _capital(text: str) -> str:
     return text if any(c.isupper() for c in first[1:]) else text[:1].upper() + text[1:]
 
 
-def said_data(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None) -> dict | None:
+def said_data(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None,
+              opts: dict | None = None, screens=()) -> dict | None:
     """What a sentence says that is shown as data rather than searched for: figures compared → `bars`,
-    a source quoted → `headline`. The spec plus "at" (when it starts being said), or None."""
-    return comparison(words, decide, language) or quote(words)
+    a source quoted → `headline`. The spec plus "at" (when it starts being said), or None.
+    opts: the director's settings (settings(cfg)); with them, first (each when its setting is on) a
+    screenshot of the project it names → `screen`, a command → `code`, figures over three or more
+    years → `line_chart`, two named things with a figure each → `versus`. Without opts: none of these."""
+    p = opts or OFF
+    first = _chosen(words, p, screens)
+    if first is not None:
+        return first
+    return comparison(words, decide, language, bool(p.get("figure_context"))) or quote(words)
 
 
-def _said_data(words: list[tuple[str, float]], asker: _Asker | None) -> dict | None:
-    return _comparison(words, asker) or quote(words)
+def _chosen(words: list[tuple[str, float]], p: dict, screens=()) -> dict | None:
+    """The newer graphics a sentence asks for, in order of preference (each when its setting is on)."""
+    for key, rule in (("auto_screen", lambda: screen_for(words, screens)), ("auto_code", lambda: code_for(words)),
+                      ("auto_line_chart", lambda: line_chart_for(words)), ("auto_versus", lambda: versus_for(words))):
+        if p.get(key) and (got := rule()) is not None:
+            return got
+    return None
+
+
+def _said_data(words: list[tuple[str, float]], asker: _Asker | None, p: dict | None = None, screens=()) -> dict | None:
+    p = p or OFF
+    return _chosen(words, p, screens) or _comparison(words, asker, bool(p.get("figure_context"))) or quote(words)
 
 
 def quote(words: list[tuple[str, float]]) -> dict | None:
@@ -786,6 +872,301 @@ def enumeration(text: str) -> list[str] | None:
     return [x[:1].upper() + x[1:] for x in parts]
 
 
+# ── the newer graphics, chosen by the director (each one a setting; domain/graphics/suggest.py) ────
+CLI = set("sudo cd ls git npm npx pip pip3 python python3 brew apt curl wget grep mkdir chmod docker kubectl yarn "
+          "cargo ssh".split())     # a command said aloud starts with one of these (not "make", "go", "and", "in"…)
+SCREENSHOT_NAMES = ("screenshot", "screen shot", "captura", "pantallazo")     # a photo's name that says it is one
+CAMERA_NAMES = ("img", "dsc", "pxl", "mvimg", "photo", "foto")                # a camera's own file names
+SCREEN_SHAPE = 0.5          # width / height under this: a phone's screenshot (a camera's portrait is 0.5625 or 0.75)
+SCREEN_STOP = set("screenshot screen shot captura capturas pantallazo pantalla de del la el los las at the a en".split())
+SIDE_STOP = UNIT_STOP | LABEL_STOP | PRONOUNS | SUBJECTS | POSSESSIVES | PERIOD_NOUNS | set("todo todos toda todas".split())
+TIME_ICONS = ("moon", "clock", "calendar")     # an illustration of when, not of a thing set against another
+LABEL_MOST = 7              # words of a bar named by the clause before its figure, across two sentences…
+LABEL_CHARS = 24            # …and letters (figures in digits: "De 7 a 9 de la noche")
+CHART_SENTENCES = 3         # a line chart's years may be said over this many sentences
+
+
+def _digit_words(words: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """The words with every figure said in words written in digits, as one word ("ciento sesenta y un"
+    → "161", "dos mil quince" → "2015"), keeping its time and the punctuation after it (for the helpers
+    of graphics/suggest.py, which read digits); "doce millones" stays "12 millones"."""
+    said = [w for w, _ in words]
+    plain = ["".join(tokens(w)) for w in said]
+    out, i = [], 0
+    while i < len(words):
+        got = None if _digits(_clean(said[i]).rstrip("%")) is not None else _number(said, plain, i)
+        if got is None:
+            out.append(words[i])
+            i += 1
+            continue
+        value, end = got
+        tail = said[end - 1][len(said[end - 1].rstrip(".,;:?!…")):]
+        scale = SCALES.get(plain[end - 1], 1) if end - 1 > i else 1
+        if scale >= 10 ** 6 and value % scale == 0:
+            out.extend([(_shown(value / scale), words[i][1]), words[end - 1]])
+        else:
+            out.append((_shown(value) + tail, words[i][1]))
+        i = end
+    return out
+
+
+def code_for(words: list[tuple[str, float]]) -> dict | None:
+    """A command said or written in the sentence → a `code` spec (with "at"): text between backticks, or
+    a shell command (CLI: git, npm, brew, pip…) with its arguments; None otherwise."""
+    if "`" not in " ".join(w for w, _ in words) and not any(_clean(w) in CLI for w, _ in words):
+        return None
+    return suggest.code_from_words(words)
+
+
+def line_chart_for(words: list[tuple[str, float]]) -> dict | None:
+    """Figures tied to three or more years / months in order (said in digits or in words) → a
+    `line_chart` spec (with "at"), else None."""
+    clean = [_clean(w) for w, _ in words]
+    if not any(suggest.time_rank(w) for w in clean) and not any(p in SPELLED or p in SCALES for w in clean
+                                                                 for p in tokens(w)):
+        return None
+    spec = suggest.line_chart_from_words(_digit_words(words))
+    if spec is not None and not spec.get("unit"):              # "12 millones en 2015…": in millions
+        scale = next((_clean(w) for w, _ in words if "".join(tokens(w)) in SCALES and SCALES["".join(tokens(w))] >= 10 ** 6), None)
+        if scale:
+            spec["unit"] = scale.lower()
+    return spec
+
+
+def _thing(words: list[tuple[str, float]], k: int) -> str | None:
+    """Word k as (the start of) the name of a thing set against another: a name written with a capital
+    inside the sentence ("iPhone", "Pixel") or a word with an illustration that is not a time
+    ("celular", not "noche"); None otherwise."""
+    raw = _clean(words[k][0])
+    low = "".join(tokens(raw))
+    if len(low) < 2 or low in SIDE_STOP or low in MARKERS or not raw.isalnum() or _digits(raw) is not None:
+        return None
+    capital = raw[:1].isupper() and (k > 0 and not words[k - 1][0].rstrip().endswith((".", "?", "!")))
+    icon = _icon_of(raw)
+    if capital or any(c.isupper() for c in raw[1:]) or (icon and icon not in TIME_ICONS):
+        return raw
+    return None
+
+
+def _sides(words: list[tuple[str, float]], figures: list[dict]) -> list[str] | None:
+    """The thing each figure is about, named in its own clause: the first thing named before it (with
+    the name or illustrated word right after it: "el internet móvil" → "Internet móvil"), else the
+    first one after it; None when one is not named or two are the same."""
+    names = []
+    closes = [w.rstrip().endswith(CLAUSE_END + (".", "?", "!")) for w, _ in words]
+    for j, f in enumerate(figures):
+        lo = figures[j - 1]["end"] if j else 0
+        hi = figures[j + 1]["i"] if j + 1 < len(figures) else len(words)
+        begin = f["i"]
+        while begin > lo and not closes[begin - 1]:
+            begin -= 1
+        stretch = list(range(begin, f["i"]))
+        if not any(_thing(words, k) for k in stretch):
+            stretch = []
+            for k in range(f["end"], hi):
+                if closes[k - 1] if k > f["end"] else closes[f["end"] - 1]:
+                    break
+                stretch.append(k)
+        first = next((k for k in stretch if _thing(words, k)), None)
+        if first is None:
+            return None
+        picked = [first]
+        while len(picked) < 2 and picked[-1] + 1 in stretch and not closes[picked[-1]] and _thing(words, picked[-1] + 1):
+            picked.append(picked[-1] + 1)
+        names.append(_capital(" ".join(_clean(words[k][0]) for k in picked)))
+    return names if len({n.lower() for n in names}) == len(names) else None
+
+
+def versus_for(words: list[tuple[str, float]]) -> dict | None:
+    """Two named things set against each other with a figure each → a `versus` spec (with "at"):
+    "el celular dura 20 horas frente a 9 horas del portátil" (vs, contra, frente a…: graphics/suggest.py),
+    or two things with a proper name next to figures of the same kind ("El iPhone dura 20 horas y el
+    Pixel 18"; "tu celular tiene 8 gigas y la app 2" stays bars: a part of a whole, not a match);
+    None otherwise (bars, a figure or nothing)."""
+    marked = suggest.versus_from_words(_digit_words(words))
+    if marked is not None:
+        return marked
+    found = _figures(words, True)
+    if len(found) != 2 or found[0]["unit"] != found[1]["unit"] or found[0]["value"] == found[1]["value"]:
+        return None
+    names = _sides(words, found)
+    if not names or not all(_proper(n) for n in names):
+        return None
+    return _versus_rows(names, [(found[0], found[1])], words[found[0]["i"]][1])
+
+
+def _proper(name: str) -> bool:
+    """A name written with a capital on purpose ("iPhone", "Pixel", "Android"), not a noun capitalized
+    as a label ("Celular")."""
+    return any(any(c.isupper() for c in w[1:]) or w[:1].isupper() and not _icon_of(w) for w in name.split())
+
+
+def _versus_rows(names: list[str], pairs: list[tuple[dict, dict]], at: float) -> dict | None:
+    rows = []
+    for a, b in pairs:
+        label = _capital(a["said"] or a["unit"])
+        rows.append((label, _shown(a["value"]), _shown(b["value"])))
+    if len({r[0].lower() for r in rows}) < len(rows):
+        return None
+    spec = suggest.versus_spec(names[0], names[1], rows)
+    if spec is not None:
+        spec["at"] = at
+    return spec
+
+
+def _clause_label(words: list[tuple[str, float]], f: dict) -> str | None:
+    """A bar's name across two sentences: the clause right before the figure's own one ("a otras horas,
+    el internet va a 161 megas" → "Otras horas"; "De siete a nueve de la noche, a 54" → "De 7 a 9 de
+    la noche"), else what is said before the figure in its clause; None when nothing names it."""
+    ends = [k for k in range(f["i"]) if words[k][0].rstrip().endswith(CLAUSE_END + (".", "?", "!"))]
+    own = ends[-1] + 1 if ends else 0
+    plain = ["".join(tokens(w)) for w, _ in words]
+    if ends and not words[ends[-1]][0].rstrip().endswith(":"):
+        start = ends[-2] + 1 if len(ends) > 1 else 0
+        pick = list(range(start, ends[-1] + 1))
+        while pick and plain[pick[0]] in LEADING | {"a", "en", "at", "in"}:
+            pick = pick[1:]
+        text = " ".join(_clean(w) for w, _ in _digit_words([words[k] for k in pick]) if _clean(w))
+        return _capital(text) if text and len(text.split()) <= LABEL_MOST and len(text) <= LABEL_CHARS else None
+    pick = list(range(own, f["i"]))
+    label, ks = _bar_label(words, plain, pick)
+    return label if label and _names_thing(words, plain, ks, False) else None
+
+
+def across(first: dict, second: dict, p: dict) -> dict | None:
+    """Data said over two sentences in a row, shown once over both (with "at", the first figure's
+    second): a figure and, in the next sentence, one whose unit is left unsaid or repeated ("a otras
+    horas va a 161 megas. / De siete a nueve, a 54.") → `bars` named by their clauses, or `versus` when
+    both are things with a name; years over the sentences → `line_chart`. None otherwise."""
+    a = [(str(w[0]), float(w[1])) for w in first.get("words") or []]
+    b = [(str(w[0]), float(w[1])) for w in second.get("words") or []]
+    if not a or not b:
+        return None
+    fa = _figures(a, True)
+    if p.get("figure_context") and len(fa) == 1:
+        fb = _figures(b, True, prev=fa[0])
+        plain_b = ["".join(tokens(w)) for w, _ in b]
+        parallel = bool(fb) and (fb[0].get("elided") or plain_b[0] in LEADING | CONNECTORS
+                                 or any("".join(tokens(w)) in MARKERS | COMPARING for w, _ in a + b))
+        if len(fb) == 1 and fb[0]["unit"] == fa[0]["unit"] and fb[0]["value"] != fa[0]["value"] and parallel:
+            if p.get("auto_versus"):
+                names = [_sides(a, fa), _sides(b, fb)]
+                if names[0] and names[1] and names[0][0].lower() != names[1][0].lower() \
+                        and _proper(names[0][0]) and _proper(names[1][0]):
+                    got = _versus_rows([names[0][0], names[1][0]], [(fa[0], fb[0])], a[fa[0]["i"]][1])
+                    if got:
+                        return got
+            labels = [_clause_label(a, fa[0]), _clause_label(b, fb[0])]
+            if all(labels) and labels[0].lower() != labels[1].lower():
+                unit = SHORT_UNITS.get(fa[0]["unit"], fa[0]["said"])
+                data = ", ".join(f"{lb}:{f['value']:g}" for lb, f in zip(labels, (fa[0], fb[0])))
+                return {"template": "bars", "data": data, "unit": unit, "at": a[fa[0]["i"]][1]}
+    if p.get("auto_versus"):                                # the same two things measured twice: rows of a versus
+        rows = [_two(x) for x in (a, b)]
+        if rows[0] and rows[1] and rows[0][2]["unit"] != rows[1][2]["unit"]:
+            (n0, n1, f0, g0), (m0, m1, f1, g1) = rows
+            if (m0.lower(), m1.lower()) == (n1.lower(), n0.lower()):
+                m0, m1, f1, g1 = m1, m0, g1, f1
+            if (m0.lower(), m1.lower()) == (n0.lower(), n1.lower()):
+                return _versus_rows([n0, n1], [(f0, g0), (f1, g1)], a[f0["i"]][1])
+    return None
+
+
+def _two(words: list[tuple[str, float]]) -> tuple[str, str, dict, dict] | None:
+    """Two named things with a figure each, of the same kind, in one sentence → (name, name, figure, figure)."""
+    found = _figures(words, True)
+    if len(found) != 2 or found[0]["unit"] != found[1]["unit"]:
+        return None
+    names = _sides(words, found)
+    return (names[0], names[1], found[0], found[1]) if names else None
+
+
+def chart_across(group: list[dict]) -> dict | None:
+    """Years with their figures said over two or three sentences in a row → a `line_chart` (with "at"), else None."""
+    words = [(str(w[0]), float(w[1])) for s in group for w in s.get("words") or []]
+    return line_chart_for(words) if len(group) > 1 else None
+
+
+def screen_for(words: list[tuple[str, float]], screens) -> dict | None:
+    """A screenshot of the project that the sentence names → a `screen` spec (with "at"). screens: the
+    project's screenshots, names relative to the project ("captura_ajustes_wifi.png"). A file is named
+    when every word of its name (without "captura", "screenshot", dates…) is said, and the name has two
+    such words or the sentence also says "captura / pantalla / screenshot"; only one file may fit."""
+    plain = ["".join(tokens(w)) for w, _ in words]
+    said = set(plain) | {w[:-1] for w in plain if w.endswith("s")} | {w[:-2] for w in plain if w.endswith("es")}
+    fits = []
+    for name in screens or ():
+        stem = str(name).replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        need = [t for t in tokens(stem.replace("_", " ").replace("-", " ")) if len(t) >= 3 and not t.isdigit()
+                and t not in SCREEN_STOP]
+        if not need or not all(t in said for t in need):
+            continue
+        if len(need) < 2 and not said & {"captura", "pantalla", "pantallazo", "screenshot", "screen"}:
+            continue
+        at = next(t for (w, t), x in zip(words, plain) if x in need or x.rstrip("s") in need)
+        fits.append((name, at))
+    if len(fits) != 1:
+        return None
+    spec = suggest.screen_spec(fits[0][0])
+    if spec is not None:
+        spec["at"] = fits[0][1]
+    return spec
+
+
+def is_screenshot(name: str, size: tuple[int, int] | None = None) -> bool:
+    """A picture that is a screenshot: its name says so ("Captura de pantalla…", "Screenshot…",
+    "pantallazo") or it has a phone screen's shape (narrower than SCREEN_SHAPE) without a camera's name."""
+    low = str(name).replace("\\", "/").rsplit("/", 1)[-1].lower().replace("_", " ").replace("-", " ")
+    if not low.endswith(suggest.IMAGE_EXT):
+        return False
+    if any(w in low for w in SCREENSHOT_NAMES):
+        return True
+    return bool(size and size[1] and size[0] / size[1] < SCREEN_SHAPE and not low.startswith(CAMERA_NAMES))
+
+
+def screen_cues(cutaways: list[dict], sizes: dict | None = None) -> list[dict]:
+    """The plan's cutaways with every `photo` cue whose file is a screenshot (is_screenshot; sizes:
+    file → (width, height) when known) turned into a `screen` graphic of that file ("_auto": "screen")."""
+    out = []
+    for c in cutaways:
+        name = str(c.get("file") or "")
+        if c.get("type") == "photo" and name and is_screenshot(name, (sizes or {}).get(name)):
+            spec = suggest.screen_spec(name)
+            if spec is not None:
+                keep = {k: v for k, v in c.items() if k not in ("type", "file", "motion")}
+                out.append({"type": "graphic", **spec, **keep, "_auto": "screen"})
+                continue
+        out.append(c)
+    return out
+
+
+def _node_icon(name: str) -> str | None:
+    hits = [i for w in name.split() if (i := _icon_of(w)) in ICONS]
+    return hits[-1] if hits else None
+
+
+def diagram_for(words: list[tuple[str, float]]) -> dict | None:
+    """A sentence that describes a flow between things → a `diagram` spec (with "at"): things that branch
+    or loop back (graphics/suggest.flow_from_words), else the chain domain/flow.py reads ("tu celular
+    manda la foto a la antena y de ahí al servidor"), when two or more of its stops have an illustration.
+    What travels labels the first arrow. None otherwise."""
+    spec = suggest.flow_from_words(words)
+    if spec is not None:
+        return spec
+    found = flows.flow(words)
+    if found is None or len(found.nodes) > 5:
+        return None
+    icons = [_node_icon(n) for n in found.nodes]
+    if sum(i is not None for i in icons) < 2 or any(":" in n or ";" in n or "," in n for n in found.nodes):
+        return None
+    spec = {"template": "diagram", "nodes": ", ".join(found.nodes), "icons": ", ".join(i or "-" for i in icons)}
+    if found.carries:
+        pairs = list(zip(found.nodes, found.nodes[1:]))
+        spec["edges"] = "; ".join(f"{x}>{y}" + (f":{found.carries}" if j == 0 else "") for j, (x, y) in enumerate(pairs))
+    spec["at"] = words[found.at][1]
+    return spec
+
+
 def scene_for(words: list[tuple[str, float]], at: float, main: str, decide: Decide | None = None,
               language: str | None = None) -> dict | None:
     """An illustrated scene (graphics/scenes.py) when the sentence says what something does: the verb
@@ -798,7 +1179,7 @@ def scene_for(words: list[tuple[str, float]], at: float, main: str, decide: Deci
     return _decided(_scene_for(words, at, main, asker), rules, asker)
 
 
-def _scene_for(words: list[tuple[str, float]], at: float, main: str, asker: _Asker | None) -> dict | None:
+def _scene_for(words: list[tuple[str, float]], at: float, main: str, asker: _Asker | None, fit: bool = False) -> dict | None:
     cut = next((k for k, (_, t) in enumerate(words) if t >= at - 1e-6), 0)
     found = action_of([w for w, _ in words[cut:]])
     if found:
@@ -818,6 +1199,12 @@ def _scene_for(words: list[tuple[str, float]], at: float, main: str, asker: _Ask
         return None
     action, where = found
     subject, target, _ = ACTIONS[action]
+    if fit and action in OBJECTS:                           # "abren la ducha": opening something else, not an app
+        obj = next((k for k in range(where + 1, min(where + 4, len(words)))
+                    if "".join(tokens(words[k][0])) not in DETERMINERS), None)
+        thing = _icon_of(words[obj][0]) if obj is not None else None
+        if thing and thing not in OBJECTS[action]:
+            return None
     named = sorted((abs(k - where), i) for k, (w, _) in enumerate(words) if (i := _icon_of(w)))
     things = [i for _, i in named]
     if action == "drain":
@@ -854,18 +1241,21 @@ def local_query(words: list[tuple[str, float]], at: float, icon: str | None, lan
 
 
 def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, last: str | None = None,
-         decide: Decide | None = None, language: str | None = None, about: str | None = None) -> dict:
+         decide: Decide | None = None, language: str | None = None, about: str | None = None,
+         opts: dict | None = None, screens=()) -> dict:
     """What the engine draws for a sentence when no footage is good enough, by what the sentence says:
     a figure → `number`; three or more items → `list`; something doing something → `scene` (an animated
     illustration); else a `title` with the illustration of what it names. `last`: the template used
     just before — another one is chosen when there is one, so the same kind does not come twice.
     With `decide`, a model may change each judgment (title, illustration, action, data) and pick the
-    drawing among those that fit (`card_type`); language: the video's ("es", "en"; None = guessed)."""
-    rules = _card(sentence, at, main, last, None)
+    drawing among those that fit (`card_type`); language: the video's ("es", "en"; None = guessed).
+    opts: the director's settings (settings(cfg)): the newer graphics it may choose (said_data) and a flow
+    between illustrated things → `diagram`, before a scene; without opts, none of them."""
+    rules = _card(sentence, at, main, last, None, opts, screens)
     if decide is None:
         return rules
     asker = _Asker(decide, language_of(sentence.get("words") or [], language), about)
-    return _decided(_card(sentence, at, main, last, asker), rules, asker)
+    return _decided(_card(sentence, at, main, last, asker, opts, screens), rules, asker)
 
 
 def describe(spec: dict, language: str = "es") -> str:
@@ -882,6 +1272,17 @@ def describe(spec: dict, language: str = "es") -> str:
                 else f"a news headline: “{spec.get('text')}” ({spec.get('outlet')})")
     if kind == "list":
         return ("una lista: " if es else "a list: ") + str(spec.get("items"))
+    if kind == "diagram":
+        return ("un diagrama de flechas: " if es else "a diagram with arrows: ") + str(spec.get("nodes")).replace(", ", " → ")
+    if kind == "line_chart":
+        return ("una línea en el tiempo: " if es else "a line over time: ") + str(spec.get("data"))
+    if kind == "versus":
+        return (f"{spec.get('left')} contra {spec.get('right')}: " if es else f"{spec.get('left')} versus {spec.get('right')}: ") \
+            + str(spec.get("rows"))
+    if kind == "code":
+        return ("un comando: " if es else "a command: ") + str(spec.get("lines"))
+    if kind == "screen":
+        return ("una captura de pantalla: " if es else "a screenshot: ") + str(spec.get("image"))
     if kind == "scene":
         who = describe_icon(spec["subject"], language) if spec.get("subject") else ""
         what = action_text(str(spec.get("action")), language)
@@ -910,7 +1311,9 @@ def _title_icon(words: list[tuple[str, float]], at: float, main: str, asker: _As
     return None if a.value == "none" else a.value
 
 
-def _card(sentence: dict, at: float | None, main: str, last: str | None, asker: _Asker | None) -> dict:
+def _card(sentence: dict, at: float | None, main: str, last: str | None, asker: _Asker | None,
+          opts: dict | None = None, screens=()) -> dict:
+    p = opts or OFF
     words = [(str(w[0]), float(w[1])) for w in sentence.get("words") or []]
     at = float(sentence.get("start") or 0) if at is None else at
     title = {"template": "title", "text": _phrase(words, at, PHRASE_WORDS, asker) or str(sentence.get("text") or "")}
@@ -918,10 +1321,13 @@ def _card(sentence: dict, at: float | None, main: str, last: str | None, asker: 
     if icon:
         title["icon"] = icon
     items = enumeration(sentence.get("text") or "")
-    data = _said_data(words, asker)
+    data = _said_data(words, asker, p, screens)
     data = {k: v for k, v in data.items() if k != "at"} if data else None
-    options = [x for x in (data, figure(words), {"template": "list", "items": "; ".join(items), "marks": "n"} if items else None,
-                           _scene_for(words, at, main, asker), title) if x]
+    flow = diagram_for(words) if p.get("auto_diagram") else None
+    flow = {k: v for k, v in flow.items() if k != "at"} if flow else None
+    options = [x for x in (data, figure(words, bool(p.get("figure_context"))),
+                           {"template": "list", "items": "; ".join(items), "marks": "n"} if items else None,
+                           flow, _scene_for(words, at, main, asker, bool(p.get("scene_fit"))), title) if x]
     pool = [x for x in options if x["template"] != last] or options
     if asker is None or len(pool) < 2:
         return pool[0]
@@ -944,15 +1350,30 @@ def covered(plan: dict, overlay: set[str]) -> set[int]:
     return out
 
 
-def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Decide | None = None) -> list[dict]:
+SHOWN = ("number", "diagram", "line_chart", "versus", "code", "screen")   # drawn at once, never searched for
+
+
+def pictureless_sources(plan: dict) -> set[int]:
+    """The sources of the plan with sound and no picture (voice memos: "pictureless", written by the
+    explainer plan from the media infos)."""
+    return {int(k) for k in plan.get("pictureless") or []}
+
+
+def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Decide | None = None,
+            screens=(), pictureless: set[int] | None = None) -> list[dict]:
     """b-roll cutaways for the stretches the presenter is alone on camera for too long. The plan is
-    not changed. overlay: the templates drawn over the picture (they do not cover the presenter)."""
+    not changed. overlay: the templates drawn over the picture (they do not cover the presenter).
+    screens: the project's screenshots (names relative to the project) a sentence may name.
+    pictureless: the sources with no picture (a voice memo; default: the plan's "pictureless"): there
+    is no presenter to show, so every sentence of theirs gets something on screen from its start, the
+    closing ones too (no camera time at all)."""
     p = settings(cfg)
     limit_open, limit, shortest = float(p["opening"]), float(p["max_camera"]), float(p["auto_min"])
     sentences = [s for s in plan.get("sentences") or []
                  if isinstance(s, dict) and not s.get("missing") and s.get("start") is not None and s.get("words")]
     if not sentences:
         return []
+    blind = pictureless_sources(plan) if pictureless is None else set(pictureless)
     under = covered(plan, overlay)
     main = topic(sentences)
     language = language_of([w for s in sentences for w in s["words"]], (cfg or {}).get("language"))
@@ -962,34 +1383,49 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
     last: str | None = None
     out: list[dict] = []
     clock, opening = 0.0, True
+    done = -1                                               # sentences already shown by a graphic over several
     for k, s in enumerate(sentences):
+        if k <= done:
+            continue
         n, start, end = int(s["n"]), float(s["start"]), float(s["end"])
         if n in under:
             clock, opening = 0.0, False
             continue
-        allowed = limit_open if opening else limit
+        memo = int(s.get("source", 0)) in blind
+        closing = k == len(sentences) - 1 and not memo
+        allowed = 0.0 if memo else (limit_open if opening else limit)
         words = [(str(w[0]), float(w[1])) for w in s["words"]]
-        data = said_data(words, decide, language) if k < len(sentences) - 1 else None
+        data = said_data(words, decide, language, p, screens) if not closing else None
+        until = k
+        if data is None and not closing:                    # said over the next sentence(s): shown once over them
+            data, until = _over_next(sentences, k, under, blind, p)
         if data and data["template"] != last:              # data said aloud is shown as it is said
             at = max(float(data.pop("at")), start + max(MIN_FACE - clock, LEAD_IN))
             due = start + max(allowed - clock, MIN_FACE - clock, LEAD_IN)
             if at > due + 1e-6:                             # waiting for the figure would keep the face too long
                 at = next((t for w, t in words if due - 1e-6 <= t <= at), due)
-            if end - at < shortest:
-                at = start + LEAD_IN
-            if end - at >= shortest:
+            stop = float(sentences[until]["end"])
+            if memo or stop - at < shortest:
+                at = start if memo else start + LEAD_IN
+            if stop - at >= shortest or memo:
                 said = next((w for w, t in words if t >= at - 1e-6), words[0][0])
-                out.append({"type": "graphic", **data, "at_sentence": n, "until_sentence": n,
+                out.append({"type": "graphic", **data, "at_sentence": n, "until_sentence": int(sentences[until]["n"]),
                             "from_word": [s["source"], round(at, 3)], "note": f"«{said.strip('¿?¡!.,;:')}»",
                             "_auto": "director"})
                 last = data["template"]
                 clock, opening = 0.0, False
+                done = until
                 continue
-        if k == len(sentences) - 1 or clock + (end - start) <= allowed:
+        if closing or (not memo and clock + (end - start) <= allowed):
             clock += end - start
             continue
+        if memo and end - start < shortest and out and out[-1].get("_auto") == "director" and k \
+                and int(out[-1]["until_sentence"]) == int(sentences[k - 1]["n"]) \
+                and sentences[k - 1].get("source") == s.get("source"):
+            out[-1]["until_sentence"] = n                   # too short to show on its own: the one before goes on
+            continue
         earliest = start + max(allowed - clock, 0.0)
-        if clock >= allowed and end - start >= shortest:            # already over: cover it from its start
+        if memo or (clock >= allowed and end - start >= shortest):   # already over (or no face): from its start
             room = [(words[0][0], start)]
         else:                                                       # a word after the face had its moment
             first = start + max(MIN_FACE - clock, LEAD_IN)
@@ -1013,12 +1449,16 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
             query = options[turns[icon] % len(options)]
         turns[icon] += 1
         last_query = query
-        drawn = card(s, at, main, last, decide=decide, language=language, about=about)
-        where = {"at_sentence": n, "until_sentence": n, "from_word": [s["source"], round(at, 3)],
+        drawn = card(s, at, main, last, decide=decide, language=language, about=about, opts=p, screens=screens)
+        stretch = n
+        if memo and end - start < shortest and k + 1 < len(sentences) and int(sentences[k + 1]["n"]) not in under \
+                and sentences[k + 1].get("source") == s.get("source"):
+            stretch, done = int(sentences[k + 1]["n"]), k + 1      # too short alone: it goes on over the next one
+        where = {"at_sentence": n, "until_sentence": stretch, "from_word": [s["source"], round(at, 3)],
                  "note": f"«{word.strip('¿?¡!.,;:')}»", "_auto": "director"}
         if drawn.get("_decided"):
             where["_decided"] = drawn["_decided"]
-        if drawn["template"] == "number":                   # a figure is shown, not searched for
+        if drawn["template"] in SHOWN:                      # a figure, a flow… is shown, not searched for
             out.append({"type": "graphic", **drawn, **where})
         else:
             out.append({"type": "broll", "query": query, "query_lang": "en",
@@ -1027,3 +1467,25 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
         last = drawn["template"]
         clock, opening = 0.0, False
     return out
+
+
+def _over_next(sentences: list[dict], k: int, under: set[int], blind: set[int], p: dict) -> tuple[dict | None, int]:
+    """Data said over sentence k and the next one or two (across(), chart_across()) → (spec, index of the
+    last sentence it covers), or (None, k). The closing sentence of a video with a presenter is left out."""
+    last = len(sentences) - 1
+    group = [k]
+    for j in range(k + 1, min(k + CHART_SENTENCES, len(sentences))):
+        nj = int(sentences[j]["n"])
+        if nj in under or (j == last and int(sentences[j].get("source", 0)) not in blind) \
+                or nj != int(sentences[j - 1]["n"]) + 1 or sentences[j].get("source") != sentences[k].get("source"):
+            break
+        group.append(j)
+    if len(group) < 2:
+        return None, k
+    if p.get("auto_line_chart"):
+        for size in range(2, len(group) + 1):
+            got = chart_across([sentences[j] for j in group[:size]])
+            if got is not None:
+                return got, group[size - 1]
+    got = across(sentences[k], sentences[group[1]], p)
+    return (got, group[1]) if got is not None else (None, k)
