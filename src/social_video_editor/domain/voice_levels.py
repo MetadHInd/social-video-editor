@@ -249,7 +249,7 @@ def music_balance(voice_lufs: float, voice_m: list[float], music_m: list[float],
     if spk.any():
         out["speech_lu"] = round(float(voice_lufs - np.median(m[spk])), 1)
         d = v[spk] - m[spk]
-        k = int(np.argmin(d))
+        k = int(np.argsort(d)[int(0.05 * (len(d) - 1))])
         out["worst_lu"], out["worst_i"] = round(float(d[k]), 1), int(np.flatnonzero(spk)[k])
     if pau.any():
         out["pause_lu"] = round(float(voice_lufs - np.median(m[pau])), 1)
