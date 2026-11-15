@@ -12,6 +12,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   one frame of the presenter showed through).
 - A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
   that the transcription split or misheard are kept, so no word is cut in half.
+- Illustrations and scene actions are read from whole words only: a label with no word that names an
+  illustration has none (no more picture from a piece of a word), punctuation around a word no longer hides it
+  (`celular.`), and `tus`/`your`-style words never pick the person. A scene's verb is read by its forms:
+  negated verbs (`no tienes que limpiarlo`, `you don't have to clean it`, `sin cerrarla`) and look-alikes
+  (`abiertas`, `abril`, `cuesta`, `tarde`, `trabajar` read as `freeze`, `quite`) no longer trigger an action;
+  `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
 
 ### Added
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
@@ -155,6 +161,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `color.reference`: copy the color look of a reference video (brightness, black/white points,
   saturation, color cast), with `color.reference_strength`.
 - Color look: `color.fade` (lifted blacks, softer whites) and `color.tint` (green ↔ magenta).
+- **34 more illustrations** (48 in all), each chosen by its Spanish and English words: `signal`, `building`,
+  `shower`, `tap`, `clock`, `moon`, `download`, `gauge`, `crowd`, `video`, `cable`, `satellite`, `keyboard`,
+  `shield`, `key`, `bug`, `folder`, `file`, `photo`, `camera`, `mic`, `speaker`, `message`, `bell`, `charger`,
+  `trash`, `search`, `gear`, `money`, `calendar`, `pin`, `rocket`, `idea`, `warning` (two- and three-word names
+  too: `hora pico`, `disco duro`). **Seven more scene actions**: `compare` (a balance), `search` (a magnifier
+  that finds a spot), `connect` (a cable that plugs in), `delete` (into the trash), `download` (pieces fall in,
+  a progress bar fills), `share` (one stream split among many), `queue` (a line waits at a gate). `freeze` now
+  has frost ferns, an icy glaze, icicles that drip and real snowflakes; `store` ends with the thing kept beside
+  what was stored before and the place it left marked.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
