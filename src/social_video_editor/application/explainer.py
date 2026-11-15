@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..domain import director, explainer, script_align, support
+from ..domain import director, explainer, script_align, shorts, support
 from ..domain.graphics import TEMPLATES
 from ..domain.models import PlanError, Project
 from ..domain.script import GRAPHIC, parse_script
@@ -58,6 +58,12 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
     log(f"Script {name}: {len(script.sentences)} sentences, {sum(m is not None for m in matches)} found, {cues} cues"
         + (f", {auto['director']} b-roll proposed" if auto.get("director") else "")
         + (f", {auto['support']} overlays proposed" if auto.get("support") else ""))
+    if shorts.auto_on(cfg):                 # script.shorts: auto → stretches that stand on their own
+        proposed = shorts.propose(plan["sentences"], plan["cutaways"], cfg, plan.get("shorts"))
+        if proposed or plan.get("shorts"):
+            plan["shorts"] = plan.get("shorts", []) + proposed
+    for line in shorts.lines(plan):
+        log(f"  short {line.strip()}")
     lines = []
     for s, m in zip(script.sentences, matches):
         if m is None:

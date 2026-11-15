@@ -40,6 +40,8 @@ from ..domain.models import PlanError
 from ..domain.photos import auto_tone_setting, photo_crf, photo_settings, resolve_photo_ref
 from ..domain.pieces import CollageShot, GraphicShot, PhotoShot, PolaroidShot, Sequence, VideoShot
 from ..domain.selection import has_voice, resolve_ranges
+from ..domain.shorts import find as find_short
+from ..domain.shorts import short_plan, shorts_of
 from ..domain.text_layout import srt_text, subtitle_groups, text_animation
 from ..domain.timebase import mmss
 from ..domain.check import thin_keystrokes, typing_bursts
@@ -400,10 +402,42 @@ def prepare_edit(svc: Services, project: Project, plan: dict, cfg: dict, no_musi
     return plan, infos, analyses, music, compute_timeline(Sequence.from_plan(plan), cfg)
 
 
+SHORT_LABELS = {"es": ("Corto", "corto"), "en": ("Short", "short")}     # folder suffix, file name part
+
+
+def short_names(project: Project, lang: str, short: str, draft: bool, profile: str | None,
+                no_music: bool) -> tuple[str, str]:
+    """(version folder suffix, file name) of a short: v3CortoMemoria / demo_corto_memoria (+ draft…)."""
+    folder, file = SHORT_LABELS.get(lang, SHORT_LABELS["en"])
+    camel = "".join(part.capitalize() for part in short.split("-"))
+    return (folder + camel + variant_suffix(lang, draft, profile, no_music),
+            output_name(f"{project.name}_{file}_{short}", lang, draft, profile, no_music))
+
+
+def render_shorts(svc: Services, project: Project, plan: dict, names: list[str] | None = None, draft: bool = False,
+                  profile: str | None = None, no_music: bool = False) -> list[Path]:
+    """Renders shorts of the plan (all of them when `names` is None), one version folder each."""
+    wanted = names if names is not None else [s["name"] for s in shorts_of(plan)]
+    if not wanted:
+        find_short(plan, "")                  # raises: says how to get shorts
+    return [render(svc, project, plan, draft, profile, no_music, short=name) for name in wanted]
+
+
 def render(svc: Services, project: Project, plan: dict, draft: bool = False, profile: str | None = None,
-           no_music: bool = False) -> Path:
+           no_music: bool = False, short: str | None = None) -> Path:
+    """short: render only that short of the plan (domain/shorts.py) — a vertical video of its own."""
     t0 = time.time()
     cfg = copy.deepcopy(project.cfg)
+    labeled = profile
+    if short:
+        entry = find_short(plan, short)
+        short = entry["name"]
+        plan = short_plan(plan, entry)
+        base = cfg["output"]
+        if profile is None and int(base["width"]) >= int(base["height"]):    # a short is vertical
+            profile = "shorts"
+        log(f"Short {short}: sentences {entry['from_sentence']}–{entry['to_sentence']}, "
+            f"{len(plan['shots'])} shots, {len(plan['cutaways'])} cutaways")
     if profile:
         p = EXPORT_PROFILES[profile]
         cfg["output"].update(width=p["width"], height=p["height"])
@@ -431,9 +465,12 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     # Main version = new number (v4). Variants = number of the latest main version + suffix
     # (v4SinMusica / v4NoMusic, v4Borrador / v4Draft, v4Youtube…), so you can see where they come from.
     lang = cfg["language"]
-    suffix = variant_suffix(lang, draft, profile, no_music)
+    if short:
+        suffix, name = short_names(project, lang, short, draft, labeled, no_music)
+    else:
+        suffix = variant_suffix(lang, draft, profile, no_music)
+        name = output_name(project.name, lang, draft, profile, no_music)
     vdir = svc.projects.variant_folder(project, suffix) if suffix else svc.projects.new_version(project)
-    name = output_name(project.name, lang, draft, profile, no_music)
     premaster = vdir / f"_{name}_premaster.mkv"
     final = vdir / f"{name}.mp4"
     boxes: list[dict] = []
@@ -470,6 +507,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     if mix_timeline:
         svc.projects.write_json(vdir / "automix.json", mix_timeline)
     summary = {
+        **({"short": plan["short"]} if short else {}),
         "video": final.name, "duration_sec": round(total, 2), "shots": len(tl), "resolution": f"{W}x{H}",
         "music": None if not music else {"file": music.name, "start_sec": cfg["music"].get("_start"),
                                          **({"playlist": [s["file"] for s in cfg["music"]["_automix"]["songs"]]}
