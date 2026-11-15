@@ -174,7 +174,7 @@ CONFIG = Ctx(
         "script": Ctx(keys={"archivo": "file", "coincidencia_min": "min_match", "toma": "take",
                             "margen_inicio": "pad_start", "margen_fin": "pad_end", "union_max": "join_gap",
                             "acercamiento": "punch_in", "subtitulos": "subtitles", "reencuadre_cada": "reframe_every",
-                            "deriva": "drift", "apoyos": "support", "primer_plano": "close_up",
+                            "deriva": "drift", "apoyos": "support", "apoyos_repartir": "support_spread", "primer_plano": "close_up",
                             "tomas_auto": "auto_broll", "apertura": "opening", "camara_max": "max_camera",
                             "toma_min": "auto_min", "transicion": "transition", "fundido_tomas": "cutaway_fade",
                             "cortos": "shorts", "cortos_max": "shorts_max", "corto_min": "short_min",

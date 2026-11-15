@@ -184,6 +184,7 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `reencuadre_cada` | `reframe_every` |
 | `deriva` | `drift` |
 | `apoyos` | `support` |
+| `apoyos_repartir` | `support_spread` |
 | `primer_plano` | `close_up` |
 | `tomas_auto` | `auto_broll` |
 | `apertura` | `opening` |

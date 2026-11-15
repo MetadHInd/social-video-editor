@@ -55,6 +55,8 @@ script:                  # explainer recipe: a script said to the camera (domain
   opening: 2.5           # seconds of face at the start before the first footage (the hook)
   max_camera: 4.0        # then, at most this many seconds of camera in a row
   auto_min: 1.8          # shortest footage the director proposes (time for a card to come in and be read)
+  support_spread: false  # true = the notes of words that fall under a full-frame cutaway come in earlier,
+                         # spread over the part said on camera (more notes next to the presenter)
 
 pip:                     # picture-in-picture: the presenter stays in a window over full-frame cutaways
   enabled: false         # (a cutaway's own "pip": true / false wins)
