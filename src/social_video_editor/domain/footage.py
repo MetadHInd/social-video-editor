@@ -416,12 +416,12 @@ LABEL_CHARS = 26                        # an author's name on the caption (the f
 _AUTHOR_END = re.compile(r"\s*(?:\(|/|;|,|\s[-–—]\s|\b(?:obra derivada|derivative work|based on|after)\b)", re.I)
 
 
-def short_author(author) -> str:
+def short_author(author, chars: int = LABEL_CHARS) -> str:
     """The author's name for the caption: up to the first note, list or parenthesis, at most
-    LABEL_CHARS ("engineerguy (Bill Hammack, …)" → "engineerguy")."""
+    `chars` characters ("engineerguy (Bill Hammack, …)" → "engineerguy")."""
     name = _AUTHOR_END.split(plain(author), maxsplit=1)[0].strip(" .·-")
-    if len(name) > LABEL_CHARS:
-        name = name[:LABEL_CHARS].rsplit(" ", 1)[0].rstrip(" .,·-") + "…"
+    if len(name) > chars:
+        name = name[:chars].rsplit(" ", 1)[0].rstrip(" .,·-") + "…"
     return name
 
 
@@ -434,22 +434,36 @@ def credit_label(rec: dict) -> str:
     return f"{author} · {library}" if author else library
 
 
-def credit_line(rec: dict) -> str:
-    """One line for the video's description (credits.txt)."""
+CREDIT_AUTHOR_CHARS = 48                # an author's name in credits.txt (the full name stays in the record)
+# credits.txt goes into the video's description: it is written in the project's language
+CREDIT_WORDS = {
+    "es": {"official": "canal oficial", "unknown": "autor desconocido",
+           "licenses": {"pexels license": "Licencia de Pexels", "pixabay content license": "Licencia de contenido de Pixabay",
+                        "public domain": "Dominio público"}},
+    "en": {"official": "official channel", "unknown": "unknown author", "licenses": {}},
+}
+
+
+def credit_line(rec: dict, language: str = "es") -> str:
+    """One line for the video's description (credits.txt), in the project's language. The author is
+    shortened like the caption (a commons' "X derivative work of / …" keeps "X"), a little longer."""
+    w = CREDIT_WORDS.get(language, CREDIT_WORDS["es"])
     if rec.get("kind") == OFFICIAL:
-        who = str(rec.get("brand") or rec.get("author") or "official channel")
-        return f"Video: {who} (official channel) — {rec.get('url')}"
+        who = str(rec.get("brand") or short_author(rec.get("author"), CREDIT_AUTHOR_CHARS) or w["official"])
+        return f"Video: {who} ({w['official']}) — {rec.get('url')}"
     library = SOURCE_NAMES.get(str(rec.get("source")), str(rec.get("source") or "").title())
-    author = str(rec.get("author") or "").strip() or "unknown author"
-    licensed = f", {rec['license']}" if rec.get("license") else ""
+    author = short_author(rec.get("author"), CREDIT_AUTHOR_CHARS) or w["unknown"]
+    lic = str(rec.get("license") or "").strip()
+    lic = w["licenses"].get(lic.lower(), lic)
+    licensed = f", {lic}" if lic else ""
     return f"Video: {author} / {library}{licensed} — {rec.get('url')}"
 
 
-def credits_text(records: list[dict]) -> str:
-    """credits.txt: one line per clip used, no clip twice."""
+def credits_text(records: list[dict], language: str = "es") -> str:
+    """credits.txt: one line per clip used, no clip twice, in the project's language (`language`)."""
     lines, seen = [], set()
     for r in records:
-        line = credit_line(r)
+        line = credit_line(r, language)
         if line not in seen:
             seen.add(line)
             lines.append(line)

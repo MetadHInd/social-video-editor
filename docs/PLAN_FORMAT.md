@@ -817,7 +817,10 @@ quality. Search answers are cached for a day in the project cache.
   limit of its kind (`broll.max_seconds`); and, with `broll.credit`, a `lower_third` caption (`Video` +
   author and library, or the brand) the first time each author or brand is on screen (`"_auto": "credit"`).
   The previous plan is kept as `plan_previous.json`.
-- At render time, `vN/credits.txt`: one line per clip shown, for the video's description.
+- At render time, `vN/credits.txt`: one line per clip shown, for the video's description, in the project's
+  language (`language: es` by default: `Video: Ana / Pexels, Licencia de Pexels — <page>`, `Video: Acme (canal
+  oficial) — <page>`). The author is shortened as on the caption, a little longer (up to 48 characters): a
+  commons' "Name derivative work of / …" or "Name (team, …)" keeps "Name"; `credits.json` keeps it whole.
 
 A cutaway that already has its file is left alone (`--force` fetches again). A file outside `footage/`
 is your own clip: it needs no record.

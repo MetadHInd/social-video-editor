@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included
   (it failed with "Version folder not found: …/v1" when only drafts existed), skips failed renders and says
   which version it checked.
+- `credits.txt` (the video's description) is written in the project's language (Spanish by default) and the
+  author is shortened (a commons' "Name derivative work of / …" keeps the name); `credits.json` keeps it whole.
 
 ### Added
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
