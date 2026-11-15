@@ -4,13 +4,15 @@ Before the final mix, the voice of the joined video is measured from the rendere
 own audio, placed on the output timeline with the same overlaps as the join): its integrated loudness
 (EBU R128, per segment, energy-weighted) and where it speaks (voice_levels.speech_mask on 10 ms
 levels). The music is cut / looped / faded as in the fixed mix, measured, and written once as a "bed"
-whose level follows the voice: music.under_voice_db under it while it speaks, music.under_pause_db in
+whose level follows the voice (the numbers measured go to <version>/music_levels.json):
+music.under_voice_db under it while it speaks, music.under_pause_db in
 the pauses, music.intro_db louder before the first word (domain/voice_levels.py). The final mix then
 takes that bed as it is (filters.final_mix with music._bed), so the old fixed chain is untouched for
 everything that does not opt in.
 """
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from .loudness import ebur128
 from .runner import run
 
 BED_NAME = "_music_bed.flac"
+LEVELS_FILE = "music_levels.json"   # what was measured, kept in the version folder (sve check / report)
 QUIET_LUFS = -60.0          # a voice quieter than this is no voice: the fixed mix is used
 
 
@@ -97,6 +100,7 @@ def music_bed(segments: list[dict], files: list[Path], music: Path, cfg: dict, t
     levels = {"voice_lufs": round(voice_lufs, 1), "music_lufs": round(music_lufs, 1), "gain_db": round(base, 1),
               "under_voice_db": s["under_voice_db"], "under_pause_db": s["under_pause_db"],
               "intro_db": s["intro_db"], "speech_spans": len(speech)}
+    (workdir / LEVELS_FILE).write_text(json.dumps(levels, indent=1), encoding="utf-8")
     log(f"Music: measured against the voice ({levels['voice_lufs']} LUFS; music {levels['music_lufs']} LUFS → "
         f"{base:+.1f} dB): {s['under_voice_db']:g} dB under it while it speaks, {s['under_pause_db']:g} dB in pauses"
         + (f", {s['intro_db']:+g} dB before the first word" if s["intro_db"] else ""))

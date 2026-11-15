@@ -2,6 +2,7 @@
 (domain/voice_levels.py, adapters/ffmpeg/voice.py, adapters/ffmpeg/voice_mix.py) — synthetic audio only."""
 from __future__ import annotations
 
+import json
 import subprocess
 
 import numpy as np
@@ -197,3 +198,39 @@ def test_the_music_bed_sits_under_the_voice(tmp_path):
                     "-c:a", "pcm_s16le", str(silent)], check=True)
     assert voice_mix.music_bed([{"dur": 3.0, "overlap": 0, "transition": "cut"}], [silent], music, cfg, 3.0,
                                tmp_path / "work") is None
+
+
+@requires_ffmpeg
+def test_explainer_compose_puts_the_music_under_the_voice_by_itself(tmp_path, recipes):
+    """Rule: with the explainer defaults and a music file, the final mix measures the voice on its own."""
+    from social_video_editor.adapters.ffmpeg.encoder import FfmpegEncoder
+
+    cfg = recipes.load("explainer")
+    assert cfg["music"]["relative_to_voice"] and cfg["audio"]["breaths"]
+    cfg["music"]["_start"] = 0.0
+    files = []
+    for i, (dur, lead) in enumerate(((4.0, 1.5), (3.0, 0.0))):
+        f = tmp_path / f"seg{i}.mkv"
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c=gray:s=64x64:r=30:d={dur}",
+                        "-f", "lavfi", "-i", "sine=frequency=200:duration=2.0:sample_rate=48000",
+                        "-filter_complex", f"[1]volume='2.4*(0.6+0.4*sin(2*PI*4*t))':eval=frame,"
+                        f"adelay={int(lead * 1000)}:all=1,apad=whole_dur={dur},aformat=channel_layouts=stereo[a]",
+                        "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "pcm_s16le",
+                        "-t", str(dur), str(f)], check=True)
+        files.append(f)
+    music = tmp_path / "song.wav"
+    subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=10:c=pink:r=48000:a=0.5",
+                    "-ac", "2", "-c:a", "pcm_s16le", str(music)], check=True)
+    work = tmp_path / "v1"
+    segs = [{"dur": 4.0, "overlap": 0.0, "transition": "cut"}, {"dur": 3.0, "overlap": 0.0, "transition": "cut"}]
+    out = FfmpegEncoder().compose(segs, files, None, music, None, cfg, 64, 64, 7.0, True, True, work,
+                                  work / "pre.mkv", stems_dir=work / "stems")
+    assert out.is_file() and not list(work.glob("_music*"))
+    levels = json.loads((work / voice_mix.LEVELS_FILE).read_text())
+    assert levels["under_voice_db"] == 10 and levels["speech_spans"] == 2
+    V = ebur128(work / "stems" / "original.wav", series=True)
+    M = ebur128(work / "stems" / "music.wav", series=True)
+    b = vl.music_balance(V["integrated"], V["momentary"], M["momentary"],
+                         ck.speech_moments(V["momentary"], V["integrated"]))
+    assert b["speech_lu"] == pytest.approx(10, abs=1.5)
+    assert M["integrated"] < V["integrated"] - 4

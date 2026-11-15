@@ -20,6 +20,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
 
 ### Added
+- **Voice and music levels** (stage 6, `domain/voice_levels.py`): `audio.breaths` (Spanish `respiraciones`; on in
+  `explainer`) lowers the pauses between sentences — breaths, mouth noise — by 12 dB in the same whole-recording
+  pass as `clean_voice`, with short fades inside the pause and margins around the speech and the transcribed
+  words (word starts and soft endings are never touched; measured on a real 47 s selfie: pause energy −8 dB,
+  speech and word onsets unchanged). `audio.voice_leveler` (off: measured as a trade-off, not a clear gain) adds
+  a slow leveler to that pass. `music.relative_to_voice` (Spanish `relativa_a_voz`; on in `explainer`): the music
+  level is measured against the voice of the rendered segments — `under_voice_db` (10) under it while it speaks,
+  `under_pause_db` (4) in pauses of 0.6 s or more, `intro_db` (4) louder before the first word, slew-limited and
+  dipping just before each word — and mixed as a prepared bed; the measured numbers go to
+  `vN/music_levels.json`. Without it the fixed music chain is unchanged. `sve check` reports how far the music
+  sits under the voice (stems) and warns under `check.music_min_under_voice_lu` (6).
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
   and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
   answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),
