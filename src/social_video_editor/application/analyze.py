@@ -17,7 +17,7 @@ import copy
 import hashlib
 import threading
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from ..domain.config import resolve_jobs
@@ -81,14 +81,25 @@ def is_photo(info: dict) -> bool:
     return bool(info.get("image"))
 
 
-def prepare_source(svc: Services, source: dict, cache: Path, cfg: dict) -> dict:
-    """Media info + light copies (proxy video, 16 kHz wav) of one source (only media info for a photo)."""
-    path = source["path"]
+def media_info(svc: Services, path: str | Path, cache: Path) -> dict:
+    """The media info of one source (cached, else probed), with its cache id."""
     fid = resolve_source_id(svc, cache, path)
     info = svc.cache.load(cache, "media", fid) or svc.probe.probe(path)
     if info.get("size") is None:                  # recorded so a replaced file is noticed (see resolve_source_id)
         info["size"] = svc.probe.fingerprint(path)["size"]
     info["id"] = fid
+    return info
+
+
+def wav_path(cache: Path, info: dict) -> Path:
+    return cache / f"{info['id']}_16k.wav"
+
+
+def prepare_source(svc: Services, source: dict, cache: Path, cfg: dict, info: dict | None = None) -> dict:
+    """Media info + light copies (proxy video, 16 kHz wav) of one source (only media info for a photo).
+    `info`: its media info when already read (media_info)."""
+    info = info if info is not None else media_info(svc, source["path"], cache)
+    fid = info["id"]
     if is_photo(info):
         if info.get("proxy", "") is not None or info.get("wav", "") is not None:
             info["proxy"] = info["wav"] = None
@@ -98,7 +109,7 @@ def prepare_source(svc: Services, source: dict, cache: Path, cfg: dict) -> dict:
     if not svc.cache.has(proxy):
         svc.encoder.make_proxy(info, proxy, float(cfg["color"].get("hdr_white", 0.62)))
     info["proxy"] = str(proxy)
-    wav = cache / f"{fid}_16k.wav"
+    wav = wav_path(cache, info)
     if info["has_audio"] and not svc.cache.has(wav):
         svc.encoder.extract_wav(info, wav)
     info["wav"] = str(wav) if info["has_audio"] else None
@@ -122,16 +133,23 @@ def transcription_settings(cfg: dict, previous: dict | None = None) -> dict:
     return t
 
 
-def transcribe(svc: Services, wav: str, settings: dict, cache: Path) -> tuple[list[dict], dict | None]:
-    """(words, {"engine", "model", "device"} or None when the transcriber does not say)."""
+def transcribe(svc: Services, wav: str, settings: dict, cache: Path, name: str = "") -> tuple[list[dict], dict | None]:
+    """(words, {"engine", "model", "device"} or None when the transcriber does not say). One source at a
+    time: the log lines are written inside the lock, so their span is the transcription itself."""
     with _WHISPER:
+        log(f"  transcription ({name})…")
         with_info = getattr(svc.transcriber, "transcribe_info", None)
         if with_info is not None:
-            return with_info(wav, settings, cache)
-        return svc.transcriber.transcribe(wav, settings, cache), None
+            words, used = with_info(wav, settings, cache)
+        else:
+            words, used = svc.transcriber.transcribe(wav, settings, cache), None
+        log(f"  words ({name}): {len(words)}" + (f" ({used['engine']}, {used['model']}, {used['device']})" if used else ""))
+    return words, used
 
 
-def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: bool = False) -> dict:
+def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: bool = False,
+                   words: Future | None = None) -> dict:
+    """`words`: the source's transcription already started elsewhere (prepare_sources' pipeline)."""
     if is_photo(info):
         return photo_analysis(info)
     cached = svc.cache.load(cache, "analysis", info["id"])
@@ -149,8 +167,8 @@ def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: boo
     if info.get("wav"):
         log(f"  audio ({name})…")
         data["audio"] = svc.audio.levels(info["wav"])
-        log(f"  transcription ({name})…")
-        data["words"], used = transcribe(svc, info["wav"], transcription_settings(cfg, cached), cache)
+        data["words"], used = (words.result() if words is not None else
+                               transcribe(svc, info["wav"], transcription_settings(cfg, cached), cache, name))
         if used:
             data["transcription"] = used
     else:
@@ -160,10 +178,8 @@ def analyze_source(svc: Services, info: dict, cache: Path, cfg: dict, force: boo
                      "ratio": round(sum(b - a_ for a_, b in segs) / max(info["duration"], 1e-3), 3)}
     _add_face(svc, info, data, cfg)
     svc.cache.save(cache, "analysis", info["id"], data)
-    used = data.get("transcription")
-    log(f"  done ({name}): {len(data['scenes'])} scenes, {len(data['words'])} words"
-        + (f" ({used['engine']}, {used['model']})" if used else "")
-        + f", speech in {data['voice']['ratio'] * 100:.0f}% of the video")
+    log(f"  done ({name}): {len(data['scenes'])} scenes, {len(data['words'])} words, "
+        f"speech in {data['voice']['ratio'] * 100:.0f}% of the video")
     return data
 
 
@@ -216,11 +232,55 @@ def prepare_sources(svc: Services, project: Project, cfg: dict | None = None,
                     force: bool = False) -> tuple[list[dict], list[dict]]:
     """→ (media infos, analyses) of every source, in story order."""
     cfg = cfg or project.cfg
+    sources = expand_sources(svc, project.sources)
     jobs = analysis_jobs(svc, cfg)
-    infos = in_parallel(lambda s: prepare_source(svc, s, project.cache, cfg), expand_sources(svc, project.sources), jobs,
-                        key=lambda s: str(Path(str(s["path"])).expanduser()))
+    if jobs <= 1 or len(sources) <= 1:          # one after another (analysis.jobs: 1)
+        infos = [prepare_source(svc, s, project.cache, cfg) for s in sources]
+        _count_photos(infos)
+        return infos, [analyze_source(svc, i, project.cache, cfg, force) for i in infos]
+    return _pipeline(svc, sources, project.cache, cfg, force, jobs)
+
+
+def _count_photos(infos: list[dict]) -> None:
     photos = sum(is_photo(i) for i in infos)
     if photos:
         log(f"Sources: {len(infos) - photos} videos, {photos} photos")
-    return infos, in_parallel(lambda i: analyze_source(svc, i, project.cache, cfg, force), infos, jobs,
-                              key=lambda i: i["id"])
+
+
+def _pipeline(svc: Services, sources: list[dict], cache: Path, cfg: dict, force: bool,
+              jobs: int) -> tuple[list[dict], list[dict]]:
+    """Several sources at once. Whisper is the long pole, and it only needs a source's 16 kHz wav: the
+    wavs are extracted first and transcribed one after another (in story order) on their own thread,
+    while up to `jobs` workers make the proxies and look at the pictures, scenes and sound. A file
+    listed twice is worked on once. Every result and cache file is the same as one at a time."""
+    path_key = lambda s: str(Path(str(s["path"])).expanduser())
+    first = in_parallel(lambda s: media_info(svc, s["path"], cache), sources, jobs, key=path_key)
+    by_path = {path_key(s): i for s, i in zip(sources, first)}
+
+    def early_wav(info: dict) -> dict | None:
+        """The cached analysis (None: none) of a source that needs a transcription; its wav extracted."""
+        cached = svc.cache.load(cache, "analysis", info["id"])
+        if is_photo(info) or not info.get("has_audio") or (cached is not None and not force):
+            return None
+        wav = wav_path(cache, info)
+        if not svc.cache.has(wav):
+            svc.encoder.extract_wav(info, wav)
+        return {"previous": cached}
+
+    unique = list({i["id"]: i for i in by_path.values()}.values())
+    need = in_parallel(early_wav, unique, jobs)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="sve-whisper") as whisper:
+        futures = {i["id"]: whisper.submit(transcribe, svc, str(wav_path(cache, i)),
+                                           transcription_settings(cfg, n["previous"]), cache, Path(i["path"]).name)
+                   for i, n in zip(unique, need) if n is not None}
+        try:
+            infos = in_parallel(lambda s: prepare_source(svc, s, cache, cfg, dict(by_path[path_key(s)])),
+                                sources, jobs, key=path_key)
+            _count_photos(infos)
+            analyses = in_parallel(lambda i: analyze_source(svc, i, cache, cfg, force, futures.get(i["id"])),
+                                   infos, jobs, key=lambda i: i["id"])
+        except BaseException:
+            for f in futures.values():
+                f.cancel()
+            raise
+    return infos, analyses
