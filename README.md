@@ -365,6 +365,8 @@ settings:
   photo:
     duration: 4.5                 # seconds per photo (fitted to the music: photo.fit_to_music)
     auto_tone: 0.6                # gentle exposure fix for dark / backlit photos (0 = off)
+    skip_duplicates: true         # the same scene shot twice in a row: only the sharper one (default false)
+    skip_blurred: true            # clearly blurred photos are left out (default false)
   color: {warmth: 0.25, vignette: 0.15}
 ```
 
@@ -379,7 +381,9 @@ sve report holidays                        # photo count, playlist (songs, minut
 `photo.auto_tone` lifts underexposed photos with a smooth lightness curve and a little local
 contrast, and recovers the shadows of backlit ones locally (subjects in front of a bright window or
 sky get brighter, the window or sky does not); blacks and whites stay put, colors keep their hue,
-and well-exposed photos are left untouched. Photo segments are cached at `render.photo_crf` (default 16). Long videos are joined in
+and well-exposed photos are left untouched. `photo.skip_duplicates` / `photo.skip_blurred` (off by
+default) leave out repeated shots of one scene (the sharpest is kept) and blurred photos; the plan and
+`sve report` say which and why. Photo segments are cached at `render.photo_crf` (default 16). Long videos are joined in
 chunks (`render.chunk_threshold` / `render.chunk_size`). Full keys: [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md).
 
 ## Language
