@@ -170,6 +170,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   a progress bar fills), `share` (one stream split among many), `queue` (a line waits at a gate). `freeze` now
   has frost ferns, an icy glaze, icicles that drip and real snowflakes; `store` ends with the thing kept beside
   what was stored before and the place it left marked.
+- **The director reads sentences more carefully** (no setting; old recipes unchanged): a list needs the shape of
+  one ("A, B y C", one join before the last item, no item opening like a clause), so a run of clauses is no
+  longer drawn as a list; a bar is named by the thing measured ("Por semana", "La app", "Al mes") — a pronoun
+  ("It", "Lo medí"), another figure ("Twenty a day") or a bare verb is not a name, and then the figure card is
+  drawn instead of wrong bars; figures said in words of any size ("ciento sesenta y uno", "fifty-four"),
+  thousands and millions ("17 mil apps" = 17000) and "un segundo" (a quantity with its unit); quotes with
+  "dice / afirma / reportó / encontró que", "de acuerdo con", "says / reported / found that", "a study by X
+  found that" — only from a named source. New scene actions take their subject and target from what is named
+  ("borra las fotos" → the photos into the trash; "descargas … en el celular" → the cloud down to the phone).
+  The icon question offers a shortlist (a question can no longer have more options than answer letters); a
+  title that names nothing shows the topic's picture, the phone instead of the app (which read as a photo).
+- `script.support_spread` (off by default): the notes of words said under a full-frame cutaway come in
+  earlier, spread over the part said on camera, instead of being left out (+20 % notes on a real test plan).
+  A word that says again what a sure note shows (its plural, the same illustration) is not asked about.
+- `domain/flow.py`: a sentence describing a flow ("A manda B a C", "pasa de X a Y y luego a Z", "goes from X
+  to Y") gives the ordered stops of a diagram (not wired to the director yet).
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
