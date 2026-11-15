@@ -117,7 +117,7 @@ with a flash and a shutter sound:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram` or `lower_third` (or one a pack adds). |
+| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram`, `line_chart`, `versus`, `code`, `screen`, `scene` or `lower_third` (or one a pack adds). A file a graphic names (`image` of `screen` / `product_card`) is relative to the project folder, like a photo's. |
 | *the template's keys* | — | What it shows: every template and its keys are in [GRAPHICS.md](GRAPHICS.md). |
 | `dur` | the template's (2.2–5 s) | Seconds on screen. |
 | `caption` | — | What is being said, drawn in the narration box under the graphic. |
@@ -460,7 +460,8 @@ And they travel apart.
   cue. Without a cue the presenter is on camera; `[camera]` goes back to the presenter.
 - A cue is written like a graphic cue ([GRAPHICS.md](GRAPHICS.md)): the name, then `key="value"`
   pairs. Names: any graphic template (`bars`, `number`, `list`, `diagram`, `title`, `headline`,
-  `product_card`, `lower_third`, or a pack's own), `photo file="photos/board.jpg"` (a still photo,
+  `product_card`, `line_chart`, `versus`, `code`, `screen`, `scene`, `lower_third`, or a pack's own; a file it
+  names, such as `screen image="shots/settings.png"`, is relative to the project folder), `photo file="photos/board.jpg"` (a still photo,
   path relative to the project; optional `motion`, `motion_amount`, `focus_x`, `focus_y`) and
   `broll query="…"` (a clip that `sve broll` fetches from the allowed sources, or `broll file="clip.mp4"`
   for a clip of your own; see [Third-party footage](#third-party-footage-sve-broll)). The overlays
@@ -468,7 +469,7 @@ And they travel apart.
 - Any cue takes `seconds=N`: at most that long on screen (a `lower_third` usually wants `seconds=4`).
 - A cue needs at least one sentence after it. A graphic cue that cannot be drawn (missing key, unknown
   template) is an error at `sve plan`, with its script line.
-- Spanish names work too (`[barras datos="…"]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
+- Spanish names work too (`[barras datos="…"]`, `[lineas …]`, `[frente_a_frente …]`, `[codigo …]`, `[pantalla …]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
   `segundos=`; the file may be called `guion.md`): see [LEGACY_KEYS.md](LEGACY_KEYS.md).
 
 ### How the script is matched to the recording
