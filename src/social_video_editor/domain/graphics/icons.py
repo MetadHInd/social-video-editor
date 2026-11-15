@@ -85,7 +85,7 @@ def find_icon(label: str, among=None) -> str | None:
                 for form in _forms(words[i + n - 1]):
                     if (found := ok(WORDS.get(f"{head} {form}"))) is not None:
                         return found
-        if word in ALONE:                                  # "tu celular" is a phone, not a person
+        if any(f in ALONE for f in _forms(word)):          # "tu celular", "tus fotos": a phone, photos, not a person
             continue
         for form in _forms(word):
             if (found := ok(WORDS.get(form))) is not None:
