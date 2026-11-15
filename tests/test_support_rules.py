@@ -65,3 +65,10 @@ def test_spread_brings_the_covered_notes_into_the_part_on_camera():
     assert len(after) <= support.MAX_PER_SENTENCE
     assert notes_in(spread, 0.0, 5.0) == notes_in(plain, 0.0, 5.0)  # the other sentences do not change
     assert notes_in(spread, 10.0, 99.0) == notes_in(plain, 10.0, 99.0)
+
+
+def test_a_long_sentence_asks_about_as_many_words_as_there_are_letters():
+    text = " ".join(f"palabra{chr(97 + i)}ndo largas{chr(97 + i)}mente cosas{chr(97 + i)}rama" for i in range(12))
+    rec = dd.Recorder()
+    support._notes(words(text), "es", True, rec)
+    assert all(len(q.options) <= support.MAX_OPTIONS for q in rec.asked.values())

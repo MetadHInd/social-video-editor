@@ -146,3 +146,26 @@ def test_a_named_source_is_quoted(text, outlet, said):
 ])
 def test_no_quote_without_a_named_source(text):
     assert director.quote(words_of(text)) is None
+
+
+# ── scenes with two things ─────────────────────────────────────────────────
+
+@pytest.mark.parametrize("text, subject, target", [
+    ("Borra las fotos que ya subiste a la nube.", "photo", "trash"),                   # the photos are deleted
+    ("Descargas la película en el celular.", "cloud", "phone"),                         # it comes down to the phone
+    ("Conecta el celular al router de la casa.", "phone", "router"),
+])
+def test_a_scene_takes_the_thing_acted_on_and_its_target(text, subject, target):
+    got = director.scene_for(words_of(text), 0.0, "phone")
+    assert got and (got.get("subject"), got.get("target")) == (subject, target)
+
+
+def test_a_sentence_with_many_things_asks_about_a_shortlist_of_illustrations():
+    from fakes_decide import FakeDecider
+
+    text = "Tu celular, la batería, el cargador, la nube y el router están en la mesa."
+    fake = FakeDecider()
+    words = [[w, t, t + 0.3] for w, t in words_of(text)]
+    director.card({"words": words, "start": 0.0, "text": text}, 0.0, "laptop", last="scene", decide=fake)
+    (q,) = [q for q in fake.asked if q.topic == "icon"]
+    assert q.values()[-1] == "none" and len(q.values()) <= 7 and "laptop" in q.values()

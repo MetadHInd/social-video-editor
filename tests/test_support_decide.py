@@ -8,7 +8,7 @@ from social_video_editor.domain.decide import rules_only
 from social_video_editor.domain.review import shorten
 from social_video_editor.domain.support import propose, sentence_notes
 
-VERB = "Los vecinos guardan 3 cajas en el sótano de la casa."        # "guardan" is a verb that reads as a long word
+VERB = "Los abuelos guardan 3 cajas en el sótano de la casa."        # "guardan" is a verb that reads as a long word
 SAID = "Ellas guardan todo en el sótano."
 
 
@@ -38,9 +38,9 @@ def test_a_verb_the_decider_drops_is_not_a_note():
     assert [n["label"] for n in notes] == [x for x in rules if x != "Guardan"]
     (q,) = fake.asked                                         # one question for the sentence
     assert q.topic == "label_words" and q.kind == "multi" and q.context == VERB and q.hypothesis is None
-    assert q.values() == ("Vecinos", "Guardan")              # "cajas" goes with its figure, "casa" is a sure noun
+    assert q.values() == ("Abuelos", "Guardan")              # "cajas" goes with its figure, "casa" is a sure noun
     assert q.default == ()                                    # the rules see no verb among the words they keep
-    assert [o.text for o in q.options] == ["vecinos", "guardan"] and q.confidence == 0.5
+    assert [o.text for o in q.options] == ["abuelos", "guardan"] and q.confidence == 0.5
     assert "verbo conjugado" in q.prompt
     # the other words of a sentence become notes when they are not verbs: a verb leaves room for them
     said = "Ellas guardan los platos limpios."

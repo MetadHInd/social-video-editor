@@ -80,6 +80,11 @@ class Question:
     hypothesis: str | None = None           # zero-shot template with "{}" (an option's text); None = NLI cannot answer
     image: str | None = None                # a picture to look at (a file path), for the language model
 
+    def __post_init__(self):
+        if len(self.options) + (self.kind == "multi") > len(KEYS):    # a multi question has a "none" letter too
+            raise ValueError(f"question '{self.topic}' has {len(self.options)} options; the language model answers "
+                             f"with one letter each and there are {len(KEYS)} (offer a shortlist)")
+
     @property
     def key(self) -> str:
         """The same question asked again has the same key (cached answers)."""

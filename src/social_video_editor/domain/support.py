@@ -32,6 +32,7 @@ from .script import tokens
 
 MAX_ITEMS = 6               # notes in one overlay (the callouts template has six places)
 MAX_PER_SENTENCE = 4
+MAX_OPTIONS = 24            # words asked about in one question (the rest keep the rules' answer)
 SPREAD = False              # script.support_spread: notes of words under a full-frame cutaway move into the part on camera
 MAX_EXTRA = 6               # other words of a sentence offered to the decider (to replace a verb with a noun)
 EXTRA_CONFIDENCE = 0.6      # the rules leave those out; a question is asked when a sentence offers some
@@ -210,6 +211,8 @@ def _notes(words: list[list], language: str, key_word: bool, decide: Decide | No
         options: dict[str, str] = {}
         for n in unsure + extra:
             options.setdefault(n["label"], n["word"])
+        if len(options) > MAX_OPTIONS:                           # one letter per option, and one for "none"
+            options = dict(list(options.items())[:MAX_OPTIONS])
         kept_by_rules = set(n["label"] for n in unsure)
         default = tuple(label for label in options if label not in kept_by_rules)   # the rules leave the extras out
         q = Question("label_words", "multi", PROMPT.get(language, PROMPT["en"]),

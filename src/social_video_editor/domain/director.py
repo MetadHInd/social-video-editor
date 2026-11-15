@@ -34,7 +34,7 @@ from collections import Counter
 
 from .decide import Answer, Decide, Option, Question, ask
 from .graphics.icons import ALONE, ICONS, describe_icon, find_icon, match_icon
-from .graphics.scenes import ACTIONS, action_of, action_text, actions_in
+from .graphics.scenes import ACTIONS, TARGETED, action_of, action_text, actions_in
 from .script import tokens
 
 DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8}
@@ -60,10 +60,15 @@ QUERIES = {                 # what stock libraries show well for each illustrati
 TOPIC_DEFAULT = "phone"
 POSSESSIVES = {"tus", "sus", "mis", "your", "yours"}       # "tus apps" names the apps, not a person
 DETERMINERS = set("el la los las un una unos unas tu tus su sus mi mis este esta estos estas the a an your my this these".split())
-ICON_DEVICES = ("phone", "app", "laptop", "chip", "ram", "disk", "router", "server", "cloud", "globe", "tower", "lock", "battery")
+ICON_DEVICES = ("phone", "app", "laptop", "chip", "ram", "disk", "router", "server", "cloud", "globe", "tower", "lock", "battery",
+                "signal", "satellite", "camera", "keyboard", "mic", "speaker", "charger", "cable", "building", "video")
 OWNERS = {"swipe": ("app",), "open": ("app",), "sleep": ("app", "phone", "laptop"), "wait": ("app", "phone", "laptop", "user"),
           "store": ("app", "phone", "laptop"), "work": ("chip", "phone", "laptop", "server", "ram"),
-          "faster": ("phone", "laptop", "app"), "slower": ("phone", "laptop", "app")}
+          "faster": ("phone", "laptop", "app"), "slower": ("phone", "laptop", "app"),
+          "delete": ("photo", "file", "folder", "app", "video", "message"),        # what is deleted
+          "download": ("cloud", "globe", "server")}                                 # where it comes from
+TARGET_OWN = {"download": ("phone", "laptop", "disk", "ram", "camera", "speaker"),   # where it comes down to
+              "delete": ("trash",)}   # the target is one of these when one is named
 CONNECTORS = set("pero si cuando porque entonces aunque como mientras but if when because then so although".split())
 LOCAL_STOP = set("cada vez algo nada todo todos todas otra otro misma mismo cosa cosas forma manera thing things way".split())
 PHRASE_WORDS = 6
@@ -818,10 +823,13 @@ def _scene_for(words: list[tuple[str, float]], at: float, main: str, asker: _Ask
     if action in ("send", "store"):
         others = [i for i in things if i != subject]
         target = "ram" if action == "store" and "ram" in others else (others[0] if others else target)
+    elif action in TARGETED and action not in ("swipe", "open"):    # the other thing named ("en el celular")
+        others = [i for i in things if i != subject and i in TARGET_OWN.get(action, ICONS)]
+        target = others[0] if others else target
     spec = {"template": "scene", "action": action, "text": _phrase(words, at, PHRASE_WORDS, asker)}
     if subject:
         spec["subject"] = subject
-    if target and action in ("send", "store", "swipe", "open"):
+    if target and action in TARGETED:
         spec["target"] = target
     return spec
 
@@ -879,15 +887,20 @@ def describe(spec: dict, language: str = "es") -> str:
 
 
 def _title_icon(words: list[tuple[str, float]], at: float, main: str, asker: _Asker | None) -> str | None:
-    """The illustration above a title card: the first thing named from the cut on, else in the sentence,
-    else the script's topic. With a decider, a model may pick another one, or none (`icon`)."""
+    """The illustration above a title card: the first thing named from the cut on, else in the sentence;
+    a sentence that names nothing has none (the script's topic drawn there read as an unrelated picture).
+    With a decider, a model may pick another of the things named, the topic's, or none (`icon`)."""
     hits = [(w, i) for w, t in words if t >= at - 1e-6 and (i := _icon_of(w))] or \
         [(w, i) for w, t in words if (i := _icon_of(w))]
-    icon = hits[0][1] if hits else main
+    if not hits:
+        return None
+    icon = hits[0][1]
     if asker is None or icon not in ICONS:
         return icon
-    confidence = (0.9 if (match_icon(hits[0][0]) or (None, False))[1] else 0.6) if hits else 0.5
-    a = asker("icon", "choice", [Option(x, describe_icon(x, asker.language)) for x in (*ICONS, "none")],
+    confidence = 0.9 if (match_icon(hits[0][0]) or (None, False))[1] else 0.6
+    named = list(dict.fromkeys(i for w, _ in words if (i := _icon_of(w)) in ICONS))
+    shortlist = list(dict.fromkeys([*named, icon, *([main] if main in ICONS else [])]))
+    a = asker("icon", "choice", [Option(x, describe_icon(x, asker.language)) for x in (*shortlist, "none")],
               _said(words), icon, confidence, ABOUT)
     return None if a.value == "none" else a.value
 

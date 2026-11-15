@@ -96,7 +96,7 @@ def test_card_for_a_sentence_and_what_covers_the_presenter():
     s = {"n": 0, "start": 0.0, "words": [["The", 0.0, 0.2], ["battery", 0.3, 0.5], ["drains", 0.6, 0.8], ["fast.", 0.9, 1.0]]}
     assert director.card(s) == {"template": "scene", "action": "drain", "text": "The battery drains fast"}
     assert director.card(s, last="scene") == {"template": "title", "text": "The battery drains fast", "icon": "battery"}
-    assert director.card({"words": [["Hello", 0, 1], ["there.", 1, 2]]}, main="laptop")["icon"] == "laptop"
+    assert "icon" not in director.card({"words": [["Hello", 0, 1], ["there.", 1, 2]]}, main="laptop")   # names nothing
     plan = {"cutaways": [{"type": "graphic", "template": "lower_third", "text": "x", "at_sentence": 1},
                          {"type": "graphic", "template": "bars", "data": "A:1", "at_sentence": 2, "until_sentence": 3},
                          {"type": "broll", "query": "q", "at_sentence": 5}]}
