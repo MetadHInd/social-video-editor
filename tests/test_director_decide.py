@@ -131,7 +131,7 @@ def test_the_title_uses_the_chosen_span():
     assert director.card(sentence(text), 0.0, "phone")["text"] == "La cocina huele a pan"
     fake = FakeDecider({"title_span": "La masa sube en el horno…"})
     got = director.card(sentence(text), 0.0, "phone", decide=fake)
-    assert got == {"template": "title", "text": "La masa sube en el horno…", "_decided": "llm"}   # names nothing: no icon
+    assert got == {"template": "title", "text": "La masa sube en el horno…", "icon": "phone", "_decided": "llm"}
     q = asked(fake, "title_span")[0]
     assert q.default == ("La cocina huele a pan",) and 2 <= len(q.options) <= 4 and q.hypothesis is None
     assert director.phrase(words_of(text), 0.0, decide=fake) == "La masa sube en el horno…"
@@ -199,7 +199,7 @@ def test_the_title_icon_may_be_none():
     assert dict((o.value, o.text) for o in q.options)["battery"] == describe_icon("battery", "es")
     nothing = FakeDecider()
     plain = director.card(sentence("La masa sube en el horno y la cocina huele a pan."), 0.0, "phone", decide=nothing)
-    assert "icon" not in plain and not asked(nothing, "icon")       # names nothing: no picture, nothing to ask
+    assert plain["icon"] == "phone" and not asked(nothing, "icon")   # names nothing: the topic's, nothing to ask
     assert match_icon("baterías") == ("battery", False) and match_icon("cocina") is None
     assert describe_icon("none", "en") == "none of these things"
 

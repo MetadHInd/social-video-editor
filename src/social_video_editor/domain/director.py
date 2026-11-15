@@ -58,6 +58,8 @@ QUERIES = {                 # what stock libraries show well for each illustrati
     "printer": ["printer printing", "office printer"],
 }
 TOPIC_DEFAULT = "phone"
+TOPIC_ICON = {"app": "phone"}   # a sentence that names nothing shows the topic's illustration; the app's alone reads
+                                # as an unrelated photo, so the phone it lives in (measured: right 57 → 60 %)
 POSSESSIVES = {"tus", "sus", "mis", "your", "yours"}       # "tus apps" names the apps, not a person
 DETERMINERS = set("el la los las un una unos unas tu tus su sus mi mis este esta estos estas the a an your my this these".split())
 ICON_DEVICES = ("phone", "app", "laptop", "chip", "ram", "disk", "router", "server", "cloud", "globe", "tower", "lock", "battery",
@@ -887,13 +889,13 @@ def describe(spec: dict, language: str = "es") -> str:
 
 
 def _title_icon(words: list[tuple[str, float]], at: float, main: str, asker: _Asker | None) -> str | None:
-    """The illustration above a title card: the first thing named from the cut on, else in the sentence;
-    a sentence that names nothing has none (the script's topic drawn there read as an unrelated picture).
+    """The illustration above a title card: the first thing named from the cut on, else in the sentence,
+    else the script's topic (TOPIC_ICON: the app's picture alone reads as a photo, the phone is shown).
     With a decider, a model may pick another of the things named, the topic's, or none (`icon`)."""
     hits = [(w, i) for w, t in words if t >= at - 1e-6 and (i := _icon_of(w))] or \
         [(w, i) for w, t in words if (i := _icon_of(w))]
     if not hits:
-        return None
+        return TOPIC_ICON.get(main, main)
     icon = hits[0][1]
     if asker is None or icon not in ICONS:
         return icon
