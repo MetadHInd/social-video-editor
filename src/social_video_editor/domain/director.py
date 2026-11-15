@@ -103,8 +103,11 @@ PROMPTS = {                 # topic → the question (Spanish, English)
 WHERE = ("Un dibujo tapa al presentador desde que dice «{}» hasta el final de la frase.",
          "A drawing covers the presenter from the moment he says “{}” to the end of the sentence.")
 TOPIC = ("El video trata de: «{}».", "The video is about: “{}”.")
-CUT_TOPICS = {"title_span", "card_type"}     # questions that say where the drawing comes in
-TOPIC_TOPICS: set[str] = set()                # questions that get the script's opening line as its topic
+# Questions that say where the drawing comes in / that get the script's opening line as its topic. Both
+# measured on the labelled set and both made the language model worse (titles 85 % → 74 % with the cut,
+# 72 % with the topic; the kind of drawing 68 % → 55 % / 69 %, still under the rules' 87 %): off.
+CUT_TOPICS: set[str] = set()
+TOPIC_TOPICS: set[str] = set()
 CUT_WORDS = 6
 ABOUT = ("Esta frase habla de {}.", "This sentence is about {}.")            # zero-shot templates
 COMPARES = ("Esta frase {}.", "This sentence {}.")

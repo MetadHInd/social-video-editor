@@ -41,10 +41,11 @@ DEFAULTS = {
 }
 
 # topic → the stages (after the rules) that may answer it, in order
-# Measured on 215 labeled questions from real scripts: the language model beats the rules on notes
-# (words picked right 20 % → 75 %), titles (59 → 80 %) and shortened texts (50 → 60 %); on scene actions,
-# illustrations and the kind of drawing the rules were right more often (82 / 60 / 74 %) than either
-# model, and the zero-shot classifier helped nowhere — those stay with the rules (an empty route).
+# Measured on 215 labeled questions from real scripts (re-measured 15 Nov with the verbs question): the
+# language model beats the rules on notes (verbs found, per word, 51 → 90 %; whole sentences 16 → 74 %),
+# titles (59 → 85 %) and shortened texts (50 → 60 %); on scene actions, illustrations and the kind of
+# drawing the rules are right more often (87 / 60 / 87 % against 37 / 50 / 63 % for the model), and the
+# zero-shot classifier helped nowhere — those stay with the rules (an empty route).
 ROUTES: dict[str, tuple[str, ...]] = {
     "label_words": ("llm",),            # which words of a sentence are conjugated verbs (never a note)
     "title_span": ("llm",),             # which part of a sentence reads well as a card title
@@ -58,7 +59,7 @@ ROUTES: dict[str, tuple[str, ...]] = {
     "card_type": (),                    # which drawing fits a sentence (figure, list, scene, title…)
 }
 ROUTES_VERSION = 4            # 3: label_words asks which words are verbs (not which make good notes)
-                              # 4: title_span / card_type say where the drawing comes in
+                              # 4: icon offers a shortlist; notes are not asked about twice
 
 
 @dataclass(frozen=True)

@@ -19,7 +19,11 @@ def asked(fake: FakeDecider, topic: str) -> list[dd.Question]:
     return [q for q in fake.asked if q.topic == topic]
 
 
-def test_title_and_card_questions_say_where_the_drawing_comes_in():
+def test_title_and_card_questions_may_say_where_the_drawing_comes_in(monkeypatch):
+    fake = FakeDecider()
+    director.card(sentence(TEXT), 9.0, "phone", decide=fake, language="es")
+    assert not any("Un dibujo tapa" in q.prompt for q in fake.asked)        # off: it made the model worse
+    monkeypatch.setattr(director, "CUT_TOPICS", {"title_span", "card_type"})
     fake = FakeDecider()
     director.card(sentence(TEXT), 9.0, "phone", decide=fake, language="es")
     (title, *_) = asked(fake, "title_span")
