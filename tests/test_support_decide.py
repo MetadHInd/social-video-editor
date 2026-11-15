@@ -50,11 +50,11 @@ def test_a_verb_the_decider_drops_is_not_a_note():
 
 def test_sure_candidates_are_never_asked_about():
     fake = FakeDecider({"label_words": lambda q: q.values()})     # the decider says every word offered is a verb
-    notes = sentence_notes(_words("La gente del mundo guarda 3 cajas en el sótano."), "es", decide=fake)
+    notes = sentence_notes(_words("La gente de la ciudad guarda 3 cajas en el sótano."), "es", decide=fake)
     kinds = {n["label"]: n["kind"] for n in notes}
-    assert kinds == {"Gente": "icon", "Mundo": "icon", "3 cajas": "figure", "Sótano": "word"}
+    assert kinds == {"Gente": "icon", "Ciudad": "icon", "3 cajas": "figure", "Sótano": "word"}
     for q in fake.asked:
-        assert not {"Gente", "Mundo", "3 cajas", "Sótano"} & set(q.values())
+        assert not {"Gente", "Ciudad", "3 cajas", "Sótano"} & set(q.values())
     fake = FakeDecider({"label_words": lambda q: q.values()})
     english = sentence_notes(_words("The workers carry 5 boxes to their garage."), "en", decide=fake)
     assert [n["label"] for n in english] == ["Workers", "5 boxes", "Garage"]

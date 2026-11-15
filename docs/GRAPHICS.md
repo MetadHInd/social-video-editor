@@ -73,52 +73,52 @@ Words are matched whole (with their plural), never as a piece of a word; a label
 |---|---|
 | `phone` | celular, telefono, movil, smartphone, iphone, android, cel |
 | `router` | wifi, wi-fi, wi fi, modem, enrutador, routers, modems |
-| `globe` | internet, web, red, network, mundo, world, online |
-| `cloud` | nube, icloud, drive |
+| `globe` | internet, web, network, world, online |
+| `cloud` | nube, icloud |
 | `server` | servidor, servidores, datacenter, backend |
 | `laptop` | pc, computador, computadora, portatil, mac, ordenador, computer |
 | `chip` | cpu, procesador, processor, gpu, soc |
 | `ram` | memoria, memory, ddr |
 | `disk` | disco, ssd, almacenamiento, storage, hdd, disco duro, hard drive, hard disk |
-| `battery` | bateria, energia, pila, batteries, pilas |
+| `battery` | bateria, batteries |
 | `tower` | antena, antenas, torre, torres, operador, operadora, 4g, 5g, antenna, cell tower, torre celular, torre de celular |
-| `app` | aplicacion, apps, aplicaciones, programa, software |
+| `app` | aplicacion, apps, aplicaciones, software |
 | `user` | tu, usuario, persona, you, cliente, yo, person, customer |
 | `lock` | candado, seguridad, contrasena, contrasenas, password, passwords, cifrado, privacidad, security, privacy, encryption, padlock |
-| `signal` | senal, senales, cobertura, coverage, rayitas, reception, recepcion |
-| `building` | edificio, edificios, apartamento, departamento, apartment, condominio, oficina, office, bloque de pisos, torre de departamentos |
+| `signal` | senal, senales, cobertura, coverage, rayitas |
+| `building` | edificio, edificios, apartamento, apartment, condominio, oficina, bloque de pisos, torre de departamentos |
 | `shower` | ducha, duchas, regadera, showers, banarse, duchar |
 | `tap` | grifo, grifos, canilla, llave de agua, faucet, agua, water, gota, gotas, tuberia, tuberias, caneria, pipe, pipes |
-| `clock` | reloj, relojes, clocks, hora, horas, horario, hour, hours, minuto, minutos, minute, minutes, tiempo, time, alarma, alarm, despertador, hora pico, rush hour, cronometro, timer, temporizador |
+| `clock` | reloj, relojes, clocks, hora, horas, horario, hour, hours, minuto, minutos, minute, minutes, alarma, alarm, despertador, hora pico, rush hour, cronometro, timer, temporizador |
 | `moon` | luna, noche, noches, nocturno, nocturna, madrugada, medianoche, night, nights, midnight, tonight, de noche |
 | `download` | descarga, descargas, descargar, downloads, downloading, bajada, descargando |
-| `gauge` | velocidad, velocidades, velocimetro, speed, speeds, speedometer, megas, mbps, megabits, ancho de banda, bandwidth, latencia, latency, ping, rendimiento, performance, speed test |
-| `crowd` | gente, personas, multitud, muchedumbre, vecinos, vecino, usuarios, familia, crowds, people, users, neighbors, neighbours, family, todo el mundo, everyone, everybody |
-| `video` | videos, pelicula, peliculas, streaming, reproductor, player, movie, movies, film, films, youtube, netflix, tiktok, cargando, loading, buffering, buffer, reel, reels |
-| `cable` | cables, enchufe, enchufes, plug, plugs, conector, connector, usb, fibra, fiber, fibre, ethernet, fibra optica, cableado, wired |
-| `satellite` | satelite, satelites, satellites, orbita, orbit, espacial |
+| `gauge` | velocidad, velocidades, velocimetro, speed, speeds, speedometer, megas, mbps, megabits, ancho de banda, bandwidth, latencia, latency, ping, speed test |
+| `crowd` | gente, personas, multitud, muchedumbre, vecinos, vecino, usuarios, crowds, people, users, neighbors, neighbours, todo el mundo |
+| `video` | videos, pelicula, peliculas, streaming, reproductor, movie, movies, youtube, netflix, tiktok, cargando, loading, buffering, buffer, reel, reels |
+| `cable` | cables, enchufe, enchufes, plug, plugs, conector, connector, usb, fibra, fiber, fibre, ethernet, fibra optica, cableado |
+| `satellite` | satelite, satelites, satellites, orbita, orbit |
 | `keyboard` | teclado, teclados, keyboards, tecla, teclas, keystroke |
-| `shield` | escudo, escudos, proteccion, protegido, protegida, protection, protected, antivirus, firewall, cortafuegos, defensa, defense |
-| `key` | llave, llaves, keys, clave, claves |
-| `bug` | bugs, error, errores, errors, falla, fallas, fallo, fallos, virus, malware, glitch, insecto |
+| `shield` | escudo, escudos, proteccion, protection, antivirus, firewall, cortafuegos |
+| `key` | llave, llaves, keys |
+| `bug` | bugs, virus, malware, glitch, insecto |
 | `folder` | carpeta, carpetas, folders, directorio, directory |
-| `file` | archivo, archivos, documento, documentos, files, document, documents, pdf, fichero, ficheros, informe, report |
-| `photo` | foto, fotos, fotografia, fotografias, imagen, imagenes, photos, picture, pictures, image, images, galeria, gallery, selfie, selfies |
-| `camera` | camara, camaras, cameras, webcam, lente, lentes, lens, fotografo, photographer |
-| `mic` | microfono, microfonos, microphone, microphones, voz, voice, podcast, grabacion, recording |
-| `speaker` | altavoz, parlante, parlantes, bocina, bocinas, speakers, sonido, sonidos, sound, audio, volumen, volume, musica, music, cancion, song |
-| `message` | mensaje, mensajes, messages, chat, chats, whatsapp, sms, mensajeria, messaging, texto, textos, comentario, comentarios, comment, comments, dm |
-| `bell` | campana, campanas, campanita, bells, notificacion, notificaciones, notification, notifications, aviso, avisos, timbre |
+| `file` | archivo, archivos, documento, documentos, files, document, documents, pdf, fichero, ficheros |
+| `photo` | foto, fotos, fotografia, fotografias, imagen, imagenes, photos, image, images, galeria, gallery, selfie, selfies |
+| `camera` | camara, camaras, cameras, webcam, lens, fotografo, photographer |
+| `mic` | microfono, microfonos, microphone, microphones, podcast, grabacion, recording |
+| `speaker` | altavoz, parlante, parlantes, bocina, bocinas, speakers, sonido, sonidos, audio, musica, music, cancion, song |
+| `message` | mensaje, mensajes, messages, chat, chats, whatsapp, sms, mensajeria, messaging, comentario, comentarios, dm |
+| `bell` | campana, campanas, campanita, bells, notificacion, notificaciones, notification, notifications, timbre |
 | `charger` | cargador, cargadores, chargers, adaptador, adaptadores, adapter, carga rapida, fast charging |
 | `trash` | basura, papelera, papeleras, bin, garbage, bote de basura, reciclaje, recycle, desechos, waste bin |
-| `search` | lupa, lupas, busqueda, busquedas, buscador, buscadores, searches, magnifier, google, investigacion, research |
-| `gear` | ajustes, ajuste, configuracion, settings, setting, engranaje, engranajes, gears, mecanismo, mechanism, configurar, setup |
+| `search` | lupa, lupas, busqueda, busquedas, buscador, buscadores, searches, magnifier, google |
+| `gear` | ajustes, configuracion, settings, engranaje, engranajes, gears |
 | `money` | dinero, plata, moneda, monedas, pago, pagos, precio, precios, costo, costos, coin, coins, cash, price, prices, cost, costs, dolar, dolares, dollar, dollars, euro, euros, billete, billetes, factura, facturas, tarifa, ahorros, savings, sueldo, salary |
-| `calendar` | calendario, calendarios, fecha, fechas, calendars, date, dates, mes, meses, month, months, semana, semanas, week, weeks, agenda, schedule, fin de semana, weekend |
-| `pin` | mapa, mapas, ubicacion, ubicaciones, gps, map, maps, location, locations, direccion, address, zona, zonas, barrio, neighborhood, ciudad, city |
-| `rocket` | cohete, cohetes, rockets, despegue, despegar, liftoff, lanzamiento, launch |
-| `idea` | ideas, bombilla, bombillas, bombillo, foco, focos, bulb, lightbulb, truco, trucos, tip, tips, consejo, consejos, solucion, soluciones, solution, hack, hacks, trick, tricks |
-| `warning` | alerta, alertas, advertencia, advertencias, cuidado, peligro, peligros, warnings, alert, alerts, danger, riesgo, riesgos, risk, risks, problema, problemas, problem, problems, ojo |
+| `calendar` | calendario, calendarios, fecha, fechas, calendars, mes, meses, month, months, semana, semanas, week, weeks, agenda, schedule, fin de semana, weekend |
+| `pin` | mapa, mapas, ubicacion, ubicaciones, gps, map, maps, location, locations, ciudad, city |
+| `rocket` | cohete, cohetes, rockets, despegue, despegar, liftoff |
+| `idea` | ideas, bombilla, bombillas, bombillo, bulb, lightbulb, truco, trucos, tip, tips, consejo, consejos, hack, hacks, trick, tricks |
+| `warning` | alerta, alertas, advertencia, advertencias, peligro, peligros, warnings, alert, alerts, danger |
 
 ### Choosing a graphic without a cue
 
