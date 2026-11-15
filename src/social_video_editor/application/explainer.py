@@ -43,7 +43,7 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
         presenter where nothing else is on screen; the plan is not changed (this may run more than once)."""
         cuts = director.propose(plan, cfg, overlay, decide=decide) if auto_broll else []
         merged = {**plan, "cutaways": sorted(plan["cutaways"] + cuts, key=lambda c: c.get("at_sentence", 0))}
-        notes = support.propose(merged, cfg.get("language", "es"), decide=decide) if notes_on else []
+        notes = support.propose(merged, cfg.get("language", "es"), decide=decide, settings=cfg) if notes_on else []
         return cuts, notes
 
     if auto_broll or notes_on:

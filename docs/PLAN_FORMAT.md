@@ -562,6 +562,9 @@ notes around the presenter (`callouts`, `bullets`) always end when a full-frame 
 The proposals are ordinary entries of `cutaways` marked `"_auto": "support"`: edit their `items`,
 delete the ones you do not want, or write your own cue for that sentence (a sentence under a cue gets
 no proposal). `sve report` marks them with `~`.
+When a full-frame cutaway starts inside a sentence (footage from one of its words), the notes of the
+words said under it are left out; with `script.support_spread: true` (off by default) they come in
+earlier instead, spread over the part of the sentence said on camera.
 
 **Notes and bullets you write.** `[callouts items="Phone; Router; Internet" link=yes]` and
 `[bullets items="No extra battery; Back in an instant"]` are cues like any other. When a `bullets` or
@@ -586,8 +589,12 @@ face shows at least 1.5 s before footage covers it. `sve broll` fetches them lik
 Data said aloud is shown, not searched for: two or more figures of the same kind set against each other
 ("two minutes a week, two hours a year"; "15 % before, 40 % today"; "8 GB on one, 12 GB on the other") become
 `bars` — times in the smallest unit said, each bar named by "before / today" or by the words next to its
-figure — and a quoted source ("according to X, …", "X published that …") becomes a `headline` with X as its
-outlet. They start when the figure (or the source) is said and are proposed wherever the sentence is not
+figure; when a bar's thing cannot be named (only a pronoun and its verb next to the figure) the figure card is
+drawn instead of a wrongly labeled bar — and a quoted source becomes a `headline` with X as its outlet:
+"according to X, …" / "según X, …" / "de acuerdo con X, …"; "X says / said / reported / published / found that …" /
+"X dice / afirma / reportó / publicó / encontró que …"; "a study by X found that …" / "un estudio de X encontró
+que …" (the outlet is X). The source must be named (a word written with a capital; "my mom says…" or
+"people say…" is not a source). They start when the figure (or the source) is said and are proposed wherever the sentence is not
 already covered, whatever the clock says.
 
 **Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
@@ -631,6 +638,7 @@ saturation or sharpening; exposure only nudged) and measures it once for the who
 | `script.punch_in` | 1.08 | Zoom alternated at every visible jump cut (0 = off). |
 | `script.subtitles` | `script` | Subtitles from the script's words (`script`) or from the transcription (`speech`). |
 | `script.support` | `true` | Propose `callouts` notes around the presenter where nothing else is on screen. |
+| `script.support_spread` | `false` | The notes of words said under a full-frame cutaway come in earlier, over the part said on camera (instead of being left out). |
 | `script.close_up` | 1.15 | A third framing: visible cuts go wide → punch-in → wide → close-up (0 = wide / punch-in only). |
 | `script.reframe_every` | 4.0 | Seconds after which a shot is split between two sentences and reframed (0 = off). |
 | `script.drift` | 0.04 | Slow zoom of every camera shot while it plays (0 = off). |
@@ -697,15 +705,17 @@ Some of the engine's judgments are closed questions asked by the pure domain cod
 | `title_span` | an illustrated card's title | 2–4 short spans of the sentence |
 | `is_comparison` / `bar_labels` | bars drawn from a sentence | yes / no · candidate names per bar |
 | `action` | an animated `scene` | the 13 actions + none |
-| `icon` | a card's illustration | the illustrations + none |
+| `icon` | a card's illustration | a shortlist: the things the sentence names, the rules' pick, the topic's illustration, none |
 | `card_type` | what the director draws | the candidate drawings |
 | `shorten` | a card too long to read | shorter versions |
 | `clip_shows` / `clip_lively` | b-roll near the thresholds | is it related, even loosely? · does it look clear? (yes / no, with a frame); only a sure "no" (≥ 0.85) turns a clip down, and the next candidate is fetched before any drawing (`cache/footage_rejected.json`) |
 
 Which stages may answer each question is `ROUTES` in `domain/decide.py`, set from a labeled set of 215
-real questions: the language model beat the rules on notes (words picked right 20 % → 75 %), titles
-(59 → 80 %) and shortened cards (50 → 60 %), so those go to it, and so do the b-roll questions; scene
-actions, illustrations, the kind of drawing and bars stayed better with the rules (82 / 60 / 74 %), and the
+real questions (re-measured 15 Nov): `label_words`, `title_span`, `shorten`, `clip_shows` and `clip_lively`
+go to the language model — it beat the rules on notes (verbs found, per word, 51 → 90 %; whole sentences
+16 → 74 %), titles (59 → 85 %) and shortened cards (50 → 60 %), and it sees the frame of a clip; the rest
+(`is_comparison`, `bar_labels`, `action`, `icon`, `card_type`) stay with the rules, which were right more
+often on scene actions, illustrations and the kind of drawing (87 / 60 / 87 % against 37 / 50 / 63 %). The
 zero-shot classifier helped nowhere, so today it is never loaded (it stays available for a route that needs
 it). With the routes measured, a 2-minute script asks the language model about 15 questions (≈20 s).
 
