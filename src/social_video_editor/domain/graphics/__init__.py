@@ -12,6 +12,7 @@ diagrams) described as data and drawn locally.
       templates.py  the built-in templates
       charts.py     line_chart and versus
       screens.py    code (a terminal / editor) and screen (a screenshot in a frame)
+      suggest.py    which of those a sentence asks for (so the engine chooses them by itself)
       overlays.py   the ones drawn over the picture for a presenter who stays on screen
       scenes.py     illustrated scenes: a thing doing what the sentence says (swipe, drain, sleep…)
 

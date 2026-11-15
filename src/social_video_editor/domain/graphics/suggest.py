@@ -46,6 +46,10 @@ IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", 
 SCREENSHOT_WORDS = ("screenshot", "screen shot", "captura", "pantallazo", "screen", "pantalla")
 ALTERNATIVE = set("o u or".split())
 POSSESSIVE = set("tu tus su sus mi mis your my his her their our nuestro nuestra".split())   # "tu celular" is not "you"
+# things that can be a step of a flow (a device, a place, someone); any other illustration (a photo, a
+# message, money…) is what travels, and labels the arrow it travels on
+NODE_ICONS = frozenset("phone router globe cloud server laptop chip ram disk tower app user building satellite crowd "
+                       "camera charger trash folder cable speaker mic keyboard battery pin search".split())
 RETURN = set("vuelve regresa devuelve responde back returns answers".split())
 
 
@@ -370,10 +374,13 @@ def flow_from_words(words: Words) -> dict | None:
     → a diagram spec in the flow layout at the first thing; None when nothing branches or loops."""
     clean = [_clean(w) for w, _ in words]
     seen: list[tuple[int, str, str]] = []                 # (word index, illustration, name as said)
+    carried: dict[int, str] = {}                           # word index → a thing that travels
     for i, w in enumerate(clean):
         icon = find_icon(w) if w and w.lower() not in NAME_STOP | POSSESSIVE else None
-        if icon:
+        if icon in NODE_ICONS:
             seen.append((i, icon, w[:1].upper() + w[1:]))
+        elif icon:
+            carried[i] = w.lower()
     if len(seen) < 3:
         return None
     nodes: list[str] = []
@@ -395,7 +402,8 @@ def flow_from_words(words: Words) -> dict | None:
             edges.append((source_of_branch, name, ""))     # "… a B o a C": C is the other way from where B came
         elif prev is not None:
             source_of_branch = prev
-            edges.append((prev, name, ""))
+            what = [carried[j] for j in range(seen[k - 1][0] + 1, i) if j in carried]
+            edges.append((prev, name, what[0] if what and not edges else ""))
         prev = name
     spec = diagram_flow_spec(nodes, edges)
     if spec is not None:

@@ -298,7 +298,7 @@ def test_screen_from_a_picture_file():
 def test_flow_from_things_that_branch_or_loop():
     spec = suggest.flow_from_words(words("Tu celular manda la foto al servidor o a la nube y el servidor vuelve al celular"))
     assert spec["nodes"] == "Celular, Servidor, Nube" and spec["layout"] == "flow"
-    assert spec["edges"] == "Celular>Servidor; Celular>Nube; Servidor>Celular"
+    assert spec["edges"] == "Celular>Servidor:foto; Celular>Nube; Servidor>Celular"      # what travels labels the arrow
     assert make_scene(spec, stage()).flow
     assert suggest.flow_from_words(words("El celular habla con el router y el router con internet")) is None   # a chain
     assert suggest.diagram_flow_spec(["A", "B", "C"], [("A", "B"), ("A", "C", "no")])["edges"] == "A>B; A>C:no"
