@@ -787,6 +787,35 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `accion` | `action` |
 | `sujeto` | `subject` |
 | `destino` | `target` |
+| `datos2` | `data2` |
+| `minimo` | `min` |
+| `izquierda` | `left` |
+| `derecha` | `right` |
+| `filas` | `rows` |
+| `lineas` | `lines` |
+| `salida` | `output` |
+| `lenguaje` | `lang` |
+| `indicador` | `prompt` |
+| `aumento` | `zoom` |
+| `marco` | `frame` |
+| `direccion` | `url` |
+| `disposicion` | `layout` |
+
+Values of `layout` (diagram):
+
+| Spanish | English |
+|---|---|
+| `cadena` | `chain` |
+| `flujo` | `flow` |
+
+Values of `frame` (screen):
+
+| Spanish | English |
+|---|---|
+| `navegador` | `browser` |
+| `celular` | `phone` |
+| `ventana` | `window` |
+| `ninguno` | `none` |
 
 ### Values of `plan.shots.type`
 
@@ -810,6 +839,10 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `marco_ventana` | `pip_frame` |
 | `escena` | `scene` |
 | `diagrama` | `diagram` |
+| `lineas` | `line_chart` |
+| `frente_a_frente` | `versus` |
+| `codigo` | `code` |
+| `pantalla` | `screen` |
 
 ### Values of `plan.shots.role`
 

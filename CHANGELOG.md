@@ -185,6 +185,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   why is in `plan.json` (`skipped_photos`), the log and `sve report`.
 - Tests: the b-roll and check tests that render tiny synthetic videos use software x264 (`tests/software_encoder.py`;
   the hardware path keeps its own tests), about a quarter faster and steady when the GPU is busy.
+- **Four graphic templates and diagram flows** (`docs/GRAPHICS.md`): `line_chart` (values over time; the line
+  draws itself, points pop, the highlighted value is stamped; one or two series), `versus` (two things face to face,
+  row by row, the better side checked and the winner crowned), `code` (a terminal or an editor where the lines are
+  typed, with output and a marked line; theme font `mono`) and `screen` (a screenshot in a browser / phone frame
+  that zooms to a region with a ring, or shows it in a loupe in the band the frame leaves empty). A `diagram`
+  whose thing has two arrows out is laid out as a flow (branches and loops around; `layout: chain|flow`); chains
+  draw exactly as before. Spanish names: `lineas`, `frente_a_frente`, `codigo`, `pantalla` and their keys.
+  `domain/graphics/suggest.py` turns a sentence or data into these specs so the engine can choose them; `kit.caption`
+  draws a subtitle line anywhere with the word being said marked. All are in the style proof.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
