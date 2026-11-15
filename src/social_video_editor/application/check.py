@@ -20,6 +20,7 @@ from ..domain import check as ck
 from ..domain import footage as fg
 from ..domain.config import labels
 from ..domain.models import UserError
+from ..domain import voice_levels
 from ..domain.music import beats_in_video
 from ..domain.timeline import absolute_texts, compute_timeline
 from .music import effective_analysis, music_analysis
@@ -230,6 +231,8 @@ class Checker:
                                      f"({eff['original']} LUFS)")
                 d, t = worst(L["music"], L["original"], 0.0)
                 self.moment("music_masks", t, 1 + d / 6, f"music {d:+.1f} LU over the original")
+        if "music" in L and "original" in L and not self.cfg["audio"].get("asmr"):
+            self.music_under_voice(L["original"], L["music"])
         bursts = [b for b in self.summary.get("typing") or [] if b[2] >= 3]
         if "sfx" in L and bursts:
             levels = [(ck.window_level(L["sfx"]["t"], L["sfx"]["momentary"], a, b) + gain
@@ -240,6 +243,27 @@ class Checker:
                 self.warnings.append(f"typing clicks too loud: {d:+.1f} LU vs the mix at {t:.1f} s "
                                      f"(max {th['typing_max_vs_mix_lu']:+g})")
                 self.moment("typing_loud", t, 1 + (d - th["typing_max_vs_mix_lu"]) / 6, f"typing {d:+.1f} LU")
+
+    def music_under_voice(self, voice: dict, music: dict) -> None:
+        """How far the music sits under the voice (both stems pre-master: the same gain), while it speaks
+        and in pauses; a warning when it is closer than check.music_min_under_voice_lu while it speaks."""
+        I = ck.finite(voice.get("integrated"))
+        if I is None or I < -60 or not voice.get("momentary") or not music.get("momentary"):
+            return
+        b = voice_levels.music_balance(I, voice["momentary"], music["momentary"],
+                                       ck.speech_moments(voice["momentary"], I))
+        if b["speech_lu"] is None:
+            return
+        t = voice["t"][b["worst_i"]] - 0.2 if b["worst_i"] is not None and b["worst_i"] < len(voice["t"]) else None
+        self.metrics["music_vs_voice"] = {"speech_lu": b["speech_lu"], "pause_lu": b["pause_lu"],
+                                          "worst_lu": b["worst_lu"], "worst_t": None if t is None else round(t, 1)}
+        lim = float(self.th["music_min_under_voice_lu"])
+        if b["speech_lu"] < lim:
+            self.warnings.append(f"music covers the voice: only {b['speech_lu']:+.1f} LU under it while it speaks "
+                                 f"(min {lim:g})")
+            if t is not None:
+                self.moment("music_covers_voice", t, 1 + (lim - b["worst_lu"]) / 6,
+                            f"music {b['worst_lu']:+.1f} LU under the voice")
 
     def typing_density(self) -> None:
         bursts = self.summary.get("typing")

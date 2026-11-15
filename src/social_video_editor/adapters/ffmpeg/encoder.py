@@ -91,11 +91,13 @@ class FfmpegEncoder:
         finally:
             tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
-    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80) -> Path:
-        """The source's whole audio track with the background noise taken out (adapters/ffmpeg/voice.py)."""
+    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80,
+                    polish: dict | None = None) -> Path:
+        """The source's whole audio track with the background noise taken out (adapters/ffmpeg/voice.py);
+        polish (domain.voice_levels.polish_settings): optional leveler and lowered breaths, also whole."""
         from . import voice
 
-        return voice.clean_voice(info, out, voice.rnnoise_model(), mix, highpass)
+        return voice.clean_voice(info, out, voice.rnnoise_model(), mix, highpass, polish)
 
     def extract_wav(self, info: dict, out: Path) -> Path:
         run(["ffmpeg", "-i", info["path"], "-map", f"0:{info['audio_index']}", "-ac", "1", "-ar", "16000",
@@ -286,7 +288,19 @@ class FfmpegEncoder:
         the same transition (from the tail of the previous segment), so the chunks join with plain
         cuts: the final pass reads them one after another (concat demuxer, one open input), and every
         transition looks the same as in a single graph.
+        music.relative_to_voice: the music is first written as a bed measured against the voice of the
+        segments (voice_mix.music_bed) and mixed as it is; the bed file is removed afterwards.
         """
+        if music and has_voice and (cfg.get("music") or {}).get("relative_to_voice") and not cfg["music"].get("_bed"):
+            from . import voice_mix
+
+            bed = voice_mix.music_bed(segments, segment_files, Path(music), cfg, total, Path(workdir))
+            if bed is not None:
+                try:
+                    return self.compose(segments, segment_files, layer, bed[0], sfx, bed[1], W, H, total, has_voice,
+                                        draft, workdir, out, stems_dir, cutaways)
+                finally:
+                    bed[0].unlink(missing_ok=True)
         if cfg.get("slideshow") or should_chunk(len(segments), total, cfg):
             # audio of every segment exactly as long as its picture (else A/V drift over many crossfades)
             segments = [{**s, "exact_audio": True} for s in segments]

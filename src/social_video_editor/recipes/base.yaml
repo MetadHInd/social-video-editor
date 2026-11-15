@@ -157,6 +157,9 @@ audio:
   true_peak: -1.0        # dBTP
   master_max_gain_db: 24 # mastering never raises the audio more than this (warns if the target is not reached)
   drawn_shot_db: -6      # polaroid / collage: the sound continues from the source this much quieter
+  breaths: false         # with clean_voice: the pauses between sentences (breaths, mouth noise) 12 dB lower,
+                         # never touching words ({depth_db: 12, fade: 0.04, before_word: 0.06, after_word: 0.1})
+  voice_leveler: false   # with clean_voice: slow leveler over the whole recording (quiet sentences come up)
 
 music:
   file: null             # path to an mp3/wav; null = first track of the music/ folder (or no music); none = no music
@@ -175,6 +178,11 @@ music:
   half_beats: true       # cutting between two beats (off-beat) is also fine
   bpm: null             # force the tempo (e.g. 120) when the detected one is wrong (sve music shows alternatives)
   tempo_factor: null    # 2 = double the detected tempo, 0.5 = half (detectors often pick half/double)
+  relative_to_voice: false  # true = the music level is measured against the voice (replaces the volume_* and
+                            # ducking keys when there is voice): under_voice_db under it while it speaks…
+  under_voice_db: 10
+  under_pause_db: 4         # …this much under it in pauses (≥ 0.6 s)…
+  intro_db: 4               # …and this much louder than in pauses before the first word
 
 sfx:
   enabled: true
@@ -235,6 +243,7 @@ check:                   # sve check <project>: automatic review of a render (th
   cut_jump_lu: 8                 # loudness jump across a cut
   sfx_max_vs_mix_lu: -6          # sound effects at most mix − 6 LU
   music_max_vs_original_lu: 0    # audio.asmr: the music no louder than the original sound
+  music_min_under_voice_lu: 6    # with voice: the music at least this far under it while it speaks
   typing_max_per_sec: 20         # typing clicks per second
   typing_max_vs_mix_lu: -6       # typing clicks at most mix − 6 LU
   harsh_ratio: 0.35              # share of the energy in 2–5 kHz (whole video)
