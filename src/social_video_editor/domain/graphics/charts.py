@@ -368,7 +368,7 @@ class Versus(Scene):
         self.title_size = z(46)
         self.title_rows = _title_rows(self, self.title_size)
         self.name_size, self.label_size, self.value_size = z(42), z(34), z(56)
-        self.icon_size = z(190 if st.vertical else 170) if any(self.icons) else 0.0
+        self.icon_size = z(190 if st.vertical else 140) if any(self.icons) else 0.0
         self.vs_r = z(58)
         half = st.safe_w / 2
         name_w = max(st.measure(self.left, "label", self.name_size), st.measure(self.right, "label", self.name_size))
@@ -376,11 +376,11 @@ class Versus(Scene):
         self.side_x = [cx - min(half * 0.5, half - self.vs_r * 0.4), cx + min(half * 0.5, half - self.vs_r * 0.4)]
         title_h = len(self.title_rows) * self.title_size * 1.12 + z(56) if self.title_rows else 0
         head_h = self.icon_size + z(20) + self.name_size * 1.7 + z(40)
-        self.bar_h = z(48)
+        self.bar_h = z(48 if st.vertical else 40)
         self.on_top = st.vertical                                  # vertical: the figures on the label's line
         self.line_h = self.value_size * 1.3 if self.on_top else self.label_size * 1.5
         row_h = self.line_h + self.bar_h
-        gap = z(46)
+        gap = z(46 if st.vertical else 26)
         source_h = z(64) if self.source else 0
         n = len(self.rows)
         height = title_h + head_h + n * row_h + (n - 1) * gap + source_h
@@ -423,7 +423,7 @@ class Versus(Scene):
         return format_number(num * motion.ease_out(p), self.st.language, decimals_of(val))
 
     def _side(self, cv: Canvas, t: float, side: int) -> None:
-        st, c, z = self.st, self.st.theme["colors"], self.z
+        st, z = self.st, self.z
         x = self.side_x[side]
         name = (self.left, self.right)[side]
         champion = self.champion == side and t >= self.crown

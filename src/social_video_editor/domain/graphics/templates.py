@@ -910,6 +910,10 @@ class Diagram(Scene):
         loops = bool(self.back)
         self.centers = [(0.0, 0.0)] * len(self.names)
         if st.vertical:                                    # steps are rows, top to bottom
+            if L >= 4:                                     # many steps: smaller illustrations
+                self.s = z(200 if L == 4 else 165)
+                self.cell_h = self.s + z(12) + self.tag_h
+                cell_w = max(self.s, self.tag_w)
             side = z(110) if loops else 0
             vgap = z(56) + (self.edge_size * 1.5 if any(lb for *_, lb in parsed) else 0)
             height = title_h + L * self.cell_h + (L - 1) * vgap
