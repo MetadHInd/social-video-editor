@@ -384,7 +384,8 @@ class Versus(Scene):
         source_h = z(64) if self.source else 0
         n = len(self.rows)
         height = title_h + head_h + n * row_h + (n - 1) * gap + source_h
-        value_w = max([st.measure(v, "number", self.value_size) for _, a, b, _ in self.rows for v in (a, b)] + [0.0])
+        value_w = max([st.measure(self._shown(v, number(v), 1.0), "number", self.value_size)
+                       for _, a, b, _ in self.rows for v in (a, b)] + [0.0])
         label_w = max(st.measure(r[0], "label", self.label_size) for r in self.rows)
         self.gap_mid = z(10)
         self.mark_r = z(26)
@@ -414,6 +415,12 @@ class Versus(Scene):
         self.grow = 0.5
         self.crown = self.starts[-1] + self.grow + 0.25
         self.settle = self.crown + 0.5
+
+    def _shown(self, val: str, num: float | None, p: float) -> str:
+        """A figure as shown: a plain number counts up and is written for the language; text as is."""
+        if num is None or not _PLAIN_NUMBER.fullmatch(val.strip()):
+            return val
+        return format_number(num * motion.ease_out(p), self.st.language, decimals_of(val))
 
     def _side(self, cv: Canvas, t: float, side: int) -> None:
         st, c, z = self.st, self.st.theme["colors"], self.z
@@ -484,14 +491,13 @@ class Versus(Scene):
                         vx, vy = (st.safe[0], st.safe[2])[side], _baseline(ly, self.value_size)
                     else:
                         vx, vy = inner + sign * (self.track + z(22)), _baseline(cy, self.value_size)
-                    shown = format_number(num * motion.ease_out(p), st.language, decimals_of(val)) \
-                        if p < 1 and _PLAIN_NUMBER.fullmatch(val) else val
+                    shown = self._shown(val, num, p)
                     if p > 0:
                         kit.text(cv, st, shown, vx, vy, "number", self.value_size,
                                  self.color if won and done else c["paper"],
                                  ("left" if side == 0 else "right") if self.on_top else ("right" if side == 0 else "left"),
                                  p=kit.printed(t, start))
-                    vw = st.measure(val, "number", self.value_size)
+                    vw = st.measure(self._shown(val, num, 1.0), "number", self.value_size)
                     out = -sign if self.on_top else sign             # the check goes after the figure
                     mark_x, mark_y = vx + out * (vw + z(12) + self.mark_r), (ly if self.on_top else cy)
                 else:                                                   # words: a tag on each side

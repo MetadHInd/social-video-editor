@@ -970,10 +970,12 @@ class Diagram(Scene):
             start, end = (ax + half + g, ay), (bx - half - g, by)
             mid = (start[0] + end[0]) / 2
             pts = _bezier(start, (mid, ay), (mid, by), end)
-        label_at = point_at(pts, 0.5)[0]
-        if not st.vertical and abs(ay - by) < 1:            # a straight arrow: its label sits above it
+        label_at, anchor = point_at(pts, 0.5)[0], "center"
+        if not st.vertical and abs(ay - by) < 1:            # a straight arrow: its label sits above it…
             label_at = (label_at[0], ay - z(44))
-        return {"to": j, "pts": pts, "label": label, "label_at": label_at, "anchor": "center"}
+        elif st.vertical and abs(ax - bx) < 1:              # …or beside it
+            label_at, anchor = (label_at[0] + z(26), label_at[1]), "left"
+        return {"to": j, "pts": pts, "label": label, "label_at": label_at, "anchor": anchor}
 
     def _route(self, i: int, j: int, label: str) -> dict:
         """The line of an arrow from thing i to thing j: straight to the next one; around the side

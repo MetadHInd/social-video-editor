@@ -41,6 +41,20 @@ SAMPLES = {
         {"template": "pip_frame", "rect": "0.48, 0.52, 0.36, 0.25"},
         {"template": "scene", "action": "swipe", "subject": "app", "text": "Al cerrarla, empieza de cero"},
         {"template": "scene", "action": "drain", "subject": "app", "text": "Gasta batería sin usarla"},
+        {"template": "line_chart", "title": "Teléfonos vendidos", "data": "2015:12, 2018:30, 2021:44, 2024:75", "unit": "M",
+         "source": "Fuente: dato de ejemplo", "caption": "Se multiplicó por seis."},
+        {"template": "versus", "title": "¿Cuál dura más?", "left": "Celular", "right": "Portátil",
+         "rows": "Batería (h):20|9; Peso (kg):0.2*|1.5; Pantalla:6|15", "source": "Fuente: dato de ejemplo",
+         "caption": "El celular gana en casi todo."},
+        {"template": "code", "title": "Instálalo en una línea", "lines": "brew install ffmpeg; pip install social-video-editor; sve doctor",
+         "output": "FFmpeg 7.1 ok; Fuentes ok; Gráficos ok", "highlight": 3,
+         "caption": "Y revisa que todo esté listo."},
+        {"template": "screen", "title": "Apaga esto", "image": "@screen", "focus_x": 0.5, "focus_y": 0.62,
+         "url": "ajustes.ejemplo.com", "label": "Actualizar en segundo plano", "source": "Captura de ejemplo",
+         "caption": "Esta opción gasta batería."},
+        {"template": "diagram", "title": "Adónde va una foto", "nodes": "Celular, Caché, Servidor, Nube",
+         "edges": "Celular>Caché:guarda; Caché>Servidor:si es nueva; Caché>Nube:copia; Servidor>Celular:listo", "dur": 6,
+         "caption": "Y el celular se entera al final."},
     ],
     "en": [
         {"template": "title", "text": "How does a message travel?", "kicker": "Chapter 1", "icon": "phone"},
@@ -62,6 +76,20 @@ SAMPLES = {
         {"template": "pip_frame", "rect": "0.48, 0.52, 0.36, 0.25"},
         {"template": "scene", "action": "swipe", "subject": "app", "text": "Close it and it starts from zero"},
         {"template": "scene", "action": "drain", "subject": "app", "text": "It drains the battery doing nothing"},
+        {"template": "line_chart", "title": "Phones sold", "data": "2015:12, 2018:30, 2021:44, 2024:75", "unit": "M",
+         "source": "Source: sample data", "caption": "It grew six times over."},
+        {"template": "versus", "title": "Which lasts longer?", "left": "Phone", "right": "Laptop",
+         "rows": "Battery (h):20|9; Weight (kg):0.2*|1.5; Screen:6|15", "source": "Source: sample data",
+         "caption": "The phone wins almost everything."},
+        {"template": "code", "title": "Install it in one line", "lines": "brew install ffmpeg; pip install social-video-editor; sve doctor",
+         "output": "FFmpeg 7.1 ok; Fonts ok; Graphics ok", "highlight": 3,
+         "caption": "And check that everything is ready."},
+        {"template": "screen", "title": "Turn this off", "image": "@screen", "focus_x": 0.5, "focus_y": 0.62,
+         "url": "settings.example.com", "label": "Background refresh", "source": "Sample screenshot",
+         "caption": "This one drains the battery."},
+        {"template": "diagram", "title": "Where a photo goes", "nodes": "Phone, Cache, Server, Cloud",
+         "edges": "Phone>Cache:saves; Cache>Server:if new; Cache>Cloud:backup; Server>Phone:done", "dur": 6,
+         "caption": "And the phone hears back at the end."},
     ],
 }
 
@@ -120,9 +148,12 @@ def proof(svc: Services, cfg: dict, out_dir: Path, video: bool = False) -> list[
     theme = graphics_theme(svc, cfg)
     sample = svc.graphics.sample_image(out_dir / "_sample_product.png")
     language = cfg.get("language", "es")
+    screenshot = sample_screenshot(svc, out_dir / "_sample_screen.png", language)
     said = CAPTIONS.get(language, CAPTIONS["en"])
-    specs = [{**s, **({"image": str(sample)} if s.get("image") == "@sample" else {}),
-              **({"caption": said[i % len(said)]} if not getattr(TEMPLATES.get(s["template"]), "overlay", False) else {})}
+    files = {"@sample": str(sample), "@screen": str(screenshot)}
+    specs = [{**s, **({"image": files[s["image"]]} if s.get("image") in files else {}),
+              **({"caption": said[i % len(said)]} if not getattr(TEMPLATES.get(s["template"]), "overlay", False)
+                 and "caption" not in s else {})}
              for i, s in enumerate(SAMPLES.get(language, SAMPLES["en"]))]
     fps = int(cfg["output"]["fps"])
     out = []
@@ -146,6 +177,17 @@ def proof(svc: Services, cfg: dict, out_dir: Path, video: bool = False) -> list[
             out.append(svc.encoder.encode_frames(frames(), n, W, H, fps, out_dir / f"proof_{tag}.mov", crf=18))
             log(f"Style proof clip ({tag}): {out[-1]}")
     return out
+
+
+def sample_screenshot(svc: Services, out: Path, language: str = "en") -> Path:
+    """A made-up settings page (drawn with the engine's own list graphic, default look) to stand in
+    for a screenshot in the style proof."""
+    items = {"es": "Ahorro de batería; Modo oscuro; Actualizar en segundo plano",
+             "en": "Battery saver; Dark mode; Background refresh"}
+    stage = svc.graphics.stage(1600, 1000, build_theme(), language)
+    page = make_scene({"template": "list", "title": "Ajustes" if language == "es" else "Settings",
+                       "items": items.get(language, items["en"])}, stage)
+    return svc.graphics.save_picture(svc.graphics.still(page, page.dur - 0.05), out)
 
 
 def cue_spec(text: str) -> dict:
