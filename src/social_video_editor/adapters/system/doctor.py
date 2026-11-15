@@ -103,6 +103,19 @@ def part_checks(graphics=None, visual=None, upscaler=None, settings: dict | None
     return out
 
 
+def transcription_checks(transcriber=None, settings: dict | None = None) -> list[Check]:
+    """Which engine transcription.engine picks here (nothing is loaded; only packages are looked up)."""
+    choose = getattr(transcriber, "choose", None)
+    if choose is None:
+        return []
+    t = (settings or {}).get("transcription") or {}
+    engine = choose(t)
+    wanted = str(t.get("engine") or "faster-whisper")
+    others = [f"{e.name}: {why}" for e in transcriber.engines() if e is not engine and (why := e.ready(t))]
+    return [("ok", "transcription engine", f"{engine.name} on {engine.device} (transcription.engine: {wanted})"
+             + (f"; not available — {'; '.join(others)}" if others and wanted != engine.name else ""))]
+
+
 def face_check() -> Check:
     """Framing on the presenter's face (framing.face, the explainer recipe)."""
     if importlib.util.find_spec("cv2") is None:
@@ -169,6 +182,7 @@ def diagnose(svc=None, settings: dict | None = None) -> list[Check]:
     packs = svc.packs.available() if svc is not None and getattr(svc, "packs", None) is not None else None
     return [*ffmpeg_checks(), *font_checks(),
             *part_checks(getattr(svc, "graphics", None), getattr(svc, "visual", None), getattr(svc, "upscaler", None), settings),
+            *transcription_checks(getattr(svc, "transcriber", None), settings),
             face_check(), *decider_checks(getattr(svc, "classifier", None), getattr(svc, "reasoner", None), settings),
             *footage_checks(getattr(svc, "footage", None)), *workspace_checks(packs)]
 

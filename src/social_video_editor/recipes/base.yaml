@@ -91,12 +91,17 @@ selection:               # how every moment of the footage is scored
 analysis:
   samples_per_sec: 4
   scene_threshold: 27
+  jobs: auto             # sources prepared and analyzed at once: auto (= render.jobs / $SVE_JOBS) or 1-16
+                         # (1 = one after another); Whisper always runs one source at a time
 
 transcription:
   model: small           # tiny | base | small | medium | large-v3 (bigger = more accurate and slower)
   language: null         # null = same as `language`
   context: ""            # words that help Whisper (brands, names)
   min_probability: 0.35
+  engine: faster-whisper # who runs Whisper: faster-whisper (CPU) | mlx (Apple GPU, extra [apple]) | auto (mlx
+                         # when installed on Apple Silicon); same words contract; a failing engine falls back to
+                         # faster-whisper; with auto, a source analyzed before keeps the engine it had
 
 color:
   auto: true

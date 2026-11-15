@@ -25,6 +25,7 @@ music = ["yt-dlp"]
 enhance = ["spandrel", "torch"]
 graphics = ["skia-python"]
 decider = ["transformers", "torch"]
+apple = ["mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]
