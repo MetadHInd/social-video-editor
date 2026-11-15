@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from ..domain import color_math
+from ..domain.backdrop import Backdrop, has_picture
 from ..domain.config import EXPORT_PROFILES, labels, output_name, variant_suffix
 from ..domain.explainer import refocus_faces, subtitle_analyses
 from ..domain.footage import CREDITS_FILE, credits_text
@@ -51,10 +52,12 @@ from ..log import log
 from .analyze import prepare_sources
 from .cutaways import files_signature, project_files, render_cutaways
 from .enhance import enhanced_or_none
-from .graphic import build_scene, graphics_theme
+from .graphic import build_scene, graphics_theme, require_graphics
 from .music import prepare_music
 from .products import visual_search
 from .services import Services
+from .subtitles import render_caption_subtitles
+from .subtitles import wanted as caption_wanted
 
 SEGMENT_VERSION = 7
 CLEAN_VOICE_VERSION = 1     # change to clean every recording again (adapters/ffmpeg/voice.py)
@@ -96,7 +99,7 @@ class ShotRenderer:
         In a pool, the first shot that fails cancels the shots not started yet; the running ones are
         waited for and that first exception is re-raised as is."""
         for wave in waves:
-            pool = [i for i in wave if isinstance(self.tl[i].piece, POOLED_SHOTS)] if self.jobs > 1 else []
+            pool = [i for i in wave if self._poolable(i)] if self.jobs > 1 else []
             if len(pool) < 2:
                 pool = []
             else:
@@ -106,6 +109,14 @@ class ShotRenderer:
                 if i not in pooled:
                     self.segments[i] = self.tl[i].piece.accept(self)
         return self.segments
+
+    def _poolable(self, i: int) -> bool:
+        """Video and photo shots, except those of a source with no picture (drawn on the backdrop, like
+        any graphic: on the calling thread)."""
+        piece = self.tl[i].piece
+        if not isinstance(piece, POOLED_SHOTS):
+            return False
+        return not isinstance(piece, VideoShot) or has_picture(self.infos[piece.source])
 
     def _render_pool(self, pool: list[int]) -> None:
         workers = min(self.jobs, len(pool))
@@ -153,6 +164,8 @@ class ShotRenderer:
         log(f"{self._header(shot)} source {shot.source} {mmss(d['start'])}→{mmss(d['end'])} "
             f"x{d.get('speed', 1)} [{d.get('transition')}] {d.get('role', '')}")
         info, an = self.infos[shot.source], self.analyses[shot.source]
+        if not has_picture(info):
+            return self._sound_only(shot, d, info, an)
         path = self._segment_path({
             "shot": {k: d.get(k) for k in SHOT_SIGNATURE_KEYS}, "parity": shot.index % 2, "dur": d["dur"],
             "src": info["path"], "W": self.W, "H": self.H,
@@ -165,6 +178,30 @@ class ShotRenderer:
             clean = self._clean_voice(info)
             return self.svc.encoder.encode_shot(d, {**info, "clean_audio": clean} if clean else info, self.cfg, stats,
                                                 has_voice(an, d["start"], d["end"]), self.W, self.H, self.draft, path)
+
+    def _sound_only(self, shot: VideoShot, d: dict, info: dict, an: dict) -> Path:
+        """A shot of a source with no picture (a voice memo): its sound, through the same chain as any
+        shot, over the theme's moving backdrop (domain/backdrop.py) instead of a black frame."""
+        if self._theme is None:
+            self._theme = graphics_theme(self.svc, self.cfg)
+        clean = self._clean_voice(info)
+        source = {**info, "path": str(clean), "audio_index": 0, "has_audio": True} if clean else info
+        audio = {"info": source, "start": d["start"], "voice": has_voice(an, d["start"], d["end"]), "cfg": self.cfg,
+                 "shot": {k: d.get(k) for k in ("speed", "volume_db", "mute") if d.get(k) is not None},
+                 "gain_db": 0.0, "fade": 0.01}
+        path = self._segment_path({
+            "sound_only": {k: d.get(k) for k in ("start", "end", "speed", "volume_db", "mute", "dur")},
+            "src": source["path"], "theme": self._theme, "W": self.W, "H": self.H, "fps": self.fps,
+            "cfg": self.cfg.get("audio"), "draft": self.draft, "v": SEGMENT_VERSION}, prefix="sound_", n=14)
+        with self._claim(path):
+            if self.svc.cache.has(path):
+                return path
+            require_graphics(self.svc)
+            scene = Backdrop({"dur": d["dur"]}, self.svc.graphics.stage(self.W, self.H, self._theme,
+                                                                       self.cfg.get("language", "es")))
+            n = int(round(d["dur"] * self.fps))
+            return self.svc.encoder.encode_frames(self.svc.graphics.frames(scene, self.fps, n), n, self.W, self.H,
+                                                  self.fps, path, audio, draft=self.draft)
 
     def _clean_voice(self, info: dict) -> Path | None:
         """audio.clean_voice: the recording's whole audio cleaned once (cached), so every shot takes its
@@ -480,7 +517,10 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
                   if cfg["subtitles"].get("auto", True) else [])
         voice = any(has_voice(analyses[w[0]], w[1], w[2])
                     for w in (c.piece.source_window() for c in tl) if w is not None)
-        layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
+        track = (render_caption_subtitles(svc, project, cfg, groups, W, H, total, draft, boxes)
+                 if groups and caption_wanted(svc, cfg) else None)        # subtitles.style: caption
+        layer, keystrokes = svc.text.render_layer(texts, [] if track else groups, cfg, W, H, total,
+                                                  vdir / "_layer", boxes)
         # same typing speed on screen, but at most sfx.typing_max_per_sec click SOUNDS per second
         keystrokes = thin_keystrokes(keystrokes, float(cfg["sfx"].get("typing_max_per_sec", 16)))
         events = sound_events(tl, texts, keystrokes, cfg) + cuts.sounds
@@ -488,7 +528,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         svc.encoder.compose([{"dur": c.dur, "overlap": c.overlap, "transition": c.piece.transition} for c in tl],
                             segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster,
                             stems_dir=vdir / "stems" if stems_wanted(cfg, tl, total) else None,
-                            **({"cutaways": cuts.files} if cuts.files else {}))
+                            **({"cutaways": cuts.files + ([track] if track else [])} if cuts.files or track else {}))
         lufs = svc.encoder.master_audio(premaster, final, cfg)
     except BaseException:                 # UserError is a SystemExit; Ctrl-C also leaves the folder marked
         failed = svc.projects.mark_failed(vdir, labels(lang)["failed"])

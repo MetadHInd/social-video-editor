@@ -93,6 +93,7 @@ PIP_CORNERS = {"abajo_derecha": "bottom_right", "abajo_izquierda": "bottom_left"
                "arriba_izquierda": "top_left"}
 SCRIPT_TAKES = {"ultima": "last", "mejor": "best"}
 SCRIPT_SUBTITLES = {"guion": "script", "voz": "speech"}
+SUBTITLE_STYLES = {"caja": "caption", "recuadro": "caption", "normal": "pillow"}
 ROLES = {"gancho": "hook", "historia": "story", "revelacion": "reveal", "cierre": "outro",
          "apertura": "opening", "producto": "product", "estrella": "star"}
 # unchanged: polaroid, collage; any other role (free text) is kept
@@ -222,8 +223,8 @@ CONFIG = Ctx(
         "subtitles": Ctx(keys={"max_palabras": "max_words", "max_caracteres": "max_chars",
                                "mayusculas": "uppercase", "fuente": "font", "tam": "size", "resalte": "highlight",
                                "borde": "stroke", "borde_color": "stroke_color", "sombra": "shadow",
-                               "animacion": "animation"},
-                         values={"animation": ANIMATIONS}),
+                               "animacion": "animation", "estilo": "style"},
+                         values={"animation": ANIMATIONS, "style": SUBTITLE_STYLES}),
         "texts": Ctx(keys={"estilos": "styles"},
                      children={"styles": Ctx(entry=TEXT_STYLE, entry_names=TEXT_STYLES)}),
         "export": Ctx(keys={"portada": "cover", "portada_seg": "cover_at"}),

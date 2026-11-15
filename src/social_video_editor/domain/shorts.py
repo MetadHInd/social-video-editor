@@ -233,8 +233,8 @@ def short_plan(plan: dict, short: dict) -> dict:
         if not mine:
             continue
         in_a, in_b = min(spans[n][1] for n in mine), max(spans[n][2] for n in mine)
-        before = [spans[n][2] for n in over if n not in inside and spans[n][2] <= in_a + 0.05]
-        after = [spans[n][1] for n in over if n not in inside and spans[n][1] >= in_b - 0.05]
+        before = [spans[n][2] for n in over if n < first]          # said before the short (its pads may touch)
+        after = [spans[n][1] for n in over if n > last]
         new = copy.deepcopy(shot)
         if before:
             new["start"] = round(max(a, (max(before) + in_a) / 2), 3)

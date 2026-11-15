@@ -75,8 +75,19 @@ FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and
 class FfmpegEncoder:
     # ── analysis copies ──────────────────────────────────────────────────────
     def make_proxy(self, info: dict, out: Path, hdr_white: float) -> Path:
-        """540-px SDR copy at 30 fps (no audio) to analyze quickly without touching the original."""
+        """540-px SDR copy at 30 fps (no audio) to analyze quickly without touching the original.
+        A source with no picture (a voice memo) gets a plain dark one as long as its sound, so the
+        analysis runs the same (no scenes, no face); its shots are drawn on the graphics' backdrop."""
         log(f"Proxy of {Path(info['path']).name} ({info['duration']:.0f} s)…")
+        if not info.get("width"):
+            tmp = _tmp_for(out)
+            try:
+                run(["ffmpeg", "-f", "lavfi", "-i", f"color=c=0x101114:s={PROXY_SHORT_SIDE}x{PROXY_SHORT_SIDE * 16 // 9}"
+                     f":r=30:d={max(float(info['duration']), 0.1):.3f}", "-c:v", "libx264", "-preset", "ultrafast",
+                     "-pix_fmt", "yuv420p", "-an", tmp])
+                return _publish(tmp, out)
+            finally:
+                tmp.unlink(missing_ok=True)
         if info["width"] <= info["height"]:
             w, h = PROXY_SHORT_SIDE, round(PROXY_SHORT_SIDE * info["height"] / info["width"] / 2) * 2
         else:
