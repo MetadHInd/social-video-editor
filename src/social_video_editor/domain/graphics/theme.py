@@ -28,7 +28,8 @@ DEFAULT_THEME: dict = {
     "inks": {},                   # named colors with a fixed meaning: {"green": "#00A95C"}; color="green"
     "accent_ink": None,           # name (in inks) of the default accent, for its registration offset
     "registration": {},           # ink name → [dx, dy] px (at 1080): fills print slightly off their outline
-    "fonts": {"display": None, "number": None, "label": None},      # font file names or paths; None = a bold sans
+    "fonts": {"display": None, "number": None, "label": None,       # font file names or paths; None = a bold sans
+              "mono": "Menlo"},                                     # code (the `code` template): a monospace font
     "stroke": {"outline": 0.0, "halo": 0.0, "thread": 5.0, "thread_halo": 0.0},   # px at 1080; halos are light lines around ink
     "halftone": {"cell": 11, "angle": 45, "radius": 2.4, "shadow_offset": 0},     # offset 0 = no shadows
     "grid": {"cell": 96, "width": 2},                                # cell 0 = no grid

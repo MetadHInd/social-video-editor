@@ -10,6 +10,8 @@ diagrams) described as data and drawn locally.
       motion.py     timing curves
       kit.py        shared drawing helpers (house style)
       templates.py  the built-in templates
+      charts.py     line_chart and versus
+      screens.py    code (a terminal / editor) and screen (a screenshot in a frame)
       overlays.py   the ones drawn over the picture for a presenter who stays on screen
       scenes.py     illustrated scenes: a thing doing what the sentence says (swipe, drain, sleep…)
 
@@ -17,7 +19,7 @@ Packs (workspace `packs/<name>/`) add a theme and may register their own templat
 
     from social_video_editor.domain.graphics import element, template, Scene, kit, paths, motion
 """
-from . import kit, motion, overlays, paths, scenes, templates  # noqa: F401  (templates / overlays / scenes register the built-in ones)
+from . import charts, kit, motion, overlays, paths, scenes, screens, templates  # noqa: F401  (they register the built-in templates)
 from .canvas import Canvas, RecordingCanvas, fake_measure, saved
 from .scene import ELEMENTS, TEMPLATES, Scene, Stage, element, make_scene, template
 from .spec import parse_cue
