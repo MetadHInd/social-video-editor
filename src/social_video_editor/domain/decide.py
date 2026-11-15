@@ -57,7 +57,8 @@ ROUTES: dict[str, tuple[str, ...]] = {
     "icon": (),                         # which illustration a sentence names
     "card_type": (),                    # which drawing fits a sentence (figure, list, scene, title…)
 }
-ROUTES_VERSION = 3            # 3: label_words asks which words are verbs (not which make good notes)
+ROUTES_VERSION = 4            # 3: label_words asks which words are verbs (not which make good notes)
+                              # 4: title_span / card_type say where the drawing comes in
 
 
 @dataclass(frozen=True)

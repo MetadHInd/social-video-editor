@@ -93,6 +93,12 @@ PROMPTS = {                 # topic → the question (Spanish, English)
              "Which illustration best shows what the sentence is about?"),
     "card_type": ("¿Qué dibujo explica mejor la frase en pantalla?", "Which drawing best explains the sentence on screen?"),
 }
+WHERE = ("Un dibujo tapa al presentador desde que dice «{}» hasta el final de la frase.",
+         "A drawing covers the presenter from the moment he says “{}” to the end of the sentence.")
+TOPIC = ("El video trata de: «{}».", "The video is about: “{}”.")
+CUT_TOPICS = {"title_span", "card_type"}     # questions that say where the drawing comes in
+TOPIC_TOPICS: set[str] = set()                # questions that get the script's opening line as its topic
+CUT_WORDS = 6
 ABOUT = ("Esta frase habla de {}.", "This sentence is about {}.")            # zero-shot templates
 COMPARES = ("Esta frase {}.", "This sentence {}.")
 COMPARE_OPTIONS = (("compara cifras entre sí", "compares figures with each other"),
@@ -107,15 +113,21 @@ def settings(cfg: dict) -> dict:
 # ── the decider's questions ─────────────────────────────────────────────────────────────────────
 
 class _Asker:
-    """ask() for one proposal, keeping the stages whose answer differed from the rules'."""
+    """ask() for one proposal, keeping the stages whose answer differed from the rules'. about: the
+    script's opening line (its topic), given to the questions of TOPIC_TOPICS."""
 
-    def __init__(self, decide: Decide, language: str):
-        self.decide, self.language, self.sources = decide, language, []
+    def __init__(self, decide: Decide, language: str, about: str | None = None):
+        self.decide, self.language, self.sources, self.about = decide, language, [], about
 
     def __call__(self, topic: str, kind: str, options, context: str, default: str, confidence: float,
-                 hypothesis: tuple[str, str] | None = None, fill: str | None = None) -> Answer:
+                 hypothesis: tuple[str, str] | None = None, fill: str | None = None, where: str | None = None) -> Answer:
         prompt = self.text(PROMPTS[topic])
-        q = Question(topic, kind, prompt.format(fill) if fill is not None else prompt, tuple(options), context,
+        prompt = prompt.format(fill) if fill is not None else prompt
+        if where and topic in CUT_TOPICS:
+            prompt = f"{self.text(WHERE).format(where)} {prompt}"
+        if self.about and topic in TOPIC_TOPICS:
+            prompt = f"{self.text(TOPIC).format(self.about)}\n{prompt}"
+        q = Question(topic, kind, prompt, tuple(options), context,
                      (default,), round(float(confidence), 4), self.language,
                      None if hypothesis is None else self.text(hypothesis))
         a = ask(self.decide, q)
@@ -138,6 +150,13 @@ def language_of(words, language: str | None = None) -> str:
 
 def _said(words) -> str:
     return " ".join(str(w) for w, _ in words).strip()
+
+
+def _from(words: list[tuple[str, float]], at: float) -> str:
+    """What is said from the cut on (its first CUT_WORDS words), for a question that says where it is."""
+    cut = next((i for i, (_, t) in enumerate(words) if t >= at - 1e-6), 0)
+    said = [_clean(w) for w, _ in words[cut:] if _clean(w)]
+    return " ".join(said[:CUT_WORDS]) + ("…" if len(said) > CUT_WORDS else "")
 
 
 def _decided(got: dict | None, rules: dict | None, asker: _Asker) -> dict | None:
@@ -240,7 +259,8 @@ def _phrase(words: list[tuple[str, float]], at: float, most: int, asker: _Asker 
             texts.append(t)
     if len(texts) < 2:
         return text
-    a = asker("title_span", "choice", [Option(t, t) for t in texts], _said(words), text, 0.9 if full else 0.5)
+    a = asker("title_span", "choice", [Option(t, t) for t in texts], _said(words), text, 0.9 if full else 0.5,
+              where=_from(words, at))
     return a.value or text
 
 
@@ -821,7 +841,7 @@ def local_query(words: list[tuple[str, float]], at: float, icon: str | None, lan
 
 
 def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, last: str | None = None,
-         decide: Decide | None = None, language: str | None = None) -> dict:
+         decide: Decide | None = None, language: str | None = None, about: str | None = None) -> dict:
     """What the engine draws for a sentence when no footage is good enough, by what the sentence says:
     a figure → `number`; three or more items → `list`; something doing something → `scene` (an animated
     illustration); else a `title` with the illustration of what it names. `last`: the template used
@@ -831,7 +851,7 @@ def card(sentence: dict, at: float | None = None, main: str = TOPIC_DEFAULT, las
     rules = _card(sentence, at, main, last, None)
     if decide is None:
         return rules
-    asker = _Asker(decide, language_of(sentence.get("words") or [], language))
+    asker = _Asker(decide, language_of(sentence.get("words") or [], language), about)
     return _decided(_card(sentence, at, main, last, asker), rules, asker)
 
 
@@ -889,7 +909,7 @@ def _card(sentence: dict, at: float | None, main: str, last: str | None, asker: 
         return pool[0]
     strong = [x for x in pool if x["template"] != "title"]
     a = asker("card_type", "choice", [Option(x["template"], describe(x, asker.language)) for x in pool],
-              _said(words), pool[0]["template"], 0.85 if len(strong) <= 1 else 0.6)
+              _said(words), pool[0]["template"], 0.85 if len(strong) <= 1 else 0.6, where=_from(words, at))
     return next((x for x in pool if x["template"] == a.value), pool[0])
 
 
@@ -918,6 +938,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
     under = covered(plan, overlay)
     main = topic(sentences)
     language = language_of([w for s in sentences for w in s["words"]], (cfg or {}).get("language"))
+    about = str(sentences[0].get("text") or "").strip() or None      # the opening line says what the video is about
     turns: Counter = Counter()
     last_query = None
     last: str | None = None
@@ -974,7 +995,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
             query = options[turns[icon] % len(options)]
         turns[icon] += 1
         last_query = query
-        drawn = card(s, at, main, last, decide=decide, language=language)
+        drawn = card(s, at, main, last, decide=decide, language=language, about=about)
         where = {"at_sentence": n, "until_sentence": n, "from_word": [s["source"], round(at, 3)],
                  "note": f"«{word.strip('¿?¡!.,;:')}»", "_auto": "director"}
         if drawn.get("_decided"):
