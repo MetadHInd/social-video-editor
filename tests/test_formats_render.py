@@ -47,7 +47,7 @@ def test_a_short_is_its_own_vertical_video_and_the_long_one_ignores_it(workspace
     main(["render", "demo", "--draft", "--shorts"])                   # never overwrites: a new folder
     assert len([p for p in d.iterdir() if p.is_dir() and ("Short" in p.name or "Corto" in p.name)]) == 2
     main(["render", "demo", "--draft"])
-    long = next(p for p in d.iterdir() if p.is_dir() and p.name[1:].isdigit())
+    long = next(p for p in d.iterdir() if p.is_dir() and p.name in ("v1Borrador", "v1Draft"))
     assert "short" not in summary_of(long) and summary_of(long)["duration_sec"] > s["duration_sec"] + 1
 
 
