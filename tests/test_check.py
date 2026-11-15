@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from conftest import requires_ffmpeg
+from software_encoder import software_encoder  # noqa: F401 (autouse: software x264)
 from social_video_editor.domain import check as ck
 
 SR = 48000

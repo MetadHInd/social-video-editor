@@ -168,6 +168,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   scene in a row, and `photo.skip_blurred` (`omitir_borrosas`) leaves out clearly blurred ones (sharpness and lost
   fine detail, measured once per photo in `cache/photo_quality.json`). Both off by default; what was left out and
   why is in `plan.json` (`skipped_photos`), the log and `sve report`.
+- Tests: the b-roll and check tests that render tiny synthetic videos use software x264 (`tests/software_encoder.py`;
+  the hardware path keeps its own tests), about a quarter faster and steady when the GPU is busy.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now

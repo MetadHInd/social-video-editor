@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from conftest import requires_ffmpeg
+from software_encoder import software_encoder  # noqa: F401 (autouse: software x264)
 from social_video_editor import cli
 from social_video_editor.adapters.files import legacy_es
 from social_video_editor.adapters.files.packs import FilePackRepository
