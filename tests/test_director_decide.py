@@ -151,7 +151,7 @@ def test_a_long_clause_offers_its_parts():
 
 def test_a_weak_bar_label_is_replaced():
     words = words_of("It took 4 hours by train and the bus 9 hours.")
-    assert director.comparison(words)["data"] == "It:4, And the bus:9"
+    assert director.comparison(words) is None                   # "It" names nothing: no bars rather than a wrong name
     fake = FakeDecider({"bar_labels": lambda q: "By train" if q.default == ("It",) else None})
     got = director.comparison(words, fake)
     assert got["data"] == "By train:4, Bus:9" and got["_decided"] == "llm" and got["unit"] == "h"
@@ -160,15 +160,15 @@ def test_a_weak_bar_label_is_replaced():
     assert "By" not in first.values()                                       # a preposition alone names nothing
     rules = FakeDecider()
     director.comparison(words, rules)
-    assert [(q.default, q.confidence) for q in asked(rules, "bar_labels")] == [(("It",), 0.3), (("And the bus",), 0.5)]
+    assert [(q.default, q.confidence) for q in asked(rules, "bar_labels")] == [(("It",), 0.3)]
 
 
 def test_figures_the_rules_do_not_compare_may_be_compared():
-    words = words_of("Marcamos 3 goles y ellos 1 goles.")
+    words = words_of("La casa gasta 3 vatios y Ana 5 vatios.")
     assert director.said_data(words) is None
     fake = FakeDecider({"is_comparison": "yes"})
     got = director.said_data(words, fake)
-    assert got["template"] == "bars" and got["data"] == "Marcamos:3, Ellos:1" and got["_decided"] == "llm"
+    assert got["template"] == "bars" and got["data"] == "Casa:3, Ana:5" and got["_decided"] == "llm"
     (q,) = asked(fake, "is_comparison")
     assert q.kind == "yesno" and q.default == ("no",) and q.confidence == 0.5 and q.hypothesis == "Esta frase {}."
     sure = FakeDecider({"is_comparison": "no"})

@@ -250,6 +250,114 @@ NUMBER_WORDS = {
     "mil": 1000, "zero": 0, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
     "ten": 10, "twenty": 20, "thirty": 30, "fifty": 50, "hundred": 100, "thousand": 1000,
 }                           # "un" / "one" and "cero" ("de cero") are left out: they are rarely figures
+# every number word, for figures said in words ("ciento sesenta y uno", "fifty-four", "17 mil", "two million")
+_UNITS_ES = "uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciseis diecisiete " \
+            "dieciocho diecinueve veinte veintiuno veintidos veintitres veinticuatro veinticinco veintiseis veintisiete " \
+            "veintiocho veintinueve".split()
+_UNITS_EN = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen " \
+            "seventeen eighteen nineteen".split()
+SPELLED = {**{w: n for n, w in enumerate(_UNITS_ES, 1)}, **{w: n for n, w in enumerate(_UNITS_EN, 1)},
+           "un": 1, "una": 1, "veintiun": 21, "veintiuna": 21, "cero": 0, "zero": 0,
+           **{w: 10 * n for n, w in enumerate("treinta cuarenta cincuenta sesenta setenta ochenta noventa".split(), 3)},
+           **{w: 10 * n for n, w in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split(), 2)},
+           "cien": 100, "ciento": 100, "quinientos": 500, "quinientas": 500, "setecientos": 700, "setecientas": 700,
+           "novecientos": 900, "novecientas": 900,
+           **{f"{w}cientos": 100 * n for n, w in ((2, "dos"), (3, "tres"), (4, "cuatro"), (6, "seis"), (8, "ocho"))},
+           **{f"{w}cientas": 100 * n for n, w in ((2, "dos"), (3, "tres"), (4, "cuatro"), (6, "seis"), (8, "ocho"))}}
+SCALES = {"mil": 1000, "thousand": 1000, "millon": 10 ** 6, "millones": 10 ** 6, "million": 10 ** 6,
+          "millions": 10 ** 6, "billion": 10 ** 9}
+ALONE_NUMBERS = {"un", "una", "uno", "one", "cero", "zero"}     # a figure only with a unit ("un segundo"), not alone
+_EDGE = (",", ";", ":", ".", "?", "!")
+
+
+def _digits(raw: str) -> float | None:
+    """A number written with digits ("17", "1.000", "2,5", "40 %"), else None."""
+    body = raw.rstrip("%").strip()
+    if not body or not body.replace(".", "").replace(",", "").isdigit():
+        return None
+    if "," in body and "." not in body and len(body.split(",")[-1]) != 3:
+        body = body.replace(",", ".")                       # "2,5" is two and a half; "17,000" is seventeen thousand
+    elif "." in body and "," not in body and len(body.split(".")[-1]) != 3:
+        pass                                                # "1.5"
+    else:
+        body = body.replace(".", "").replace(",", "")
+    try:
+        return float(body)
+    except ValueError:
+        return None
+
+
+def spelled(words: list[str], i: int) -> tuple[float, int] | None:
+    """The number said from word i on, in digits or in words, and the index after it:
+    "ciento sesenta y uno" → 161, "fifty-four" → 54, "17 mil" → 17000, "two million" → 2000000.
+    A word that ends a clause ("10,") ends the number."""
+    total, group, last, end, said = 0.0, 0.0, None, i, False
+    k = i
+    while k < len(words):
+        raw = _clean(words[k])
+        parts = tokens(raw)
+        joint = len(parts) == 1 and parts[0] in ("y", "and")
+        if joint:                                           # "sesenta y uno", "one hundred and five"
+            nxt = tokens(_clean(words[k + 1])) if k + 1 < len(words) else []
+            if not said or words[k - 1].rstrip().endswith(_EDGE) or not nxt or nxt[0] not in SPELLED \
+                    or last is None or SPELLED[nxt[0]] >= last or (last < 20 and last != 100):
+                break
+            k += 1
+            continue
+        if k == i and _digits(raw) is not None and "%" not in raw[:-1]:
+            group, last, said = _digits(raw) or 0.0, None, True
+            end = k + 1
+        elif parts and all(p in SPELLED or p in SCALES or p == "hundred" for p in parts):
+            ok = True
+            for p in parts:
+                if p in SCALES:
+                    if not said and not group and SCALES[p] > 1000:      # "millones" alone is not a figure
+                        ok = False
+                        break
+                    total += (group or 1) * SCALES[p]
+                    group, last = 0.0, None
+                elif p == "hundred":
+                    if group >= 100 or (said and not group):
+                        ok = False
+                        break
+                    group, last = (group or 1) * 100, 100
+                else:
+                    n = SPELLED[p]
+                    if last is not None and n >= last or (said and last is None and group):
+                        ok = False
+                        break
+                    group, last = group + n, n
+                said = True
+            if not ok:
+                break
+            end = k + 1
+        else:
+            break
+        if words[k].rstrip().endswith(_EDGE):
+            break
+        k += 1
+    if not said or end == i:
+        return None
+    return total + group, end
+
+
+def _number(words: list[str], plain: list[str], i: int) -> tuple[float, int] | None:
+    """A figure starting at word i (spelled()), but "un / uno / cero" only with a unit after them."""
+    got = spelled(words, i)
+    if got is None:
+        return None
+    if got[1] == i + 1 and plain[i] in ALONE_NUMBERS:
+        nxt = words[got[1]] if got[1] < len(words) and not words[i].rstrip().endswith(_EDGE) else ""
+        key = _unit_key(nxt) if nxt else ""
+        if key not in TIME_UNITS and key not in SHORT_UNITS:
+            return None
+    return got
+
+
+def _shown(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:g}"
+
+
 UNIT_STOP = set("de del la el los las por y que al a en con the of a an and per".split())
 
 
@@ -258,20 +366,26 @@ def _clean(word: str) -> str:
 
 
 def figure(words: list[tuple[str, float]]) -> dict | None:
-    """A figure the sentence says ("20", "dos minutos") as a `number` graphic: the value, its unit (the
-    word after it), what comes before it in its clause as the label and after it as the line under it.
-    A figure with a unit is preferred ("dos minutos" over "veinte al día")."""
+    """A figure the sentence says ("20", "dos minutos", "17 mil apps", "ciento sesenta y uno") as a `number`
+    graphic: the value, its unit (the word after it), what comes before it in its clause as the label and
+    after it as the line under it. A figure with a unit is preferred ("dos minutos" over "veinte al día")."""
     plain = ["".join(tokens(w)) for w, _ in words]
+    said = [w for w, _ in words]
     found = []
+    skip = -1
     for i, (w, _) in enumerate(words):
-        raw = _clean(w)
-        digits = raw.replace(".", "").replace(",", "").replace("%", "")
-        value = raw if digits.isdigit() else NUMBER_WORDS.get(plain[i])
-        if value is None:
+        if i < skip:
             continue
-        unit, after = "", i + 1
+        got = _number(said, plain, i)
+        if got is None:
+            continue
+        number, after = got
+        skip = after
+        raw = _clean(w)
+        value = raw if after == i + 1 and raw.replace(".", "").replace(",", "").replace("%", "").isdigit() else _shown(number)
+        unit = ""
         if after < len(words) and plain[after] and plain[after] not in UNIT_STOP and not plain[after].isdigit() \
-                and not words[i][0].rstrip().endswith((",", ";", ":", ".")):
+                and not words[after - 1][0].rstrip().endswith((",", ";", ":", ".")):
             unit, after = _clean(words[after][0]), after + 1
         begin = i
         while begin > 0 and i - begin < 4 and not words[begin - 1][0].rstrip().endswith((",", ";", ":", ".", "?", "!")):
@@ -304,9 +418,25 @@ LABEL_STOP = UNIT_STOP | set("son es eran fue is are was were vs versus contra f
                              "tardaba tardan takes took gasta gastan usa usan uses use pesa pesan cuesta cuestan costs cost "
                              "mide miden".split())
 LABEL_WORDS = 3
+PERIOD_HEADS = set("al por cada a per each every an".split())
+PERIOD_NOUNS = set("dia dias semana semanas mes meses ano anos hora horas minuto minutos segundo segundos "
+                   "day days week weeks month months year years hour hours minute minutes second seconds".split())
+PREPOSITIONS = set("al a en de del por para con sin desde hasta sobre entre in on at for with by from to of per".split())
+SUBJECTS = set("yo tú él ella ellos ellas nosotros usted ustedes lo le les me te se nos eso esto "
+               "i you he she it we they".split())          # a bar's name never starts with one ("Lo medí", "It")
 QUOTE_LEAD = ("según", "segun", "according to")
-QUOTE_VERBS = set("publicó publico dice dijo reveló revelo informó informo asegura aseguró afirma afirmó anunció anuncio "
-                  "says said reported reports announced published claims".split())
+QUOTE_LEADS = (("segun",), ("according", "to"), ("de", "acuerdo", "con"), ("de", "acuerdo", "a"))
+QUOTE_VERBS = set("publico dice dicen dijo dijeron revelo informo informa asegura aseguro afirma afirmo anuncio reporto "
+                  "reporta encontro encontraron descubrio descubrieron estima estimo calcula calculo concluye concluyo "
+                  "muestra mostro advierte advirtio explica "
+                  "says said reported reports announced published claims claimed found finds discovered revealed "
+                  "estimates estimated shows showed concluded warns warned explains".split())
+STUDIES = set("estudio estudios informe reporte encuesta investigacion analisis articulo "
+              "study studies report survey paper analysis article research".split())
+STUDY_BY = set("de del by from".split())
+QUOTE_SUBJECTS = SUBJECTS | set("mi mis tu tus su sus my your his her our their alguien nadie todos todo gente mucha "
+                                 "mucho muchos muchas everyone someone somebody nobody people many most".split())   # "Mi mamá dice que…"
+QUOTE_WORDS = 8             # words before the verb: "Un estudio de la Universidad de X encontró que"
 
 
 def _unit_key(word: str) -> str:
@@ -324,24 +454,26 @@ def _figures(words: list[tuple[str, float]]) -> list[dict]:
     """Every figure said with its unit: [{"i", "end" (index after the unit), "value", "unit", "said"}]."""
     plain = ["".join(tokens(w)) for w, _ in words]
     out = []
+    said_words = [w for w, _ in words]
+    skip = -1
     for i, (w, _) in enumerate(words):
+        if i < skip:
+            continue
         raw = _clean(w)
         pct = raw.endswith("%")
-        digits = raw.rstrip("%").replace(".", "").replace(",", ".")
-        try:
-            value = float(digits) if digits.replace(".", "", 1).isdigit() else NUMBER_WORDS.get(plain[i])
-        except ValueError:
-            value = None
-        if value is None:
+        got = _number(said_words, plain, i)
+        if got is None:
             continue
-        unit, said, end = ("porciento", "%", i + 1) if pct else ("", "", i + 1)
+        value, after = got
+        skip = after
+        unit, said, end = ("porciento", "%", after) if pct else ("", "", after)
         if not pct and end < len(words) and _clean(words[end][0]) in ("%", "por ciento"):
             unit, said, end = "porciento", "%", end + 1
         elif not pct and end < len(words) and plain[end] and plain[end] not in UNIT_STOP and not plain[end].isdigit() \
-                and not words[i][0].rstrip().endswith((",", ";", ":", ".")):
+                and not words[after - 1][0].rstrip().endswith((",", ";", ":", ".")):
             unit, said, end = _unit_key(words[end][0]), _clean(words[end][0]), end + 1
             if unit == "por" or said.lower() in ("por", "per"):
-                unit, said, end = "", "", i + 1
+                unit, said, end = "", "", after
         if unit:
             out.append({"i": i, "end": end, "value": float(value), "unit": unit, "said": said})
     return out
@@ -371,6 +503,40 @@ def _bar_label(words: list[tuple[str, float]], plain: list[str], pick: list[int]
     pick = pick[-LABEL_WORDS:]
     label = " ".join(_clean(words[k][0]) for k in pick).strip()
     return (_capital(label) if label else ""), pick
+
+
+def _period(plain: list[str], ks: list[int]) -> list[int]:
+    """The words of ks that say a period ("al año", "por semana", "a la semana", "per week", "each day"), or []."""
+    for j, k in enumerate(ks):
+        if plain[k] in PERIOD_HEADS:
+            for m in range(j + 1, min(j + 3, len(ks))):
+                if plain[ks[m]] in PERIOD_NOUNS:
+                    return ks[j:m + 1]
+                if plain[ks[m]] not in DETERMINERS:
+                    break
+    return []
+
+
+def _names_thing(words: list[tuple[str, float]], plain: list[str], pick: list[int], sure: bool) -> bool:
+    """Whether a bar's name (its words, as picked) names the thing measured: not a pronoun with its verb
+    ("Lo medí", "It"), no other figure in it ("Veinte al día"); a guess (not `sure`) must also start like a
+    noun phrase: an article, a possessive or a preposition ("la app", "en el celular"), a word such as
+    "antes / hoy", or a name written with a capital inside the sentence ("iPhone")."""
+    ks = list(pick)
+    while ks and plain[ks[0]] in LEADING:
+        ks = ks[1:]
+    if not ks:
+        return False
+    said = [w for w, _ in words]
+    if any(_number(said, plain, k) is not None for k in ks):
+        return False
+    if _clean(said[ks[0]]).lower() in SUBJECTS:
+        return False
+    if sure or any(plain[k] in MARKERS for k in ks):
+        return True
+    first = plain[ks[0]]
+    named = any(k > 0 and _clean(said[k])[:1].isupper() for k in ks)
+    return first in DETERMINERS or first in PREPOSITIONS or first in POSSESSIVES or named
 
 
 def _comparison(words: list[tuple[str, float]], asker: _Asker | None) -> dict | None:
@@ -416,6 +582,7 @@ def _comparison(words: list[tuple[str, float]], asker: _Asker | None) -> dict | 
                 break
         marked = [k for k in reversed(before) if plain[k] in MARKERS] or [k for k in after if plain[k] in MARKERS]
         own = before and len(before) <= LABEL_WORDS and before[0] > 0 and closes[before[0] - 1]
+        ahead = next((after[:j] for j, k in enumerate(after) if plain[k] in LEADING), after)   # not the next one's
         weak = False
         if marked:
             pick = marked[:1]
@@ -423,28 +590,42 @@ def _comparison(words: list[tuple[str, float]], asker: _Asker | None) -> dict | 
             pick = before                                   # ", al año dos horas" → "Al año"
         elif after and len(after) <= LABEL_WORDS and closes[after[-1]]:
             pick = after                                    # "dos minutos por semana," → "Por semana"
+        elif _period(plain, ahead) or _period(plain, before):
+            pick = _period(plain, ahead) or _period(plain, before)      # "dos minutos por semana y…" → "Por semana"
         elif before:
             pick, weak = before[-LABEL_WORDS - 1:], True
         else:
             pick, weak = after[:LABEL_WORDS], True
+        whole = pick
+        period = bool(_period(plain, pick)) and _period(plain, pick) == pick
         label, pick = _bar_label(words, plain, pick)
+        if period and pick != whole:                        # "a la semana" keeps its head (not "Semana")
+            pick = whole
+            label = _capital(" ".join(_clean(words[k][0]) for k in pick))
+        good = bool(label) and _names_thing(words, plain, whole, not weak)
         label = label or f"{n + 1}"
         pronoun = len(label.split()) == 1 and "".join(tokens(label)) in PRONOUNS | DETERMINERS
-        if asker is not None and (weak or pronoun):         # a guess: the words near its figure may name it better
-            ahead = next((after[:j] for j, k in enumerate(after) if plain[k] in LEADING), after)   # not the next one's
+        if asker is not None and (weak or pronoun or not good):     # a guess: the words near its figure may name it better
             windows = [x for k in range(1, LABEL_WORDS + 1) for x in (before[-k:], before[:k], ahead[:k])]
             options = {label: pick}
+            fine = {label: good}
             for w in windows:
-                text, ks = _bar_label(words, plain, [k for k in w if k not in used])
+                free = [k for k in w if k not in used]
+                text, ks = _bar_label(words, plain, free)
                 if text and text not in options and text not in labels and \
-                        not (len(ks) == 1 and (plain[ks[0]] in NAMELESS or len(plain[ks[0]]) < 3)):
+                        not (len(ks) == 1 and (plain[ks[0]] in NAMELESS or len(plain[ks[0]]) < 3)) \
+                        and _names_thing(words, plain, free, False):
                     options[text] = ks
+                    fine[text] = True
             if len(options) >= 2:
                 said = " ".join(_clean(w) for w, _ in words[f["i"]:f["end"]])
                 a = asker("bar_labels", "choice", [Option(t, t) for t in options], _said(words), label,
-                          0.3 if pronoun else 0.5, None, said)
+                          0.3 if pronoun or not good else 0.5, None, said)
                 label = a.value or label
                 pick = options[label]
+                good = fine[label]
+        if not good:
+            return None                                     # no name for this bar: another drawing, not a wrong label
         used.update(pick)
         labels.append(label)
     if len(set(labels)) < len(labels):
@@ -477,12 +658,32 @@ def _said_data(words: list[tuple[str, float]], asker: _Asker | None) -> dict | N
 
 
 def quote(words: list[tuple[str, float]]) -> dict | None:
-    """"Según X, …" / "X publicó que …" / "according to X, …" as a `headline`: what was said, and who said
-    it as the outlet. → the spec plus "at" (the second the source is named), or None."""
+    """A quoted source as a `headline`: what was said, and who said it as the outlet:
+    "Según X, …" / "De acuerdo con X, …" / "According to X, …";
+    "X dice / afirma / reportó / encontró que …" / "X says / reported / found that …";
+    "Un estudio de X encontró que …" / "A study by X found that …" (the outlet is X).
+    The source must have a name (a word written with a capital, not a person such as "mi mamá" or "I").
+    → the spec plus "at" (the second the source is named), or None."""
     plain = ["".join(tokens(w)) for w, _ in words]
     text = [w for w, _ in words]
+
+    def named(ks: range) -> bool:
+        cleaned = [_clean(text[k]) for k in ks if _clean(text[k])]
+        if not cleaned or cleaned[0].lower() in QUOTE_SUBJECTS:
+            return False
+        if any(w[:1].isupper() for k, w in zip(ks, cleaned) if k > 0):
+            return True                                 # "la OMS", "un estudio de Stanford"
+        return ks[0] == 0 and (len(cleaned) == 1 or all(w[:1].isupper() for w in cleaned)) \
+            and cleaned[0].lower() not in DETERMINERS   # "Reuters dice…" (a name at the start), not "Mucha gente…"
+
+    def spec(said: str, outlet: str, at: float) -> dict | None:
+        said = said.strip(" .,")
+        if len(said.split()) < 3 or "?" in said:
+            return None
+        return {"template": "headline", "text": said[:1].upper() + said[1:], "outlet": outlet, "at": at}
+
     for k, w in enumerate(plain):
-        lead = 2 if w == "according" and k + 1 < len(plain) and plain[k + 1] == "to" else 1 if w in ("segun",) else 0
+        lead = next((len(x) for x in QUOTE_LEADS if tuple(plain[k:k + len(x)]) == x), 0)
         if lead:
             stop = k + lead
             while stop < len(words) and stop - k - lead < 4 and not text[stop].rstrip().endswith(CLAUSE_END):
@@ -492,27 +693,66 @@ def quote(words: list[tuple[str, float]]) -> dict | None:
             outlet = " ".join(_clean(x) for x in text[k + lead:stop + 1])
             said = " ".join(text[stop + 1:]).strip(" .")
             before = " ".join(text[:k]).strip(" ,")
-            said = said or before
-            if any(x[:1].isupper() for x in outlet.split()) and len(said.split()) >= 3 and "?" not in said:
-                return {"template": "headline", "text": said[:1].upper() + said[1:], "outlet": outlet,
-                        "at": words[k][1]}
-        if w in QUOTE_VERBS and 0 < k <= 4 and k + 1 < len(plain) and plain[k + 1] in ("que", "that"):
-            outlet = " ".join(_clean(x) for x in text[:k])
-            said = " ".join(text[k + 2:]).strip(" .")
-            if outlet[:1].isupper() and len(said.split()) >= 3:
-                return {"template": "headline", "text": said[:1].upper() + said[1:], "outlet": outlet,
-                        "at": words[0][1]}
+            got = spec(said or before, outlet, words[k][1]) if any(x[:1].isupper() for x in outlet.split()) else None
+            if got:
+                return got
+        if w in QUOTE_VERBS and 0 < k <= QUOTE_WORDS and k + 1 < len(plain) and plain[k + 1] in ("que", "that") \
+                and not any(text[j].rstrip().endswith(CLAUSE_END) for j in range(k)):
+            source = range(0, k)
+            study = next((j for j in range(k - 1) if plain[j] in STUDIES and plain[j + 1] in STUDY_BY), None)
+            if study is not None:                       # "un estudio de X" → X
+                source = range(study + 2, k)
+                while source and plain[source[0]] in DETERMINERS and len(source) > 1:
+                    source = range(source[0] + 1, k)
+            elif k > 4:
+                continue
+            if not named(source):
+                continue
+            got = spec(" ".join(text[k + 2:]), " ".join(_clean(text[j]) for j in source), words[0][1])
+            if got:
+                return got
     return None
 
 
+LIST_JOINS = ("y", "e", "o", "u", "ni", "and", "or", "nor")
+OPENERS = CONNECTORS | set("que ni ya asi por sino salvo excepto pues that so nor yet or".split())   # a clause, not an item
+RESULT = set("por asi entonces luego so then".split())     # …but the last item may say what follows ("y por eso…")
+
+
 def enumeration(text: str) -> list[str] | None:
-    """3 to 6 short items said in a row ("A, B y C") or None."""
+    """3 to 6 short items said in a row ("A, B y C", "A, B, and C") or None. The shape of a list: commas
+    between the items and one "y / o / and / or" before the last one only; no item opens like a clause
+    ("pero…", "si…", "por eso…", "but…"), so a run of clauses is not taken for a list."""
     body = str(text).strip(" .?!¿¡…")
-    parts = [x.strip() for chunk in re.split(r",|;", body) for x in re.split(r"\s+(?:y|e|o|and|or)\s+", chunk) if x.strip()]
+    chunks = [x.strip() for x in re.split(r"[,;]", body)]
+    if any(not x for x in chunks) or len(chunks) < 2:
+        return None
+    join = re.compile(r"\s+(?:" + "|".join(LIST_JOINS) + r")\s+", re.IGNORECASE)
+    last = chunks[-1]
+    lead = re.match(r"(?:" + "|".join(LIST_JOINS) + r")\s+", last, re.IGNORECASE)   # "A, B, and C"
+    result = "".join(tokens(last.split()[0])) in RESULT if last.split() else False
+    first = [x.strip() for x in join.split(f" {chunks[0]} ") if x.strip()]
+    if len(chunks) == 2 and result and len(first) == 2:         # "A y B, por eso C"
+        parts = [*first, last]
+    elif any(join.search(f" {x} ") for x in chunks[:-1]):        # "lo miras y nada, …": a join inside an item
+        return None
+    elif lead:
+        parts = [*chunks[:-1], last[lead.end():].strip()]
+    else:
+        tail = [x.strip() for x in join.split(f" {last} ") if x.strip()]
+        if len(tail) != 2:                                       # the last item comes after one "y / and"
+            return None
+        parts = [*chunks[:-1], *tail]
     if not 3 <= len(parts) <= 6 or any(len(x.split()) > 5 for x in parts):
         return None
-    if "".join(tokens(parts[0].split()[0])) in CONNECTORS:    # clauses of one thought ("pero si…, se van…"), not a list
+    heads = ["".join(tokens(x.split()[0])) for x in parts]
+    if any(h in OPENERS for h in heads[:-1]) or (heads[-1] in OPENERS and heads[-1] not in RESULT):
         return None
+    if all(h in DETERMINERS for h in heads[1:]) and heads[0] not in DETERMINERS:     # "Necesitas una pantalla, un…"
+        lead_in = parts[0].split()
+        at = next((j for j, w in enumerate(lead_in) if "".join(tokens(w)) in DETERMINERS), None)
+        if at:
+            parts[0] = " ".join(lead_in[at:])                # the items are the things: "Una pantalla"
     return [x[:1].upper() + x[1:] for x in parts]
 
 
