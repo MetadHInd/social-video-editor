@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from ..domain import color_math
+from ..domain.backdrop import Backdrop, has_picture
 from ..domain.config import EXPORT_PROFILES, labels, output_name, variant_suffix
 from ..domain.explainer import refocus_faces, subtitle_analyses
 from ..domain.footage import CREDITS_FILE, credits_text
@@ -40,21 +41,27 @@ from ..domain.models import PlanError
 from ..domain.photos import auto_tone_setting, photo_crf, photo_settings, resolve_photo_ref
 from ..domain.pieces import CollageShot, GraphicShot, PhotoShot, PolaroidShot, Sequence, VideoShot
 from ..domain.selection import has_voice, resolve_ranges
+from ..domain.shorts import find as find_short
+from ..domain.shorts import short_plan, shorts_of
 from ..domain.text_layout import srt_text, subtitle_groups, text_animation
 from ..domain.timebase import mmss
 from ..domain.check import thin_keystrokes, typing_bursts
 from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
+from ..domain.voice_levels import polish_settings
 from ..log import log
 from .analyze import prepare_sources
-from .cutaways import render_cutaways
+from .cutaways import files_signature, project_files, render_cutaways
 from .enhance import enhanced_or_none
-from .graphic import build_scene, graphics_theme
+from .graphic import build_scene, graphics_theme, require_graphics
 from .music import prepare_music
 from .products import visual_search
 from .services import Services
+from .subtitles import render_caption_subtitles
+from .subtitles import wanted as caption_wanted
 
 SEGMENT_VERSION = 7
+MUSIC_LEVELS_FILE = "music_levels.json"     # written by the music mix in the version folder (voice_mix.LEVELS_FILE)
 CLEAN_VOICE_VERSION = 1     # change to clean every recording again (adapters/ffmpeg/voice.py)
 SOURCE_COLOR_FRAMES = 24      # frames measured across a whole recording (color.per_source)
 STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
@@ -75,9 +82,10 @@ class ShotRenderer:
     """
 
     def __init__(self, svc: Services, cfg: dict, infos: list[dict], analyses: list[dict], timeline: Timeline,
-                 W: int, H: int, draft: bool, cache: Path, jobs: int = 1):
+                 W: int, H: int, draft: bool, cache: Path, jobs: int = 1, base: Path | None = None):
         self.svc, self.cfg, self.infos, self.analyses, self.tl = svc, cfg, infos, analyses, timeline
         self.W, self.H, self.draft, self.cache = W, H, draft, cache
+        self.base = base                              # the project folder: files a graphic names are relative to it
         self.fps = int(cfg["output"]["fps"])
         self.jobs = max(1, int(jobs))
         self.segments: list[Path | None] = [None] * len(timeline)
@@ -86,6 +94,7 @@ class ShotRenderer:
         self._claims_guard = threading.Lock()
         self._stop = threading.Event()                # set when a pooled shot fails: the pending ones are skipped
         self._theme: dict | None = None               # graphics theme, built on the first graphic shot
+        self.voices: dict[str, Path] = {}             # recording name → its cleaned voice (audio.clean_voice)
 
     def render(self, waves: list[list[int]]) -> list[Path]:
         """Renders the shots wave by wave (Sequence.render_waves: a wave only needs earlier waves).
@@ -93,7 +102,7 @@ class ShotRenderer:
         In a pool, the first shot that fails cancels the shots not started yet; the running ones are
         waited for and that first exception is re-raised as is."""
         for wave in waves:
-            pool = [i for i in wave if isinstance(self.tl[i].piece, POOLED_SHOTS)] if self.jobs > 1 else []
+            pool = [i for i in wave if self._poolable(i)] if self.jobs > 1 else []
             if len(pool) < 2:
                 pool = []
             else:
@@ -103,6 +112,14 @@ class ShotRenderer:
                 if i not in pooled:
                     self.segments[i] = self.tl[i].piece.accept(self)
         return self.segments
+
+    def _poolable(self, i: int) -> bool:
+        """Video and photo shots, except those of a source with no picture (drawn on the backdrop, like
+        any graphic: on the calling thread)."""
+        piece = self.tl[i].piece
+        if not isinstance(piece, POOLED_SHOTS):
+            return False
+        return not isinstance(piece, VideoShot) or has_picture(self.infos[piece.source])
 
     def _render_pool(self, pool: list[int]) -> None:
         workers = min(self.jobs, len(pool))
@@ -150,6 +167,8 @@ class ShotRenderer:
         log(f"{self._header(shot)} source {shot.source} {mmss(d['start'])}→{mmss(d['end'])} "
             f"x{d.get('speed', 1)} [{d.get('transition')}] {d.get('role', '')}")
         info, an = self.infos[shot.source], self.analyses[shot.source]
+        if not has_picture(info):
+            return self._sound_only(shot, d, info, an)
         path = self._segment_path({
             "shot": {k: d.get(k) for k in SHOT_SIGNATURE_KEYS}, "parity": shot.index % 2, "dur": d["dur"],
             "src": info["path"], "W": self.W, "H": self.H,
@@ -159,23 +178,52 @@ class ShotRenderer:
             if self.svc.cache.has(path):
                 return path
             stats = self._color_stats(shot.source, info, d)
-            clean = self._clean_voice(info)
+            clean = self._clean_voice(info, an)
             return self.svc.encoder.encode_shot(d, {**info, "clean_audio": clean} if clean else info, self.cfg, stats,
                                                 has_voice(an, d["start"], d["end"]), self.W, self.H, self.draft, path)
 
-    def _clean_voice(self, info: dict) -> Path | None:
+    def _sound_only(self, shot: VideoShot, d: dict, info: dict, an: dict) -> Path:
+        """A shot of a source with no picture (a voice memo): its sound, through the same chain as any
+        shot, over the theme's moving backdrop (domain/backdrop.py) instead of a black frame."""
+        if self._theme is None:
+            self._theme = graphics_theme(self.svc, self.cfg)
+        clean = self._clean_voice(info, an)
+        source = {**info, "path": str(clean), "audio_index": 0, "has_audio": True} if clean else info
+        audio = {"info": source, "start": d["start"], "voice": has_voice(an, d["start"], d["end"]), "cfg": self.cfg,
+                 "shot": {k: d.get(k) for k in ("speed", "volume_db", "mute") if d.get(k) is not None},
+                 "gain_db": 0.0, "fade": 0.01}
+        path = self._segment_path({
+            "sound_only": {k: d.get(k) for k in ("start", "end", "speed", "volume_db", "mute", "dur")},
+            "src": source["path"], "theme": self._theme, "W": self.W, "H": self.H, "fps": self.fps,
+            "cfg": self.cfg.get("audio"), "draft": self.draft, "v": SEGMENT_VERSION}, prefix="sound_", n=14)
+        with self._claim(path):
+            if self.svc.cache.has(path):
+                return path
+            require_graphics(self.svc)
+            scene = Backdrop({"dur": d["dur"]}, self.svc.graphics.stage(self.W, self.H, self._theme,
+                                                                       self.cfg.get("language", "es")))
+            n = int(round(d["dur"] * self.fps))
+            return self.svc.encoder.encode_frames(self.svc.graphics.frames(scene, self.fps, n), n, self.W, self.H,
+                                                  self.fps, path, audio, draft=self.draft)
+
+    def _clean_voice(self, info: dict, an: dict | None = None) -> Path | None:
         """audio.clean_voice: the recording's whole audio cleaned once (cached), so every shot takes its
-        piece of the same clean track and the noise reduction never restarts at a cut."""
+        piece of the same clean track and the noise reduction never restarts at a cut. audio.breaths /
+        audio.voice_leveler are applied in the same whole-recording pass (the words keep the breaths
+        pass off the speech)."""
         a = self.cfg.get("audio") or {}
         if not a.get("clean_voice") or not info.get("has_audio") or not a.get("use_original", True):
             return None
         mix, highpass = float(a.get("clean_mix", 1.0)), int(a.get("highpass") or 0)
-        key = hashlib.sha1(json.dumps([info["path"], info.get("id"), mix, highpass, CLEAN_VOICE_VERSION]).encode())
+        polish = polish_settings(a, (an or {}).get("words"))
+        key = hashlib.sha1(json.dumps([info["path"], info.get("id"), mix, highpass, CLEAN_VOICE_VERSION]
+                                      + ([polish] if polish else [])).encode())
         path = self.svc.cache.file(self.cache, f"voice/{info.get('id', 'source')}_{key.hexdigest()[:10]}.wav")
         with self._claim(path):
             if not self.svc.cache.has(path):
                 log(f"Voice: cleaning the background noise of {Path(info['path']).name} (once, whole recording)…")
-                self.svc.encoder.clean_voice(info, path, mix, highpass)
+                self.svc.encoder.clean_voice(info, path, mix, highpass, **({"polish": polish} if polish else {}))
+            self.voices[Path(info["path"]).name] = path
         return path
 
     def _color_stats(self, source: int, info: dict, d: dict) -> dict:
@@ -261,14 +309,16 @@ class ShotRenderer:
         d = self.tl[shot.index].as_dict()
         if self._theme is None:
             self._theme = graphics_theme(self.svc, self.cfg)
-        spec = {**shot.spec(), "dur": d["dur"]}
+        spec = project_files(self.svc, self.base, {**shot.spec(), "dur": d["dur"]})
         try:
             scene = build_scene(self.svc, self.cfg, spec, self.W, self.H, self._theme)
         except PlanError as e:
             raise PlanError(f"Shot {shot.index} (graphic {shot.template}): {e}") from None
         shot.data["_sounds"] = [[name, round(at, 3)] for name, at in scene.sounds()]
         log(f"{self._header(shot)} graphic {shot.template} ({d['dur']:.2f} s) [{d.get('transition')}]")
+        files = files_signature(self.svc, spec)
         path = self._segment_path({"spec": spec, "theme": self._theme, "W": self.W, "H": self.H, "fps": self.fps,
+                                   **({"files": files} if files else {}),
                                    "language": self.cfg.get("language"), "draft": self.draft, "v": SEGMENT_VERSION},
                                   prefix="graphic_", n=14)
         if self.svc.cache.has(path):
@@ -397,10 +447,42 @@ def prepare_edit(svc: Services, project: Project, plan: dict, cfg: dict, no_musi
     return plan, infos, analyses, music, compute_timeline(Sequence.from_plan(plan), cfg)
 
 
+SHORT_LABELS = {"es": ("Corto", "corto"), "en": ("Short", "short")}     # folder suffix, file name part
+
+
+def short_names(project: Project, lang: str, short: str, draft: bool, profile: str | None,
+                no_music: bool) -> tuple[str, str]:
+    """(version folder suffix, file name) of a short: v3CortoMemoria / demo_corto_memoria (+ draft…)."""
+    folder, file = SHORT_LABELS.get(lang, SHORT_LABELS["en"])
+    camel = "".join(part.capitalize() for part in short.split("-"))
+    return (folder + camel + variant_suffix(lang, draft, profile, no_music),
+            output_name(f"{project.name}_{file}_{short}", lang, draft, profile, no_music))
+
+
+def render_shorts(svc: Services, project: Project, plan: dict, names: list[str] | None = None, draft: bool = False,
+                  profile: str | None = None, no_music: bool = False) -> list[Path]:
+    """Renders shorts of the plan (all of them when `names` is None), one version folder each."""
+    wanted = names if names is not None else [s["name"] for s in shorts_of(plan)]
+    if not wanted:
+        find_short(plan, "")                  # raises: says how to get shorts
+    return [render(svc, project, plan, draft, profile, no_music, short=name) for name in wanted]
+
+
 def render(svc: Services, project: Project, plan: dict, draft: bool = False, profile: str | None = None,
-           no_music: bool = False) -> Path:
+           no_music: bool = False, short: str | None = None) -> Path:
+    """short: render only that short of the plan (domain/shorts.py) — a vertical video of its own."""
     t0 = time.time()
     cfg = copy.deepcopy(project.cfg)
+    labeled = profile
+    if short:
+        entry = find_short(plan, short)
+        short = entry["name"]
+        plan = short_plan(plan, entry)
+        base = cfg["output"]
+        if profile is None and int(base["width"]) >= int(base["height"]):    # a short is vertical
+            profile = "shorts"
+        log(f"Short {short}: sentences {entry['from_sentence']}–{entry['to_sentence']}, "
+            f"{len(plan['shots'])} shots, {len(plan['cutaways'])} cutaways")
     if profile:
         p = EXPORT_PROFILES[profile]
         cfg["output"].update(width=p["width"], height=p["height"])
@@ -422,15 +504,19 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     total = tl.total
     log(f"Timeline: {len(tl)} shots, {total:.1f} s, {W}×{H}{' (draft)' if draft else ''}")
 
-    segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs).render(waves)
+    shots = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs, project.dir)
+    segments = shots.render(waves)
     cuts = render_cutaways(svc, project, cfg, plan, tl, W, H, draft, infos, analyses)
 
     # Main version = new number (v4). Variants = number of the latest main version + suffix
     # (v4SinMusica / v4NoMusic, v4Borrador / v4Draft, v4Youtube…), so you can see where they come from.
     lang = cfg["language"]
-    suffix = variant_suffix(lang, draft, profile, no_music)
+    if short:
+        suffix, name = short_names(project, lang, short, draft, labeled, no_music)
+    else:
+        suffix = variant_suffix(lang, draft, profile, no_music)
+        name = output_name(project.name, lang, draft, profile, no_music)
     vdir = svc.projects.variant_folder(project, suffix) if suffix else svc.projects.new_version(project)
-    name = output_name(project.name, lang, draft, profile, no_music)
     premaster = vdir / f"_{name}_premaster.mkv"
     final = vdir / f"{name}.mp4"
     boxes: list[dict] = []
@@ -440,7 +526,10 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
                   if cfg["subtitles"].get("auto", True) else [])
         voice = any(has_voice(analyses[w[0]], w[1], w[2])
                     for w in (c.piece.source_window() for c in tl) if w is not None)
-        layer, keystrokes = svc.text.render_layer(texts, groups, cfg, W, H, total, vdir / "_layer", boxes)
+        track = (render_caption_subtitles(svc, project, cfg, groups, W, H, total, draft, boxes)
+                 if groups and caption_wanted(svc, cfg) else None)        # subtitles.style: caption
+        layer, keystrokes = svc.text.render_layer(texts, [] if track else groups, cfg, W, H, total,
+                                                  vdir / "_layer", boxes)
         # same typing speed on screen, but at most sfx.typing_max_per_sec click SOUNDS per second
         keystrokes = thin_keystrokes(keystrokes, float(cfg["sfx"].get("typing_max_per_sec", 16)))
         events = sound_events(tl, texts, keystrokes, cfg) + cuts.sounds
@@ -448,7 +537,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         svc.encoder.compose([{"dur": c.dur, "overlap": c.overlap, "transition": c.piece.transition} for c in tl],
                             segments, layer, music, sfx, cfg, W, H, total, voice, draft, vdir, premaster,
                             stems_dir=vdir / "stems" if stems_wanted(cfg, tl, total) else None,
-                            **({"cutaways": cuts.files} if cuts.files else {}))
+                            **({"cutaways": cuts.files + ([track] if track else [])} if cuts.files or track else {}))
         lufs = svc.encoder.master_audio(premaster, final, cfg)
     except BaseException:                 # UserError is a SystemExit; Ctrl-C also leaves the folder marked
         failed = svc.projects.mark_failed(vdir, labels(lang)["failed"])
@@ -467,6 +556,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     if mix_timeline:
         svc.projects.write_json(vdir / "automix.json", mix_timeline)
     summary = {
+        **({"short": plan["short"]} if short else {}),
         "video": final.name, "duration_sec": round(total, 2), "shots": len(tl), "resolution": f"{W}x{H}",
         "music": None if not music else {"file": music.name, "start_sec": cfg["music"].get("_start"),
                                          **({"playlist": [s["file"] for s in cfg["music"]["_automix"]["songs"]]}
@@ -485,6 +575,13 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     if plan.get("cutaways"):
         summary["cutaways"] = cuts.details
         summary["cutaway_warnings"] = cuts.warnings
+    breaths = {name: rec for name, wav in sorted(shots.voices.items())
+               if isinstance(rec := svc.projects.read_json(wav.with_suffix(".json")), dict)}
+    if breaths:                           # audio.breaths: what the whole-recording voice pass lowered, per recording
+        summary["breaths"] = breaths
+    levels = svc.projects.read_json(vdir / MUSIC_LEVELS_FILE)
+    if levels:                            # music.relative_to_voice: the levels measured (adapters/ffmpeg/voice_mix.py)
+        summary["music_levels"] = levels
     if cuts.credits:                      # third-party footage: who to credit in the video's description
         svc.projects.write_text(vdir / CREDITS_FILE, credits_text(cuts.credits, str(cfg.get("language", "es"))))
         summary["credits"] = CREDITS_FILE

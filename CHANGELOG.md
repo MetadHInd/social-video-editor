@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Fixed
+- Landscape renders: subtitles are raised into the safe zone `sve check` measures (a real 43 s explainer at
+  1920×1080: 13 safe-zone warnings → 0).
 - A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
   (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
   one frame of the presenter showed through).
@@ -20,6 +22,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
 
 ### Added
+- **Shorts from the same project** (stage 7): `[short name]` … `[/short]` (Spanish `[corto nombre]` … `[/corto]`)
+  in an explainer script; `sve render <project> --short name` / `--shorts` (`--corto`, `--cortos`) renders each as
+  a vertical video of its own (its sentences, the cutaways inside, framing, subtitles and sound; a variant folder
+  such as `v3CortoName` that never overwrites). The long video's plan is the same (plus `shorts`).
+  `script.shorts: auto` (off) proposes self-contained stretches of 20–60 s by a simple, explained score (starts
+  with a question / hook, holds a graphic or a figure, ends on a statement, ≈40 s), recorded with `_auto: shorts`,
+  `score` and `why` (`domain/shorts.py`).
+- **Subtitles in the narration box** (`subtitles.style: caption`, Spanish `estilo: caja`; default unchanged): the
+  pack's paper box (`kit.caption`) with the word being said marked, same groups and timing as the default
+  subtitles, kept inside the safe zone, one transparent graphic track over the video, both orientations.
+- **A voice memo as the recording**: a source with sound and no picture gets a plain proxy for the analysis and
+  its shots are drawn on the theme's moving backdrop (never black), with the same voice chain.
+- Graphics: a file a graphic names (`image` of `screen` / `product_card`) is found in the project folder, like a
+  photo, in `sve render`, cutaways, `sve plan` and `sve graphic <project>`; a theme font role may be a list of
+  fonts tried in order, and `mono` falls back to a monospace font (DejaVu Sans Mono, Consolas, Courier New…),
+  never to a proportional one.
+- `summary.json`: `short`, `breaths` (what `audio.breaths` lowered, per recording) and `music_levels` (what
+  `music.relative_to_voice` measured).
+
+- **Voice and music levels** (stage 6, `domain/voice_levels.py`): `audio.breaths` (Spanish `respiraciones`; on in
+  `explainer`) lowers the pauses between sentences — breaths, mouth noise — by 12 dB in the same whole-recording
+  pass as `clean_voice`, with short fades inside the pause and margins around the speech and the transcribed
+  words (word starts and soft endings are never touched; measured on a real 47 s selfie: pause energy −8 dB,
+  speech and word onsets unchanged). `audio.voice_leveler` (off: measured as a trade-off, not a clear gain) adds
+  a slow leveler to that pass. `music.relative_to_voice` (Spanish `relativa_a_voz`; on in `explainer`): the music
+  level is measured against the voice of the rendered segments — `under_voice_db` (10) under it while it speaks,
+  `under_pause_db` (4) in pauses of 0.6 s or more, `intro_db` (4) louder before the first word, slew-limited and
+  dipping just before each word — and mixed as a prepared bed; the measured numbers go to
+  `vN/music_levels.json`. Without it the fixed music chain is unchanged. `sve check` reports how far the music
+  sits under the voice (stems) and warns under `check.music_min_under_voice_lu` (6).
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
   and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
   answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),
@@ -226,6 +258,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `scripts/bench.py --scenario analyze` (analysis and transcription time, engine / model / device recorded,
   `--engine`, `--analysis-jobs`) and `--scenario explainer75` (final render of a ~75 s explainer: a presenter-like
   recording, 6 full-frame graphics, subtitles). Both run only when named.
+- `vision.naming` (default `clip`: names exactly as before): `frames` names each product from its frames
+  with the highest product score, against the packaged vocabulary embedded with the image model's own text
+  encoder; `decider` then lets the decider's local language model look at the best frame and pick among
+  CLIP's `name_candidates` best names (new decider topic `product_name`; asking for it is enough, without
+  the language model the CLIP names stand). On a labeled 8-minute unboxing (16 products): exact names
+  3 → 8 (`frames`) → 10 (`decider`; 12 counting the right category), ≈4–5 s per product the first time,
+  cached after. `products.json` keeps its format. Recommended for the unboxing and haul recipes when Ollama
+  is installed.
+- The decider's language model receives pictures larger than 960 pixels scaled down (a full-HD b-roll frame
+  took ≈16 s a question).
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now

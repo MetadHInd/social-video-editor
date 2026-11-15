@@ -326,3 +326,16 @@ def test_letters_written_together_are_read_one_by_one():
     assert [x for x, _ in letters("a, c", ["a", "b", "c"], True)] == ["a", "c"]
     assert letters("ab", ["a", "b", "c"], False) == []           # one answer expected: "ab" is not one letter
     assert letters("hello", ["a", "b", "c"], True) == []
+
+
+def test_large_pictures_are_scaled_down_before_they_are_sent(tmp_path):
+    from PIL import Image
+
+    big, small, broken = tmp_path / "big.png", tmp_path / "small.jpg", tmp_path / "broken.jpg"
+    Image.new("RGB", (1920, 1080), (200, 30, 30)).save(big)
+    Image.new("RGB", (540, 960), (30, 200, 30)).save(small)
+    broken.write_bytes(b"not a picture")
+    sent = Image.open(io.BytesIO(base64.b64decode(ol.picture(big))))
+    assert sent.format == "JPEG" and max(sent.size) == ol.IMAGE_MAX_SIDE and sent.size[0] / sent.size[1] == 16 / 9
+    assert base64.b64decode(ol.picture(small)) == small.read_bytes()            # small enough: as it is
+    assert base64.b64decode(ol.picture(broken)) == b"not a picture"

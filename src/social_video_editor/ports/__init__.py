@@ -31,8 +31,10 @@ class VideoEncoder(Protocol):
     def extract_wav(self, info: dict, out: Path) -> Path:
         """Mono 16 kHz audio for transcription / analysis."""
 
-    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80) -> Path:
-        """The source's whole audio track with the background noise taken out (48 kHz stereo WAV)."""
+    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80,
+                    polish: dict | None = None) -> Path:
+        """The source's whole audio track with the background noise taken out (48 kHz stereo WAV);
+        polish (domain.voice_levels.polish_settings): leveler / lowered breaths, also over the whole track."""
 
     def encode_shot(self, shot: dict, info: dict, cfg: dict, stats: dict, has_voice: bool,
                     W: int, H: int, draft: bool, out: Path) -> Path:
@@ -269,6 +271,10 @@ class VisualDetector(Protocol):
 
     def text_embeddings(self, texts: list[str], settings: dict):
         """Embeddings [len(texts), d] of texts in any supported language."""
+
+    def english_text_embeddings(self, texts: list[str], settings: dict):
+        """Embeddings [len(texts), d] of English texts with the image model's own text encoder (more
+        precise than the multilingual one, English only), in the same space as the frames."""
 
     def image_embeddings(self, images: list, settings: dict):
         """Embeddings [len(images), d] of RGB pictures (H×W×3 arrays), e.g. parts of a frame."""

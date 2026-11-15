@@ -12,6 +12,10 @@ A line wrapped in [ ] is a cue: it holds for the sentences after it, until the n
 cue the presenter is on camera. A cue is written like a graphic cue (`template key="value" …`,
 domain/graphics/spec.py); besides the graphic templates there are `camera`, `photo file="…"` and
 `broll query="…"`. Any cue takes `seconds=N`: at most that long on screen.
+
+`[short name]` … `[/short]` (Spanish `[corto name]` … `[/corto]`) wrap the sentences of a short: a
+vertical video of its own made from the same recording (domain/shorts.py). They are not cues: the
+cue in force and everything else stay as without them.
 """
 from __future__ import annotations
 
@@ -25,6 +29,10 @@ from .models import PlanError
 
 CAMERA, GRAPHIC, PHOTO, BROLL = "camera", "graphic", "photo", "broll"
 PLAIN_KINDS = (CAMERA, PHOTO, BROLL)          # cue names that are not graphic templates
+SHORT_MARKS = ("short", "corto")              # [short name] … [/short]: the sentences of a short
+_SHORT_OPEN = re.compile(r"^(?:short|corto)(?:\s+(.*))?$", re.IGNORECASE)
+_SHORT_CLOSE = re.compile(r"^/\s*(?:short|corto)$", re.IGNORECASE)
+_SHORT_NAME = re.compile(r"^(?:name|nombre)\s*=\s*[\"'«“]?(.*?)[\"'»”]?$", re.IGNORECASE)
 
 _SENTENCE = re.compile(r".+?(?:[.?!…]+[\"'»”)\]]*(?=\s|$)|$)")
 _DIGIT_SEPARATOR = re.compile(r"(?<=\d)[.,](?=\d)")
@@ -51,9 +59,20 @@ class Sentence:
 
 
 @dataclass
+class ShortMark:
+    """A short written in the script: sentences `first` to `last` (inclusive)."""
+
+    name: str
+    first: int
+    last: int
+    line: int
+
+
+@dataclass
 class Script:
     sentences: list[Sentence] = field(default_factory=list)
     cues: list[Cue] = field(default_factory=list)
+    shorts: list[ShortMark] = field(default_factory=list)
 
     def cue_sentences(self, cue: int) -> list[int]:
         """Indices of the sentences said under a cue."""
@@ -79,9 +98,13 @@ def parse_script(text: str, translate: Callable[[dict], dict] | None = None,
     is then an error here, with its line, instead of at render time)."""
     script = Script()
     current: int | None = None
+    short: tuple[str, int, int] | None = None          # the short open now: (name, first sentence, line)
     for number, raw in enumerate(str(text).splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]") and _short_mark(line[1:-1].strip()) is not None:
+            short = _short(script, short, line[1:-1].strip(), number)
             continue
         if line.startswith("[") and line.endswith("]"):
             cue = _cue(line[1:-1], number, len(script.cues), translate, templates)
@@ -99,7 +122,52 @@ def parse_script(text: str, translate: Callable[[dict], dict] | None = None,
                         "(a cue shows while the next sentences are said)")
     if not script.sentences:
         raise PlanError("The script has no sentences (write what is said, one or more sentences per line)")
+    if short is not None:                       # a short left open runs to the end of the script
+        _close_short(script, short, None)
     return script
+
+
+def short_name(text: str) -> str:
+    """A short's name as used in folders and on the command line: lower case, no accents, words
+    joined by "-" ("Memoria RAM" → "memoria-ram")."""
+    plain = unicodedata.normalize("NFKD", str(text).lower())
+    plain = "".join(c for c in plain if not unicodedata.combining(c))
+    return "-".join(_WORD.findall(plain))
+
+
+def _short_mark(body: str) -> str | None:
+    """"open" / "close" for a short's mark ([short name], [/short]), None for any other cue."""
+    if _SHORT_CLOSE.match(body):
+        return "close"
+    return "open" if _SHORT_OPEN.match(body) else None
+
+
+def _short(script: Script, short, body: str, line: int):
+    """Opens or closes a short at a mark; → the short open after it (None when closed)."""
+    if _short_mark(body) == "close":
+        if short is None:
+            raise PlanError(f"Script line {line}: [/short] without a [short name] before it")
+        _close_short(script, short, line)
+        return None
+    if short is not None:
+        raise PlanError(f"Script line {line}: a short starts before the one of line {short[2]} ends "
+                        "(close it with [/short] first; shorts do not overlap)")
+    raw = (_SHORT_OPEN.match(body).group(1) or "").strip()
+    named = _SHORT_NAME.match(raw)
+    name = short_name(named.group(1) if named else raw)
+    if not name:
+        raise PlanError(f"Script line {line}: a short needs a name: [short memory] … [/short]")
+    if any(s.name == name for s in script.shorts):
+        raise PlanError(f"Script line {line}: there is already a short called '{name}'")
+    return name, len(script.sentences), line
+
+
+def _close_short(script: Script, short, line: int | None) -> None:
+    name, first, opened = short
+    last = len(script.sentences) - 1
+    if last < first:
+        raise PlanError(f"Script line {line or opened}: the short '{name}' has no sentences")
+    script.shorts.append(ShortMark(name, first, last, opened))
 
 
 def _cue(body: str, line: int, index: int, translate, templates) -> Cue:

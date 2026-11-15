@@ -99,6 +99,8 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--sin-usar` | `--unused` |
 | `--si` | `--yes` |
 | `--completo` | `--full` |
+| `--corto` | `--short` |
+| `--cortos` | `--shorts` |
 
 ## Recipes and project settings
 
@@ -182,6 +184,7 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `reencuadre_cada` | `reframe_every` |
 | `deriva` | `drift` |
 | `apoyos` | `support` |
+| `apoyos_repartir` | `support_spread` |
 | `primer_plano` | `close_up` |
 | `tomas_auto` | `auto_broll` |
 | `apertura` | `opening` |
@@ -189,6 +192,10 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `toma_min` | `auto_min` |
 | `transicion` | `transition` |
 | `fundido_tomas` | `cutaway_fade` |
+| `cortos` | `shorts` |
+| `cortos_max` | `shorts_max` |
+| `corto_min` | `short_min` |
+| `corto_max` | `short_max` |
 
 ### Values of `config.script.take`
 
@@ -386,6 +393,8 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `pico` | `true_peak` |
 | `ganancia_max_master_db` | `master_max_gain_db` |
 | `dibujadas_db` | `drawn_shot_db` |
+| `respiraciones` | `breaths` |
+| `nivelador_voz` | `voice_leveler` |
 
 ### Keys of `config.music`
 
@@ -406,6 +415,10 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `bpm` | `bpm` |
 | `factor_tempo` | `tempo_factor` |
 | `lista` | `playlist` |
+| `relativa_a_voz` | `relative_to_voice` |
+| `bajo_voz_db` | `under_voice_db` |
+| `bajo_pausa_db` | `under_pause_db` |
+| `entrada_mas_db` | `intro_db` |
 
 ### Values of `config.music.file`
 
@@ -446,6 +459,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `borde_color` | `stroke_color` |
 | `sombra` | `shadow` |
 | `animacion` | `animation` |
+| `estilo` | `style` |
 
 ### Values of `config.subtitles.animation`
 
@@ -453,6 +467,14 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `escribir` | `typewriter` |
 | `ninguna` | `none` |
+
+### Values of `config.subtitles.style`
+
+| Spanish | English |
+|---|---|
+| `caja` | `caption` |
+| `recuadro` | `caption` |
+| `normal` | `pillow` |
 
 ### Keys of `config.texts`
 
@@ -596,6 +618,7 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `salto_corte_lu` | `cut_jump_lu` |
 | `sfx_max_vs_mezcla_lu` | `sfx_max_vs_mix_lu` |
 | `musica_max_vs_original_lu` | `music_max_vs_original_lu` |
+| `musica_min_bajo_voz_lu` | `music_min_under_voice_lu` |
 | `tecleo_max_por_seg` | `typing_max_per_sec` |
 | `tecleo_max_vs_mezcla_lu` | `typing_max_vs_mix_lu` |
 | `aspereza` | `harsh_ratio` |
@@ -640,6 +663,16 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `apertura_max` | `opening_max` |
 | `sin_empaque` | `unpacked` |
 | `empaques` | `packaging` |
+| `nombres` | `naming` |
+| `fotogramas_nombre` | `name_frames` |
+| `candidatos_nombre` | `name_candidates` |
+
+### Values of `config.vision.naming`
+
+| Spanish | English |
+|---|---|
+| `fotogramas` | `frames` |
+| `decididor` | `decider` |
 
 ### Keys of `config.vision.weights`
 
@@ -940,6 +973,9 @@ A cutaway or a cue also takes every graphic key of `plan.shots` (`plantilla`, `t
 | `camara` | `camera` |
 | `foto` | `photo` |
 | `toma` | `broll` |
+
+The marks of a short, `[corto nombre]` … `[/corto]` (also `[corto nombre="…"]`), are `[short name]` … `[/short]`
+(read by the script parser itself, domain/script.py).
 
 ### Keys of `plan.texts`
 

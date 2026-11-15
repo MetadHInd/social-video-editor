@@ -117,7 +117,7 @@ with a flash and a shutter sound:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram` or `lower_third` (or one a pack adds). |
+| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram`, `line_chart`, `versus`, `code`, `screen`, `scene` or `lower_third` (or one a pack adds). A file a graphic names (`image` of `screen` / `product_card`) is relative to the project folder, like a photo's. |
 | *the template's keys* | — | What it shows: every template and its keys are in [GRAPHICS.md](GRAPHICS.md). |
 | `dur` | the template's (2.2–5 s) | Seconds on screen. |
 | `caption` | — | What is being said, drawn in the narration box under the graphic. |
@@ -291,6 +291,8 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `audio.denoise` | 10 | Noise reduction in dB (0 = off), shot by shot. |
 | `audio.clean_voice` | `false` (`true` in `explainer` and `talk`) | The background noise of each recording (a fan, the room, the street) taken out **once, over the whole recording** with RNNoise (FFmpeg `arnndn`, a ≈300 KB speech model downloaded once to the user cache; `SVE_OFFLINE=1` never downloads, and FFmpeg's FFT denoiser is used instead). Every shot takes its piece of that clean track, so the noise reduction never restarts at a cut; `denoise` is then skipped. |
 | `audio.clean_mix` | 1.0 | How much of the cleaned voice is used (0.8 keeps a little of the room). |
+| `audio.breaths` | `false` (`true` in `explainer`) | With `clean_voice`: the pauses between sentences (breaths, mouth noise) 12 dB lower, in the same whole-recording pass. A pause is what is neither speech (frames less than 20 dB under the local speech level) nor inside a transcribed word; words keep 0.06 s before and 0.1 s after them untouched, gaps under 0.12 s are left alone and the fades (0.04 s) stay inside the pause. A dict overrides some of `{depth_db: 12, fade: 0.04, before_word: 0.06, after_word: 0.1, min_pause: 0.12, below_ref: 20}`. The counts go next to the cleaned wav and into `summary.json` (`breaths`). |
+| `audio.voice_leveler` | `false` | With `clean_voice`: a slow leveler over the whole recording, so quiet sentences come up (no cut restarts it). |
 | `audio.highpass` | 80 | High-pass filter (Hz). |
 | `audio.voice_eq` | true | Voice presence EQ + de-esser on shots with speech. |
 | `audio.compressor` | true | Gentle compression. |
@@ -301,6 +303,8 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `music.folder` | — | Workspace-relative folder to take the first track from. |
 | `music.volume_with_voice_db` / `volume_without_voice_db` | −20 / −11 | Music level. |
 | `music.ducking` / `ducking_asmr` / `ducking_ratio` | true / false / 4 | Lower the music under the voice (and optionally under the video's own sounds). |
+| `music.relative_to_voice` | `false` (`true` in `explainer`) | The music level is measured against the voice of the joined video (its loudness and where it speaks, from the rendered segments) and written once as a bed that follows it; replaces `volume_*` and `ducking` when there is voice (a voice quieter than −60 LUFS keeps the fixed mix). Down slightly before each word, back up in real pauses (≥ 0.6 s). What was measured goes to `vN/music_levels.json` and `summary.json` (`music_levels`). |
+| `music.under_voice_db` / `under_pause_db` / `intro_db` | 10 / 4 / 4 | With `relative_to_voice`: the music this many dB (LUFS) under the voice while it speaks, this many under it in pauses, and this much louder than in pauses before the first word. |
 | `music.start_at` | 0.0 | Second of the song to start from, or `auto`: the song's drop lands at the end of the first shot (or at `drop_at`). |
 | `music.drop_at` | — | Video second where the song's drop should land (with `start_at: auto`). |
 | `music.align` | — | `exact` = every cut exactly on a beat (automatic when a shot has `beats`). |
@@ -318,8 +322,9 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `subtitles.auto` | true | Word-by-word subtitles from the transcription when there is speech. |
 | `subtitles.max_words` / `max_chars` | 3 / 18 | Words and characters per subtitle. |
 | `subtitles.uppercase`, `font`, `size`, `color`, `highlight`, `stroke`, `stroke_color`, `shadow` | true, Inter-Black, 82, white, `#FFE14D`, 9, black, true | Look (active word in `highlight`). |
-| `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). |
+| `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). In a landscape frame a subtitle is raised, if needed, so it ends above the bottom of the safe zone (`check.landscape_safe_bottom`, 0.90). |
 | `subtitles.animation` | `pop` | `pop` or `none`. |
+| `subtitles.style` | `pillow` | `caption`: every subtitle is drawn in the graphics' narration box (`kit.caption`: the pack's paper box and font), the word being said marked with an ink band that grows under it. Same words, timing and splitting as the default subtitles; the box is centered at `subtitles.y`, as wide as their lines may be and kept inside the safe zone `sve check` measures; drawn as one transparent graphic over the video (`cache/segments/subs_*.mov`). Needs the graphics extra (otherwise the default subtitles are drawn). Spanish `estilo: caja`. |
 | `texts.styles.<name>` | see `base.yaml` | `size`, `font`, `color`, `background` (`#RRGGBBAA`), `x`, `y`, `max_width`, `uppercase`, `radius`, `outline`, `animation`, `speed`, `desc_font`, `desc_size`, `desc_color`; without a `background` the text is outlined with `stroke` px (default size/10) in `stroke_color` (default black). Sizes are for a 1080-px-wide output and scale with it. |
 
 ### `export`, `polaroid`, `collage`
@@ -387,7 +392,7 @@ Language section) with:
 | `plan_used.json` | The plan as rendered (resolved search windows, beat-aligned times, `_beats`). |
 | `config_used.json` | The fully merged configuration. |
 | `stems/original.wav`, `stems/music.wav`, `stems/sfx.wav` | Pre-master audio stems (written in the same FFmpeg pass as the video). Only for renders up to 600 s that contain original sound (a shot playing a source clip) unless `export.stems: true` (`false`: never). |
-| `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts), and for plans with cutaways `cutaways` [{`n`, `type`, `what`, `start`, `end`, `overlay`, `sentences`, `pip` (it had the presenter's window), `auto` (who proposed it), and for a clip `file`, `third_party`, `recorded`, `source`, `kind`}], `cutaway_warnings` and `credits` (`credits.txt`, when third-party footage is shown). `sve check` reads `stems`, `text_boxes` and `typing`. |
+| `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts), and for plans with cutaways `cutaways` [{`n`, `type`, `what`, `start`, `end`, `overlay`, `sentences`, `pip` (it had the presenter's window), `auto` (who proposed it), and for a clip `file`, `third_party`, `recorded`, `source`, `kind`}], `cutaway_warnings` and `credits` (`credits.txt`, when third-party footage is shown); `short` (`{name, from_sentence, to_sentence, …}`, a render of one short), `breaths` (`{recording file name: {pauses, with_sound, …, depth_db, words}}`, with `audio.breaths`) and `music_levels` (`{voice_lufs, music_lufs, gain_db, under_voice_db, under_pause_db, intro_db, speech_spans}`, with `music.relative_to_voice`). `sve check` reads `stems`, `text_boxes` and `typing`. |
 
 Written by other commands:
 
@@ -396,7 +401,7 @@ Written by other commands:
 | `cache/products.json` | `sve products` (and `sve plan` with `vision.product_plan`) | `{"segments": [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}], "model", "language"}` |
 | `cache/<id>_clip.npy`, `<id>_clip.json` | anything that uses the vision model | Frame embeddings of a source and their timestamps. |
 | `footage/…`, `footage/credits.json` | `sve broll` | The fetched clips and the record of where each comes from (see [Third-party footage](#third-party-footage-sve-broll)). |
-| `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}` |
+| `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}`. With music and voice, `metrics.music_vs_voice` = `{speech_lu, pause_lu, worst_lu, worst_t}`: how far the music sits under the voice while it speaks and in pauses, and the closest moment; a warning when it is closer than `check.music_min_under_voice_lu` (6) while the voice speaks. |
 
 
 ---
@@ -460,7 +465,8 @@ And they travel apart.
   cue. Without a cue the presenter is on camera; `[camera]` goes back to the presenter.
 - A cue is written like a graphic cue ([GRAPHICS.md](GRAPHICS.md)): the name, then `key="value"`
   pairs. Names: any graphic template (`bars`, `number`, `list`, `diagram`, `title`, `headline`,
-  `product_card`, `lower_third`, or a pack's own), `photo file="photos/board.jpg"` (a still photo,
+  `product_card`, `line_chart`, `versus`, `code`, `screen`, `scene`, `lower_third`, or a pack's own; a file it
+  names, such as `screen image="shots/settings.png"`, is relative to the project folder), `photo file="photos/board.jpg"` (a still photo,
   path relative to the project; optional `motion`, `motion_amount`, `focus_x`, `focus_y`) and
   `broll query="…"` (a clip that `sve broll` fetches from the allowed sources, or `broll file="clip.mp4"`
   for a clip of your own; see [Third-party footage](#third-party-footage-sve-broll)). The overlays
@@ -468,7 +474,7 @@ And they travel apart.
 - Any cue takes `seconds=N`: at most that long on screen (a `lower_third` usually wants `seconds=4`).
 - A cue needs at least one sentence after it. A graphic cue that cannot be drawn (missing key, unknown
   template) is an error at `sve plan`, with its script line.
-- Spanish names work too (`[barras datos="…"]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
+- Spanish names work too (`[barras datos="…"]`, `[lineas …]`, `[frente_a_frente …]`, `[codigo …]`, `[pantalla …]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
   `segundos=`; the file may be called `guion.md`): see [LEGACY_KEYS.md](LEGACY_KEYS.md).
 
 ### How the script is matched to the recording
@@ -562,6 +568,9 @@ notes around the presenter (`callouts`, `bullets`) always end when a full-frame 
 The proposals are ordinary entries of `cutaways` marked `"_auto": "support"`: edit their `items`,
 delete the ones you do not want, or write your own cue for that sentence (a sentence under a cue gets
 no proposal). `sve report` marks them with `~`.
+When a full-frame cutaway starts inside a sentence (footage from one of its words), the notes of the
+words said under it are left out; with `script.support_spread: true` (off by default) they come in
+earlier instead, spread over the part of the sentence said on camera.
 
 **Notes and bullets you write.** `[callouts items="Phone; Router; Internet" link=yes]` and
 `[bullets items="No extra battery; Back in an instant"]` are cues like any other. When a `bullets` or
@@ -586,8 +595,12 @@ face shows at least 1.5 s before footage covers it. `sve broll` fetches them lik
 Data said aloud is shown, not searched for: two or more figures of the same kind set against each other
 ("two minutes a week, two hours a year"; "15 % before, 40 % today"; "8 GB on one, 12 GB on the other") become
 `bars` — times in the smallest unit said, each bar named by "before / today" or by the words next to its
-figure — and a quoted source ("according to X, …", "X published that …") becomes a `headline` with X as its
-outlet. They start when the figure (or the source) is said and are proposed wherever the sentence is not
+figure; when a bar's thing cannot be named (only a pronoun and its verb next to the figure) the figure card is
+drawn instead of a wrongly labeled bar — and a quoted source becomes a `headline` with X as its outlet:
+"according to X, …" / "según X, …" / "de acuerdo con X, …"; "X says / said / reported / published / found that …" /
+"X dice / afirma / reportó / publicó / encontró que …"; "a study by X found that …" / "un estudio de X encontró
+que …" (the outlet is X). The source must be named (a word written with a capital; "my mom says…" or
+"people say…" is not a source). They start when the figure (or the source) is said and are proposed wherever the sentence is not
 already covered, whatever the clock says.
 
 **Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
@@ -631,6 +644,7 @@ saturation or sharpening; exposure only nudged) and measures it once for the who
 | `script.punch_in` | 1.08 | Zoom alternated at every visible jump cut (0 = off). |
 | `script.subtitles` | `script` | Subtitles from the script's words (`script`) or from the transcription (`speech`). |
 | `script.support` | `true` | Propose `callouts` notes around the presenter where nothing else is on screen. |
+| `script.support_spread` | `false` | The notes of words said under a full-frame cutaway come in earlier, over the part said on camera (instead of being left out). |
 | `script.close_up` | 1.15 | A third framing: visible cuts go wide → punch-in → wide → close-up (0 = wide / punch-in only). |
 | `script.reframe_every` | 4.0 | Seconds after which a shot is split between two sentences and reframed (0 = off). |
 | `script.drift` | 0.04 | Slow zoom of every camera shot while it plays (0 = off). |
@@ -649,6 +663,69 @@ The recipe also turns off what would jump at every cut (slow push, per-shot nois
 punches), uses no music unless you set `music.file` (kept low under the voice, cuts not moved to
 the beat) and puts the subtitles in the band under the graphics (`subtitles.y: 0.835`,
 `check.safe_bottom: 0.88`).
+
+### Shorts from the same project
+
+A **short** is a stretch of the script rendered as a vertical video of its own: its sentences only, the
+cutaways that fall inside them, the same framing on the face, subtitles and sound. Mark it in the script
+(Spanish `[corto nombre]` … `[/corto]`):
+
+```
+How does a message travel?
+[short packets]
+Every time you send one, the phone cuts it into packets.
+[bars data="Under the sea:95, By satellite:5" unit="%"]
+And they travel apart.
+[/short]
+```
+
+The marks are not cues (the cue in force goes on through them) and the long video ignores them: its plan is
+the same, plus `"shorts": [{"name": "packets", "from_sentence": 1, "to_sentence": 2}]`. A short left open runs
+to the end; shorts do not overlap. `sve plan` lists them with their estimated length.
+
+```
+sve render talk --short packets [--draft]      # one short (repeat --short for more); Spanish --corto
+sve render talk --shorts                       # every short of the plan; Spanish --cortos
+```
+
+Each one goes to a new variant folder that never overwrites another — `v3CortoPackets` / `v3ShortPackets`
+(+ `Borrador` / `Draft`…), files `<project>_corto_<name>` — and its `summary.json` has `short`. A camera shot
+that also plays a sentence outside the short is trimmed halfway between the two sentences; a cutaway that starts
+before the short (or ends after it) is clamped to it; cutaways placed by seconds of the long video and plan texts
+are left out. A landscape project renders its shorts at 1080×1920 (`shorts` profile, framed on the face again);
+`--profile` still wins.
+
+**Shorts proposed by the engine** (`script.shorts: auto`, off by default). `sve plan` looks for stretches that
+stand on their own and records them in `shorts` with `"_auto": "shorts"`, a `score` and a `why` (rendered like
+any other short; `sve plan` runs again → proposed again). Every stretch of consecutive sentences found in the
+recording that lasts `short_min`–`short_max` seconds and **starts with a question or a hook** (a first word like
+*did you know*, *imagine*, *secret*, *nobody*, *never*, *mistake*, *truth* — `sabías`, `imagina`, `secreto`,
+`nadie`, `nunca`, `error`, `verdad`… — or a figure) is a candidate, scored:
+
+| Points | When |
+|---|---|
+| +3 / +2 | it starts with a question / with a hook word or a figure |
+| −1 | its first word leans on what came before (`and`, `but`, `so`, `y`, `pero`, `entonces`…) |
+| +2 / +1 | a full-frame graphic is shown inside it (a cue, or one the director proposed) / else it says a figure |
+| +1 | it ends on a statement (`.` `!`), or with the script's last sentence |
+| +1 | the sentence after it opens something new (a question or a hook) |
+| +1 − \|s − 40\| / 40 | its length s in seconds: about 40 s is best |
+
+The best ones that overlap neither each other nor a short written in the script are kept (`auto-1`, `auto-2`…).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `script.shorts` | `false` | `auto`: propose shorts (written marks work either way). |
+| `script.shorts_max` | 3 | At most this many proposals. |
+| `script.short_min` / `short_max` | 20 / 60 | Seconds a proposed short lasts (estimated from the sentences found). |
+
+### A voice memo instead of a recording
+
+The source of an `explainer` project may be sound only (a voice memo: `.m4a`, `.wav`, `.mp3`…). Nothing else
+changes: the analysis runs on a plain stand-in picture (no scenes, no face), the script is matched to the
+voice, and every shot of that source is drawn on the theme's own moving backdrop (the grid, circuit traces
+with pulses, blinking chips of the pack — what is behind every full-frame graphic) with the voice going
+through the same chain (`audio.clean_voice` included), so a stretch no graphic or clip covers is never black.
 
 ## The whole video with one command (`sve make`)
 
@@ -697,15 +774,17 @@ Some of the engine's judgments are closed questions asked by the pure domain cod
 | `title_span` | an illustrated card's title | 2–4 short spans of the sentence |
 | `is_comparison` / `bar_labels` | bars drawn from a sentence | yes / no · candidate names per bar |
 | `action` | an animated `scene` | the 13 actions + none |
-| `icon` | a card's illustration | the illustrations + none |
+| `icon` | a card's illustration | a shortlist: the things the sentence names, the rules' pick, the topic's illustration, none |
 | `card_type` | what the director draws | the candidate drawings |
 | `shorten` | a card too long to read | shorter versions |
 | `clip_shows` / `clip_lively` | b-roll near the thresholds | is it related, even loosely? · does it look clear? (yes / no, with a frame); only a sure "no" (≥ 0.85) turns a clip down, and the next candidate is fetched before any drawing (`cache/footage_rejected.json`) |
 
 Which stages may answer each question is `ROUTES` in `domain/decide.py`, set from a labeled set of 215
-real questions: the language model beat the rules on notes (words picked right 20 % → 75 %), titles
-(59 → 80 %) and shortened cards (50 → 60 %), so those go to it, and so do the b-roll questions; scene
-actions, illustrations, the kind of drawing and bars stayed better with the rules (82 / 60 / 74 %), and the
+real questions (re-measured 15 Nov): `label_words`, `title_span`, `shorten`, `clip_shows` and `clip_lively`
+go to the language model — it beat the rules on notes (verbs found, per word, 51 → 90 %; whole sentences
+16 → 74 %), titles (59 → 85 %) and shortened cards (50 → 60 %), and it sees the frame of a clip; the rest
+(`is_comparison`, `bar_labels`, `action`, `icon`, `card_type`) stay with the rules, which were right more
+often on scene actions, illustrations and the kind of drawing (87 / 60 / 87 % against 37 / 50 / 63 %). The
 zero-shot classifier helped nowhere, so today it is never loaded (it stays available for a route that needs
 it). With the routes measured, a 2-minute script asks the language model about 15 questions (≈20 s).
 

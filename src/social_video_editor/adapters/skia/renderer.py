@@ -18,11 +18,23 @@ from ...domain.graphics import kit
 from ...domain.graphics.paths import Path
 from ...domain.graphics.scene import Scene, Stage
 from ...domain.models import UserError
-from ..system.fonts import find_font_file
+from ..system.fonts import _lookup as _font_lookup  # exact lookup, no fallback (a public name would be nicer)
+from ..system.fonts import find_font_file, split_face
 
 MISSING = "skia-python is not installed (pip install \"social-video-editor[graphics]\")"
 GRAIN_PHASES = 4
 FALLBACK_FAMILIES = ("Inter", "Helvetica Neue", "Arial", "DejaVu Sans")
+MONO_ROLE = "mono"
+# monospace fonts tried after the theme's own "mono" (macOS, Linux, Windows): code never falls back to
+# a proportional font, whose columns would not line up
+MONO_FAMILIES = ("Menlo", "SF Mono", "Monaco", "DejaVuSansMono", "DejaVu Sans Mono", "consola", "Consolas",
+                 "LiberationMono-Regular", "Liberation Mono", "NotoSansMono-Regular", "Noto Sans Mono", "cour",
+                 "Courier New", "Courier")
+
+
+def font_file_exact(name: str) -> FilePath | None:
+    """A font file by path or file name (no extension), without falling back to another font."""
+    return _font_lookup(split_face(name)[0])
 
 
 def _rgba(color: str, alpha: float = 1.0) -> tuple[int, int, int, int]:
@@ -32,8 +44,11 @@ def _rgba(color: str, alpha: float = 1.0) -> tuple[int, int, int, int]:
 
 
 class FontBook:
-    """Theme font roles ("display", "number", "label") → typefaces. A role is a font file name or
-    path, or {"file": …, "wght": 900, "wdth": 72} for an instance of a variable font."""
+    """Theme font roles ("display", "number", "label", "mono") → typefaces. A role is a font file name
+    or path, {"file": …, "wght": 900, "wdth": 72} for an instance of a variable font, or a list of
+    those tried in order (the first one installed wins). A family name ("DejaVu Sans Mono") is
+    found by the system's font manager too. "mono" (code) never falls back to a proportional font:
+    after its own list come the usual monospace fonts of each system (MONO_FAMILIES)."""
 
     def __init__(self, skia, fonts: dict):
         self.skia, self.spec = skia, fonts or {}
@@ -50,18 +65,34 @@ class FontBook:
                     break
         return face
 
+    def candidates(self, role: str) -> list:
+        """What a role asks for, in order (a list, or one entry), plus the monospace fonts for "mono"."""
+        spec = self.spec.get(role)
+        asked = list(spec) if isinstance(spec, (list, tuple)) else ([spec] if spec else [])
+        return asked + (list(MONO_FAMILIES) if role == MONO_ROLE else [])
+
+    def _open(self, entry):
+        """A typeface for one entry (file name, path, family name or {"file", axes…}); None if missing."""
+        axes = {k: v for k, v in entry.items() if k != "file"} if isinstance(entry, dict) else {}
+        name = str((entry.get("file") if isinstance(entry, dict) else entry) or "").strip()
+        if not name:
+            return None
+        direct = FilePath(name).expanduser()
+        path = direct if direct.is_file() else font_file_exact(name)
+        face = self.skia.Typeface.MakeFromFile(str(path)) if path else None
+        if face is None and not direct.suffix:            # a family name the system knows ("Courier New")
+            face = self.skia.FontMgr.RefDefault().matchFamilyStyle(name, self.skia.FontStyle.Normal())
+        if face is not None and axes:
+            face = self._instance(face, axes) or face
+        return face
+
     def face(self, role: str):
         if role not in self._faces:
-            spec = self.spec.get(role)
-            axes = {k: v for k, v in spec.items() if k != "file"} if isinstance(spec, dict) else {}
-            name = spec.get("file") if isinstance(spec, dict) else spec
             face = None
-            if name:
-                direct = FilePath(str(name)).expanduser()
-                path = direct if direct.is_file() else find_font_file(str(name))[0]
-                face = self.skia.Typeface.MakeFromFile(str(path)) if path else None
-            if face is not None and axes:
-                face = self._instance(face, axes) or face
+            for entry in self.candidates(role):
+                face = self._open(entry)
+                if face is not None:
+                    break
             self._faces[role] = face or self._fallback()
         return self._faces[role]
 

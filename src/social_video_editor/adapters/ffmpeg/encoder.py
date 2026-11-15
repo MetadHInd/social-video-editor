@@ -75,8 +75,19 @@ FRAMES_STALL_SEC = 20.0     # encode_frames: an FFmpeg that printed an error and
 class FfmpegEncoder:
     # ── analysis copies ──────────────────────────────────────────────────────
     def make_proxy(self, info: dict, out: Path, hdr_white: float) -> Path:
-        """540-px SDR copy at 30 fps (no audio) to analyze quickly without touching the original."""
+        """540-px SDR copy at 30 fps (no audio) to analyze quickly without touching the original.
+        A source with no picture (a voice memo) gets a plain dark one as long as its sound, so the
+        analysis runs the same (no scenes, no face); its shots are drawn on the graphics' backdrop."""
         log(f"Proxy of {Path(info['path']).name} ({info['duration']:.0f} s)…")
+        if not info.get("width"):
+            tmp = _tmp_for(out)
+            try:
+                run(["ffmpeg", "-f", "lavfi", "-i", f"color=c=0x101114:s={PROXY_SHORT_SIDE}x{PROXY_SHORT_SIDE * 16 // 9}"
+                     f":r=30:d={max(float(info['duration']), 0.1):.3f}", "-c:v", "libx264", "-preset", "ultrafast",
+                     "-pix_fmt", "yuv420p", "-an", tmp])
+                return _publish(tmp, out)
+            finally:
+                tmp.unlink(missing_ok=True)
         if info["width"] <= info["height"]:
             w, h = PROXY_SHORT_SIDE, round(PROXY_SHORT_SIDE * info["height"] / info["width"] / 2) * 2
         else:
@@ -91,11 +102,13 @@ class FfmpegEncoder:
         finally:
             tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
-    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80) -> Path:
-        """The source's whole audio track with the background noise taken out (adapters/ffmpeg/voice.py)."""
+    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80,
+                    polish: dict | None = None) -> Path:
+        """The source's whole audio track with the background noise taken out (adapters/ffmpeg/voice.py);
+        polish (domain.voice_levels.polish_settings): optional leveler and lowered breaths, also whole."""
         from . import voice
 
-        return voice.clean_voice(info, out, voice.rnnoise_model(), mix, highpass)
+        return voice.clean_voice(info, out, voice.rnnoise_model(), mix, highpass, polish)
 
     def extract_wav(self, info: dict, out: Path) -> Path:
         run(["ffmpeg", "-i", info["path"], "-map", f"0:{info['audio_index']}", "-ac", "1", "-ar", "16000",
@@ -286,7 +299,19 @@ class FfmpegEncoder:
         the same transition (from the tail of the previous segment), so the chunks join with plain
         cuts: the final pass reads them one after another (concat demuxer, one open input), and every
         transition looks the same as in a single graph.
+        music.relative_to_voice: the music is first written as a bed measured against the voice of the
+        segments (voice_mix.music_bed) and mixed as it is; the bed file is removed afterwards.
         """
+        if music and has_voice and (cfg.get("music") or {}).get("relative_to_voice") and not cfg["music"].get("_bed"):
+            from . import voice_mix
+
+            bed = voice_mix.music_bed(segments, segment_files, Path(music), cfg, total, Path(workdir))
+            if bed is not None:
+                try:
+                    return self.compose(segments, segment_files, layer, bed[0], sfx, bed[1], W, H, total, has_voice,
+                                        draft, workdir, out, stems_dir, cutaways)
+                finally:
+                    bed[0].unlink(missing_ok=True)
         if cfg.get("slideshow") or should_chunk(len(segments), total, cfg):
             # audio of every segment exactly as long as its picture (else A/V drift over many crossfades)
             segments = [{**s, "exact_audio": True} for s in segments]

@@ -14,7 +14,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from ...domain.text_layout import Caption, Card, CardState, Layer, resolve_style, text_scale, text_width
+from ...domain import check
+from ...domain.text_layout import POP, Caption, Card, CardState, Layer, resolve_style, text_scale, text_width
 from ...domain.text_units import clean
 from ..ffmpeg.escape import concat_path
 from . import rich_text as rt
@@ -70,6 +71,21 @@ def subtitle_image(words: list[str], active: int, style: dict, W: float) -> Imag
         shadow.alpha_composite(img)
         return shadow
     return img
+
+
+def subtitle_y(im: Image.Image, sub: dict, cfg: dict, W: int, H: int, pop: bool) -> float:
+    """Where a subtitle image is centered: subtitles.y of the height; in a landscape frame raised, if
+    needed, so its letters (popped in, at their largest) end above the bottom of the safe zone `sve
+    check` measures (the vertical layouts set their own band and are left as they are)."""
+    y = float(sub["y"]) * H
+    if W <= H:
+        return y
+    bb = im.getbbox()
+    if bb is None:
+        return y
+    bottom = check.safe_zone(W, H, check.thresholds(cfg.get("check")))["bottom"] * H
+    below = (bb[3] - im.height / 2) * (max(k for _, k in POP) if pop else 1.0)
+    return min(y, bottom - below - 1)
 
 
 class TextBlock:
@@ -201,8 +217,8 @@ class PillowTextRenderer:
                     continue
                 im = subtitle_image(words, k, sub, text_width(W, H))
                 key = f"s{gi}_{k}"
-                elements.append(Caption(key, start, end, W / 2, float(sub["y"]) * H,
-                                        k == 0 and sub.get("animation") == "pop"))
+                pop = k == 0 and sub.get("animation") == "pop"
+                elements.append(Caption(key, start, end, W / 2, subtitle_y(im, sub, cfg, W, H, pop), pop))
                 painters[key] = lambda state, im=im: im
         for ti, tx in enumerate(texts):
             card, image = build_card(tx, resolve_style(tx, styles, scale), W, H, default_font, ti)

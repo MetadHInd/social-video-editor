@@ -5,6 +5,7 @@
   sve thumbs  <project> [--source 0 --start 60 --end 90 --every 1]
   sve plan    <project> [--force]
   sve render  <project> [--draft] [--profile youtube|landscape|horizontal] [--no-music]
+  sve render  <project> --short NAME | --shorts   (a short of the script: [short NAME] … [/short]; vertical)
   sve build   <project> [--draft]          (analyze + thumbs + plan if missing + render)
   sve view    <project>                    (plan and timeline summary)
   sve report  <project> [--json] [--full]  (one-screen project report, what to do first; reads only files on disk)
@@ -21,7 +22,7 @@
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
 productos, mejorar, grafico, tomas, hacer and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
---hasta, --cada, --simular, --sin-usar, --si, --completo.
+--hasta, --cada, --simular, --sin-usar, --si, --completo, --corto, --cortos.
 """
 from __future__ import annotations
 
@@ -73,7 +74,14 @@ def cmd_plan(svc, a):
 
 def cmd_render(svc, a):
     p = _project(svc, a.project)
-    render(svc, p, load_plan(svc, p), draft=a.draft, profile=canonical_profile(profile_name(a.profile)), no_music=a.no_music)
+    profile = canonical_profile(profile_name(a.profile))
+    if getattr(a, "short", None) or getattr(a, "shorts", False):
+        from .application.render import render_shorts
+
+        render_shorts(svc, p, load_plan(svc, p), None if a.shorts else a.short, draft=a.draft, profile=profile,
+                      no_music=a.no_music)
+        return
+    render(svc, p, load_plan(svc, p), draft=a.draft, profile=profile, no_music=a.no_music)
 
 
 def cmd_build(svc, a):
@@ -127,6 +135,7 @@ def cmd_enhance(svc, a):
 def cmd_graphic(svc, a):
     from .adapters.files.workspace import workspace
     from .application import graphic
+    from .application.cutaways import project_files
     from .domain.models import UserError
 
     if a.project:
@@ -140,11 +149,13 @@ def cmd_graphic(svc, a):
     if a.proof:
         paths = graphic.proof(svc, cfg, out / "proof", video=a.video)
     elif a.cue:
-        paths = graphic.preview(svc, cfg, legacy_es_graphic(graphic.cue_spec(a.cue)), out, name="cue")
+        spec = legacy_es_graphic(graphic.cue_spec(a.cue))
+        paths = graphic.preview(svc, cfg, project_files(svc, project and project.dir, spec), out, name="cue")
     elif a.shot is not None:
         if project is None:
             raise UserError("--shot needs a project (sve graphic <project> --shot N)")
-        paths = graphic.preview(svc, cfg, graphic.plan_graphic(load_plan(svc, project), a.shot), out, name=f"shot{a.shot}")
+        spec = project_files(svc, project.dir, graphic.plan_graphic(load_plan(svc, project), a.shot))
+        paths = graphic.preview(svc, cfg, spec, out, name=f"shot{a.shot}")
     else:
         raise UserError("Say what to draw: --proof, --shot N or --cue 'bars data=\"A:1, B:2\"'")
     for p in paths:
@@ -210,6 +221,10 @@ def parser() -> argparse.ArgumentParser:
         s.add_argument("--draft", "--borrador", action="store_true")
         s.add_argument("--profile", "--perfil", choices=PROFILE_CHOICES)
         s.add_argument("--no-music", "--sin-musica", action="store_true", dest="no_music")
+        if name == "render":
+            s.add_argument("--short", "--corto", action="append", metavar="NAME",
+                           help="render only this short of the plan ([short NAME] … [/short]); repeatable")
+            s.add_argument("--shorts", "--cortos", action="store_true", help="render every short of the plan")
         s.set_defaults(f=fn)
     s = sub.add_parser("view", aliases=["ver"], help="plan and timeline summary")
     s.add_argument("project")
