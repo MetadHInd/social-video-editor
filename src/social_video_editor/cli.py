@@ -7,7 +7,7 @@
   sve render  <project> [--draft] [--profile youtube|landscape|horizontal] [--no-music]
   sve build   <project> [--draft]          (analyze + thumbs + plan if missing + render)
   sve view    <project>                    (plan and timeline summary)
-  sve report  <project> [--json]           (one-screen project report; reads only files on disk)
+  sve report  <project> [--json] [--full]  (one-screen project report, what to do first; reads only files on disk)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
@@ -15,12 +15,13 @@
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
   sve graphic [<project>] --proof | --shot N | --cue '…'   (preview animated graphics; --pack NAME, --video)
   sve broll   <project> [--dry-run] [--force]   (fetches a clip for every [broll query="…"] cue → footage/ + credits.json)
+  sve broll   <project> --unused [--yes]        (clips no plan uses + the search cache, with sizes; --yes deletes them)
   sve make    <project> [--final] [--force]       (everything: plan if missing, footage, render, review)
   sve doctor                               (checks FFmpeg, fonts, models and optional parts)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
 productos, mejorar, grafico, tomas, hacer and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
---hasta, --cada, --simular.
+--hasta, --cada, --simular, --sin-usar, --si, --completo.
 """
 from __future__ import annotations
 
@@ -89,7 +90,7 @@ def cmd_view(svc, a):
 
 def cmd_report(svc, a):
     r = build_report(svc, _project(svc, a.project))
-    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r)))
+    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r, full=a.full)))
 
 
 def cmd_recipes(svc, a):
@@ -108,6 +109,8 @@ def cmd_check(svc, a):
     from .domain.check import report_lines
 
     result, notes = check_version(svc, a.project, a.version, a.out)
+    if not a.version:
+        print(f"Checking the latest rendered version: {result['version']} (another one: --version vN)")
     print("\n".join(report_lines(result, notes)))
 
 
@@ -151,6 +154,15 @@ def cmd_graphic(svc, a):
 def cmd_broll(svc, a):
     from .application.broll import broll_lines, fetch_broll
 
+    if a.unused:
+        from .application.broll_unused import unused_footage, unused_lines
+
+        print("\n".join(unused_lines(unused_footage(svc, _project(svc, a.project), delete=a.yes))))
+        return
+    if a.yes:
+        from .domain.models import UserError
+
+        raise UserError("--yes only goes with --unused (sve broll <project> --unused --yes)")
     print("\n".join(broll_lines(fetch_broll(svc, _project(svc, a.project), dry_run=a.dry_run, force=a.force))))
 
 
@@ -205,6 +217,7 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("report", aliases=["informe"], help="one-screen project report (for people and AI agents)")
     s.add_argument("project")
     s.add_argument("--json", action="store_true", help="machine-readable output")
+    s.add_argument("--full", "--completo", action="store_true", help="every line of every section (not collapsed)")
     s.set_defaults(f=cmd_report)
     sub.add_parser("recipes", aliases=["recetas"], help="list recipes").set_defaults(f=cmd_recipes)
     s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")
@@ -212,7 +225,7 @@ def parser() -> argparse.ArgumentParser:
     s.set_defaults(f=cmd_music)
     s = sub.add_parser("check", aliases=["verificar"], help="automatic review of a render (check.json + listen/)")
     s.add_argument("project")
-    s.add_argument("--version", dest="version", help="version folder (default: latest vN)")
+    s.add_argument("--version", dest="version", help="version folder (default: the latest rendered one, draft included)")
     s.add_argument("--out", "--salida", dest="out", help="write check.json and snippets here instead")
     s.set_defaults(f=cmd_check)
     s = sub.add_parser("products", aliases=["productos"], help="products recognized by the vision model")
@@ -236,6 +249,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--dry-run", "--simular", action="store_true", dest="dry_run",
                    help="list what would be fetched; download nothing, change nothing")
     s.add_argument("--force", "--forzar", action="store_true", help="fetch again the cutaways that already have a clip")
+    s.add_argument("--unused", "--sin-usar", action="store_true",
+                   help="list the clips no plan uses and the search cache, with their size (deletes nothing)")
+    s.add_argument("--yes", "--si", action="store_true", help="with --unused: delete them")
     s.set_defaults(f=cmd_broll)
     s = sub.add_parser("make", aliases=["hacer"], help="the whole video: plan if missing, footage, render, review")
     s.add_argument("project")

@@ -486,7 +486,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
         summary["cutaways"] = cuts.details
         summary["cutaway_warnings"] = cuts.warnings
     if cuts.credits:                      # third-party footage: who to credit in the video's description
-        svc.projects.write_text(vdir / CREDITS_FILE, credits_text(cuts.credits))
+        svc.projects.write_text(vdir / CREDITS_FILE, credits_text(cuts.credits, str(cfg.get("language", "es"))))
         summary["credits"] = CREDITS_FILE
     svc.projects.write_json(vdir / "summary.json", summary)
     log(f"Done → {final}  ({total:.1f} s, {lufs.get('after_lufs', '?')} LUFS, "

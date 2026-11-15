@@ -96,6 +96,9 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--cada` | `--every` |
 | `--salida` | `--out` |
 | `--simular` | `--dry-run` |
+| `--sin-usar` | `--unused` |
+| `--si` | `--yes` |
+| `--completo` | `--full` |
 
 ## Recipes and project settings
 
@@ -656,6 +659,12 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `duracion_min` | `min_duration` |
 | `duracion_max` | `max_duration` |
 | `tono_auto` | `auto_tone` |
+| `omitir_duplicadas` | `skip_duplicates` |
+| `omitir_borrosas` | `skip_blurred` |
+| `segundos_duplicadas` | `duplicate_seconds` |
+| `diferencia_duplicadas` | `duplicate_difference` |
+| `nitidez_min` | `min_sharpness` |
+| `parte_borrosa` | `blur_share` |
 
 `config.photo.transition` values use the same table as `config.hook.transition`.
 
@@ -736,6 +745,12 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `movimiento` | `motion` |
 | `cantidad_movimiento` | `motion_amount` |
 | `tono_auto` | `auto_tone` |
+| `omitir_duplicadas` | `skip_duplicates` |
+| `omitir_borrosas` | `skip_blurred` |
+| `segundos_duplicadas` | `duplicate_seconds` |
+| `diferencia_duplicadas` | `duplicate_difference` |
+| `nitidez_min` | `min_sharpness` |
+| `parte_borrosa` | `blur_share` |
 
 Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GRAPHICS.md](GRAPHICS.md)):
 

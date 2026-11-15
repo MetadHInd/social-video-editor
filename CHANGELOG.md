@@ -170,10 +170,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   a progress bar fills), `share` (one stream split among many), `queue` (a line waits at a gate). `freeze` now
   has frost ferns, an icy glaze, icicles that drip and real snowflakes; `store` ends with the thing kept beside
   what was stored before and the place it left marked.
+- `sve broll <project> --unused` (`--sin-usar`) lists the clips no plan uses any more and the search cache, with
+  their size; `--yes` (`--si`) deletes them (clip, record, cached frame). A clip a plan names is never deleted.
+- `sve report` starts with `TO DO`: what the engine could not settle on its own (decisions left by `sve make`, a
+  failed or missing check, b-roll to fetch, unused clips, sentences not recorded, sources not analyzed…), each with
+  the command that resolves it; long sections collapse to their first items and `… N more (--full)`. New
+  `--full` (`--completo`); `--json` keeps everything and adds `todo` and `footage`. The latest version is a draft
+  when only drafts were rendered since the last final one (it said "none yet" for projects made with `sve make`).
+  Measured on synthetic projects of each recipe: unboxing 24 → 22 lines, haul 26 → 21, talk 19 → 15,
+  slideshow 9 → 12, a busy explainer 62 → 50.
+- Slideshows: `photo.skip_duplicates` (`omitir_duplicadas`) shows only the sharpest of the photos that show the same
+  scene in a row, and `photo.skip_blurred` (`omitir_borrosas`) leaves out clearly blurred ones (sharpness and lost
+  fine detail, measured once per photo in `cache/photo_quality.json`). Both off by default; what was left out and
+  why is in `plan.json` (`skipped_photos`), the log and `sve report`.
+- Tests: the b-roll and check tests that render tiny synthetic videos use software x264 (`tests/software_encoder.py`;
+  the hardware path keeps its own tests), about a quarter faster and steady when the GPU is busy.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
   laid on the frame grid and hold their last frame to the end of their window.
+- `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included
+  (it failed with "Version folder not found: …/v1" when only drafts existed), skips failed renders and says
+  which version it checked.
+- `credits.txt` (the video's description) is written in the project's language (Spanish by default) and the
+  author is shortened (a commons' "Name derivative work of / …" keeps the name); `credits.json` keeps it whole.
 
 ## [0.5.1] - 2026-11-04
 

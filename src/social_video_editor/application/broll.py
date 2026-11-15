@@ -33,7 +33,7 @@ from .decide import run_decided
 from .products import vision_available
 from .services import Services
 
-SEARCH_CACHE = "footage_search.json"        # in the project cache: {key: {"at": epoch, "candidates": [...]}}
+SEARCH_CACHE = footage.SEARCH_CACHE
 SEARCH_TTL = 24 * 3600                      # stock libraries ask for search answers to be cached a day
 PREVIEWS = "footage_preview"                # in the project cache: small copies of long videos, deleted after use
 SHOWN = 3                                   # candidates listed per cue by --dry-run
@@ -51,7 +51,7 @@ EXTRA_TRIES = 2                             # more downloads per source when can
 REJECTED = "footage_rejected.json"     # in the project cache: [source, id] of clips the language model turned down
 DROP_SURE = 0.85                        # a clip is turned down only when the model is this sure it is bad
 BORDER = 0.03                               # a clip this close to broll.min_match / min_interest passed only just
-FRAMES = "footage_frames"                   # in the project cache: the frame the language model looks at
+FRAMES = footage.FRAMES
 
 
 def allowed_brands(svc: Services, cfg: dict) -> list[dict]:

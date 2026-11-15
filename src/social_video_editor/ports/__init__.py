@@ -172,6 +172,9 @@ class ProjectRepository(Protocol):
     def variant_folder(self, project: Project, suffix: str) -> Path: ...
     def last_version(self, project: Project) -> Path | None: ...
     def versions(self, project: Project) -> list[Path]: ...
+    def latest_rendered(self, folder: str | Path) -> Path | None:
+        """The most recently rendered version folder, drafts and variants included (failed renders skipped)."""
+        ...
     def load_version(self, folder: str | Path, version: str | None = None) -> dict:
         """A rendered version (read only): {"dir", "name", "video", "summary", "plan", "config", "stems"}."""
 
@@ -197,6 +200,9 @@ class ProjectRepository(Protocol):
     def list_files(self, folder: Path) -> list[Path]:
         """Files (not folders) directly inside `folder`; [] if it does not exist."""
 
+    def file_size(self, path: Path) -> int:
+        """Bytes of a file, or of everything inside a folder; 0 when it does not exist."""
+        ...
     def file_hash(self, path: Path) -> str | None:
         """SHA-256 of a file's content (hex), None if it does not exist."""
 

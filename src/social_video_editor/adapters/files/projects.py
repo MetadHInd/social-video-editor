@@ -8,6 +8,7 @@ import shutil
 import time
 from pathlib import Path
 
+from ...domain.config import labels
 from ...domain.models import Project, UserError
 from ...log import log
 from . import legacy_es
@@ -118,19 +119,41 @@ class YamlProjectRepository:
             return (int(digits), p.name) if digits else (-1, p.name)
         return sorted((p for p in project.dir.glob("v*") if p.is_dir() and p.name[1:2].isdigit()), key=key)
 
+    def latest_rendered(self, folder: str | Path) -> Path | None:
+        """The most recently rendered version folder, draft and variants included (v3Borrador, v2NoMusic…).
+
+        Failed renders (v3_failed / v3_fallida) are skipped; a folder with a video beats one without.
+        Order: the version number, then when its summary (or its video) was written: a draft rendered
+        after v3 is v3Borrador (same number), and a later final render is v4."""
+        failed = tuple(lb["failed"] for lb in (labels("es"), labels("en")))
+
+        def has_video(p: Path) -> bool:
+            return any(not v.name.startswith("_") for v in p.glob("*.mp4"))
+
+        def written(p: Path) -> float:
+            for f in (p / "summary.json", p / legacy_es.FILES["summary.json"], *sorted(p.glob("*.mp4"))):
+                if f.exists():
+                    return f.stat().st_mtime
+            return p.stat().st_mtime
+
+        def number(p: Path) -> int:
+            return int("".join(itertools.takewhile(str.isdigit, p.name[1:])))
+
+        vs = [p for p in Path(folder).glob("v*") if p.is_dir() and p.name[1:2].isdigit()
+              and not any(f in p.name for f in failed)]
+        if not vs:
+            return None
+        return max(vs, key=lambda p: (has_video(p), number(p), written(p), p.name))
+
     def load_version(self, folder: str | Path, version: str | None = None) -> dict:
         """A rendered version, read only: {"dir", "name", "video", "summary", "plan", "config", "stems"}.
 
-        version=None → the latest main version. Legacy Spanish files (resumen.json, plan_usado.json,
+        version=None → the latest rendered version, draft or variant included (`latest_rendered`). Legacy Spanish files (resumen.json, plan_usado.json,
         config_usada.json) are translated; the config is completed with the base recipe defaults.
         Missing files give empty dicts; "stems" maps original/music/sfx to the wavs that exist.
         """
         d = Path(folder)
-        if version:
-            vdir = d / version
-        else:
-            vs = sorted((p for p in d.glob("v*") if p.is_dir() and p.name[1:].isdigit()), key=lambda p: int(p.name[1:]))
-            vdir = vs[-1] if vs else d / "v1"
+        vdir = d / version if version else (self.latest_rendered(d) or d / "v1")
         if not vdir.is_dir():
             raise UserError(f"Version folder not found: {vdir}")
 
@@ -202,6 +225,13 @@ class YamlProjectRepository:
 
     def exists(self, path: Path) -> bool:
         return Path(path).exists()
+
+    def file_size(self, path: Path) -> int:
+        """Bytes of a file, or of everything inside a folder; 0 when it does not exist."""
+        path = Path(path)
+        if path.is_dir():
+            return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+        return path.stat().st_size if path.is_file() else 0
 
     def file_hash(self, path: Path) -> str | None:
         """SHA-256 of a file's content, None if it is not a file."""

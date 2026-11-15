@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from conftest import requires_ffmpeg
+from software_encoder import software_encoder  # noqa: F401 (autouse: software x264)
 from social_video_editor import cli
 from social_video_editor.adapters.files import legacy_es
 from social_video_editor.adapters.files.packs import FilePackRepository
@@ -131,10 +132,25 @@ def test_record_and_credits():
     assert fg.short_author("ZDF/Terra X/ T. Schultes") == "ZDF"
     assert fg.short_author("Philippine Government - Radio Television Malacañang") == "Philippine Government"
     assert fg.short_author("A very long collective name of many people") == "A very long collective…"
-    assert fg.credits_text([stock, brand, stock]) == (
+    assert fg.credits_text([stock, brand, stock], "en") == (
         "Video: Ana / Pexels, Pexels License — https://example.org/a\n"
         "Video: Acme (official channel) — https://video.example/watch?v=1\n")
+    # in the project's language (Spanish by default, as everywhere): it goes into the video's description
+    assert fg.credits_text([stock, brand, stock]) == fg.credits_text([stock, brand], "es") == (
+        "Video: Ana / Pexels, Licencia de Pexels — https://example.org/a\n"
+        "Video: Acme (canal oficial) — https://video.example/watch?v=1\n")
     assert fg.credits_text([]) == ""
+    # a commons' long author string keeps the name; the record keeps it whole
+    commons = {"source": "wikimedia", "author": "Miguel.Angel.HMA Obra derivada de / Derivative work: 2022 Simon Eberl",
+               "license": "CC BY-SA 4.0", "url": "https://commons.example/f"}
+    assert fg.credit_line(commons) == "Video: Miguel.Angel.HMA / Wikimedia Commons, CC BY-SA 4.0 — https://commons.example/f"
+    assert fg.credit_line({**commons, "author": "", "license": "Public domain"}) == (
+        "Video: autor desconocido / Wikimedia Commons, Dominio público — https://commons.example/f")
+    assert fg.credit_line({**commons, "author": ""}, "en").startswith("Video: unknown author / Wikimedia Commons, CC BY-SA")
+    long_name = "The Collective of Very Many Volunteer Camera People of a Big City"
+    assert fg.credit_line({**commons, "author": long_name}, "en") == (
+        "Video: The Collective of Very Many Volunteer Camera… / Wikimedia Commons, CC BY-SA 4.0 — https://commons.example/f")
+    assert fg.credit_line({**brand, "brand": ""}, "es").startswith("Video: Acme TV (canal oficial)")
     assert fg.file_name({"source": "wikimedia", "id": "9/8", "title": "Cómo viaja un mensaje — parte 2 (final)"}, ".webm") == \
         "wikimedia_98_como_viaja_un_mensaje.webm"
 
@@ -547,7 +563,7 @@ def test_broll_from_cue_to_video_with_record_credits_and_checks(workspace, monke
         "red", "green", "blue", "red"]
     assert (vdir / "credits.txt").read_text(encoding="utf-8") == (
         "Video: Ana / Stock, Stock License — https://stock.example/11\n"
-        "Video: Acme (official channel) — https://video.example/aa\n")
+        "Video: Acme (canal oficial) — https://video.example/aa\n")           # language: es
     capsys.readouterr()
     main(["check", "demo", "--version", vdir.name])
     checked = json.loads((vdir / "check.json").read_text(encoding="utf-8"))
