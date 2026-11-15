@@ -48,6 +48,7 @@ from ..domain.timebase import mmss
 from ..domain.check import thin_keystrokes, typing_bursts
 from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
+from ..domain.voice_levels import polish_settings
 from ..log import log
 from .analyze import prepare_sources
 from .cutaways import files_signature, project_files, render_cutaways
@@ -60,6 +61,7 @@ from .subtitles import render_caption_subtitles
 from .subtitles import wanted as caption_wanted
 
 SEGMENT_VERSION = 7
+MUSIC_LEVELS_FILE = "music_levels.json"     # written by the music mix in the version folder (voice_mix.LEVELS_FILE)
 CLEAN_VOICE_VERSION = 1     # change to clean every recording again (adapters/ffmpeg/voice.py)
 SOURCE_COLOR_FRAMES = 24      # frames measured across a whole recording (color.per_source)
 STEMS_MAX_SEC = 600         # longer renders write no stems by default (≈ 0.7 GB per stem at 60 min)
@@ -92,6 +94,7 @@ class ShotRenderer:
         self._claims_guard = threading.Lock()
         self._stop = threading.Event()                # set when a pooled shot fails: the pending ones are skipped
         self._theme: dict | None = None               # graphics theme, built on the first graphic shot
+        self.voices: dict[str, Path] = {}             # recording name → its cleaned voice (audio.clean_voice)
 
     def render(self, waves: list[list[int]]) -> list[Path]:
         """Renders the shots wave by wave (Sequence.render_waves: a wave only needs earlier waves).
@@ -175,7 +178,7 @@ class ShotRenderer:
             if self.svc.cache.has(path):
                 return path
             stats = self._color_stats(shot.source, info, d)
-            clean = self._clean_voice(info)
+            clean = self._clean_voice(info, an)
             return self.svc.encoder.encode_shot(d, {**info, "clean_audio": clean} if clean else info, self.cfg, stats,
                                                 has_voice(an, d["start"], d["end"]), self.W, self.H, self.draft, path)
 
@@ -184,7 +187,7 @@ class ShotRenderer:
         shot, over the theme's moving backdrop (domain/backdrop.py) instead of a black frame."""
         if self._theme is None:
             self._theme = graphics_theme(self.svc, self.cfg)
-        clean = self._clean_voice(info)
+        clean = self._clean_voice(info, an)
         source = {**info, "path": str(clean), "audio_index": 0, "has_audio": True} if clean else info
         audio = {"info": source, "start": d["start"], "voice": has_voice(an, d["start"], d["end"]), "cfg": self.cfg,
                  "shot": {k: d.get(k) for k in ("speed", "volume_db", "mute") if d.get(k) is not None},
@@ -203,19 +206,24 @@ class ShotRenderer:
             return self.svc.encoder.encode_frames(self.svc.graphics.frames(scene, self.fps, n), n, self.W, self.H,
                                                   self.fps, path, audio, draft=self.draft)
 
-    def _clean_voice(self, info: dict) -> Path | None:
+    def _clean_voice(self, info: dict, an: dict | None = None) -> Path | None:
         """audio.clean_voice: the recording's whole audio cleaned once (cached), so every shot takes its
-        piece of the same clean track and the noise reduction never restarts at a cut."""
+        piece of the same clean track and the noise reduction never restarts at a cut. audio.breaths /
+        audio.voice_leveler are applied in the same whole-recording pass (the words keep the breaths
+        pass off the speech)."""
         a = self.cfg.get("audio") or {}
         if not a.get("clean_voice") or not info.get("has_audio") or not a.get("use_original", True):
             return None
         mix, highpass = float(a.get("clean_mix", 1.0)), int(a.get("highpass") or 0)
-        key = hashlib.sha1(json.dumps([info["path"], info.get("id"), mix, highpass, CLEAN_VOICE_VERSION]).encode())
+        polish = polish_settings(a, (an or {}).get("words"))
+        key = hashlib.sha1(json.dumps([info["path"], info.get("id"), mix, highpass, CLEAN_VOICE_VERSION]
+                                      + ([polish] if polish else [])).encode())
         path = self.svc.cache.file(self.cache, f"voice/{info.get('id', 'source')}_{key.hexdigest()[:10]}.wav")
         with self._claim(path):
             if not self.svc.cache.has(path):
                 log(f"Voice: cleaning the background noise of {Path(info['path']).name} (once, whole recording)…")
-                self.svc.encoder.clean_voice(info, path, mix, highpass)
+                self.svc.encoder.clean_voice(info, path, mix, highpass, **({"polish": polish} if polish else {}))
+            self.voices[Path(info["path"]).name] = path
         return path
 
     def _color_stats(self, source: int, info: dict, d: dict) -> dict:
@@ -496,7 +504,8 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     total = tl.total
     log(f"Timeline: {len(tl)} shots, {total:.1f} s, {W}×{H}{' (draft)' if draft else ''}")
 
-    segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs, project.dir).render(waves)
+    shots = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs, project.dir)
+    segments = shots.render(waves)
     cuts = render_cutaways(svc, project, cfg, plan, tl, W, H, draft, infos, analyses)
 
     # Main version = new number (v4). Variants = number of the latest main version + suffix
@@ -566,6 +575,13 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     if plan.get("cutaways"):
         summary["cutaways"] = cuts.details
         summary["cutaway_warnings"] = cuts.warnings
+    breaths = {name: rec for name, wav in sorted(shots.voices.items())
+               if isinstance(rec := svc.projects.read_json(wav.with_suffix(".json")), dict)}
+    if breaths:                           # audio.breaths: what the whole-recording voice pass lowered, per recording
+        summary["breaths"] = breaths
+    levels = svc.projects.read_json(vdir / MUSIC_LEVELS_FILE)
+    if levels:                            # music.relative_to_voice: the levels measured (adapters/ffmpeg/voice_mix.py)
+        summary["music_levels"] = levels
     if cuts.credits:                      # third-party footage: who to credit in the video's description
         svc.projects.write_text(vdir / CREDITS_FILE, credits_text(cuts.credits, str(cfg.get("language", "es"))))
         summary["credits"] = CREDITS_FILE
