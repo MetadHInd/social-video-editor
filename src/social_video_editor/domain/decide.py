@@ -50,8 +50,12 @@ ROUTES: dict[str, tuple[str, ...]] = {
     "label_words": ("llm",),            # which words of a sentence are conjugated verbs (never a note)
     "title_span": ("llm",),             # which part of a sentence reads well as a card title
     "shorten": ("llm",),                # which shorter version of a card's text still says it
-    "clip_shows": ("llm",),             # does this picture show what is said? (with the picture; not measured yet)
-    "clip_lively": ("llm",),            # does this picture show something happening? (with the picture; not measured yet)
+    "clip_shows": ("llm",),             # is this picture related to what is said? (with the picture; 43 labeled
+                                        # frame–sentence pairs: kept / dropped right 29 → 40, no good clip dropped)
+    "clip_lively": ("llm",),            # does this picture look clear? (with the picture; 42 labeled frames, 12 of
+                                        # them darkened or blurred copies: 28 → 41, no good clip dropped)
+    "product_name": ("llm",),           # which of CLIP's names fits the product in its best frame (with the picture;
+                                        # unboxing set: exact names 8 → 10 of 16 over CLIP on the same frames)
     "is_comparison": (),                # are these figures set against each other?
     "bar_labels": (),                   # the name of each bar
     "action": (),                       # what an illustrated scene shows the thing doing

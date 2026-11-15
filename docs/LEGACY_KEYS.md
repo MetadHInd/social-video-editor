@@ -660,6 +660,16 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `apertura_max` | `opening_max` |
 | `sin_empaque` | `unpacked` |
 | `empaques` | `packaging` |
+| `nombres` | `naming` |
+| `fotogramas_nombre` | `name_frames` |
+| `candidatos_nombre` | `name_candidates` |
+
+### Values of `config.vision.naming`
+
+| Spanish | English |
+|---|---|
+| `fotogramas` | `frames` |
+| `decididor` | `decider` |
 
 ### Keys of `config.vision.weights`
 

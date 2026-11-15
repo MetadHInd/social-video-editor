@@ -242,6 +242,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   A word that says again what a sure note shows (its plural, the same illustration) is not asked about.
 - `domain/flow.py`: a sentence describing a flow ("A manda B a C", "pasa de X a Y y luego a Z", "goes from X
   to Y") gives the ordered stops of a diagram (not wired to the director yet).
+- `vision.naming` (default `clip`: names exactly as before): `frames` names each product from its frames
+  with the highest product score, against the packaged vocabulary embedded with the image model's own text
+  encoder; `decider` then lets the decider's local language model look at the best frame and pick among
+  CLIP's `name_candidates` best names (new decider topic `product_name`; asking for it is enough, without
+  the language model the CLIP names stand). On a labeled 8-minute unboxing (16 products): exact names
+  3 → 8 (`frames`) → 10 (`decider`; 12 counting the right category), ≈4–5 s per product the first time,
+  cached after. `products.json` keeps its format. Recommended for the unboxing and haul recipes when Ollama
+  is installed.
+- The decider's language model receives pictures larger than 960 pixels scaled down (a full-HD b-roll frame
+  took ≈16 s a question).
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now

@@ -272,6 +272,10 @@ class VisualDetector(Protocol):
     def text_embeddings(self, texts: list[str], settings: dict):
         """Embeddings [len(texts), d] of texts in any supported language."""
 
+    def english_text_embeddings(self, texts: list[str], settings: dict):
+        """Embeddings [len(texts), d] of English texts with the image model's own text encoder (more
+        precise than the multilingual one, English only), in the same space as the frames."""
+
     def image_embeddings(self, images: list, settings: dict):
         """Embeddings [len(images), d] of RGB pictures (H×W×3 arrays), e.g. parts of a frame."""
 

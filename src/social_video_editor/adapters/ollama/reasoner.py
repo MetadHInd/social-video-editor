@@ -16,6 +16,10 @@ confidence is None (the caller treats it as `llm_min`).
 Sampling is greedy with no repetition penalties: some models ship a presence penalty, which would
 count against the option letters already written in the prompt and change the answer.
 
+A picture larger than IMAGE_MAX_SIDE pixels on its longest side is sent scaled down (a full-HD frame took
+the model ≈16 s a question, the same frame at 960 pixels ≈4 s, with the same answers on the b-roll
+questions compared).
+
 Nothing here ever raises for a server or model failure: choose() returns ([], None) and the rules'
 answer stands.
 """
@@ -38,6 +42,7 @@ INSTALL_HINT = "brew install ollama && brew services start ollama"
 TAGS_TIMEOUT = 0.5          # seconds: a local server answers at once
 READY_TTL = 5.0             # seconds a ready() answer is reused
 RELEASE_TIMEOUT = 10
+IMAGE_MAX_SIDE = 960        # pixels: larger pictures are scaled down before they are sent
 KEEP_ALIVE = "2m"           # between the questions of one batch; release() unloads at the end
 # greedy, and no penalty for letters that are already in the prompt (a model's own defaults may set one)
 OPTIONS = {"temperature": 0, "presence_penalty": 0, "frequency_penalty": 0, "repeat_penalty": 1,
@@ -140,6 +145,27 @@ def confidence(logprobs, chosen: list[tuple[str, int]], keys: list[str], many: b
         return None
 
 
+def picture(path: Path, max_side: int = IMAGE_MAX_SIDE) -> str:
+    """The picture as base64 for the request: as it is, or scaled down (JPEG) when it is larger than
+    `max_side` on its longest side; a file Pillow cannot read is sent as it is."""
+    raw = Path(path).read_bytes()
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(raw)) as im:
+            if max(im.size) > max_side:
+                small = im.convert("RGB")
+                small.thumbnail((max_side, max_side))
+                out = io.BytesIO()
+                small.save(out, "JPEG", quality=90)
+                raw = out.getvalue()
+    except (OSError, ValueError, ImportError):
+        pass
+    return base64.b64encode(raw).decode("ascii")
+
+
 class OllamaReasoner:
     def __init__(self):
         self._ready: dict[tuple[str, str], tuple[float, str | None]] = {}
@@ -191,7 +217,7 @@ class OllamaReasoner:
     def _body(self, model: str, prompt: str, keys: list[str], many: bool, image: Path | None) -> dict:
         message: dict = {"role": "user", "content": prompt}
         if image is not None:
-            message["images"] = [base64.b64encode(Path(image).read_bytes()).decode("ascii")]
+            message["images"] = [picture(image)]
         body = {"model": model, "messages": [message], "stream": False, "format": schema(keys, many),
                 "think": False, "options": dict(OPTIONS), "keep_alive": KEEP_ALIVE,
                 "logprobs": True, "top_logprobs": 5}

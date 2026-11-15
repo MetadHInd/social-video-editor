@@ -315,6 +315,11 @@ vision:                  # local CLIP model: recognizes products by itself (opti
   product_plan: false    # plan = one shot per detected product (the unboxing recipe turns it on)
   product_search: false  # true = "search" with criterion "product" uses the vision model (changes the windows
                          # of existing plans, so it is opt-in); "search" by "text" always uses it
+  naming: clip           # how products are named: clip (whole segment, as before) | frames (CLIP on the best
+                         # frames, more often right) | decider (the local language model picks among CLIP's names
+                         # looking at the best frame; recommended for unboxing / haul when Ollama is installed)
+  name_frames: 3         # frames / decider: frames with the highest product score that name the product
+  name_candidates: 5     # decider: CLIP's best names offered to the language model
 
 broll:                   # sve broll: third-party clips for the [broll query="…"] cues (domain/footage.py)
   sources: [official, pexels, pixabay, wikimedia]   # tried in this order; official = a listed brand's own channel

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import decide as dd
 from .selection import best_start
 
 # Same values as the `vision` section of recipes/base.yaml (a workspace base.yaml without that
@@ -61,7 +62,20 @@ DEFAULTS = {
     "product_plan": False,
     "product_search": False,
     "label_temperature": 5.0,    # softmax temperature of the standardized label scores
+    "naming": "clip",        # how products are named: clip (the whole segment) | frames | decider (see NAMING)
+    "name_frames": 3,        # frames / decider: the frames with the highest product score name the product
+    "name_candidates": 5,    # decider: CLIP's best names offered to the language model
 }
+
+# How each product gets its name (vision.naming):
+#   clip     the vocabulary label closest to the whole segment, embedded with the multilingual text model
+#            (the original behaviour; packaging and hands in the segment pull the name away)
+#   frames   the label closest to the `name_frames` frames with the highest product score, the packaged
+#            vocabulary embedded with the image model's own text encoder ("a photo of … held in a hand")
+#   decider  as `frames`, then the decider's language model looks at the best of those frames and picks
+#            among CLIP's `name_candidates` best names (a closed question, topic "product_name"); without
+#            the language model it is `frames`
+NAMING = ("clip", "frames", "decider")
 
 
 def settings(vision_cfg: dict | None, language: str = "es") -> dict:
@@ -313,15 +327,41 @@ def window_scores(score: np.ndarray, unpacked: np.ndarray | None, weight: float)
     return zscore(score) + weight * zscore(unpacked)
 
 
+def naming_mode(v: dict) -> str:
+    mode = str(v.get("naming") or "clip").strip().lower()
+    return mode if mode in NAMING else "clip"
+
+
+def naming_frames(score: np.ndarray, i0: int, i1: int, k: int) -> np.ndarray:
+    """Indices of the `k` frames of i0..i1 with the highest product score (best first)."""
+    inside = np.arange(i0, i1 + 1)
+    return inside[np.argsort(-score[i0:i1 + 1], kind="stable")[:max(int(k), 1)]]
+
+
+def ranked_labels(frames: np.ndarray, vocabulary: np.ndarray, labels: list[str],
+                  baseline: tuple[np.ndarray, np.ndarray] | None, n: int) -> list[str]:
+    """The `n` labels closest to `frames` (mean similarity, standardized with the baseline), best first."""
+    sims = (np.atleast_2d(frames) @ vocabulary.T).mean(0)
+    if baseline is not None:
+        sims = (sims - baseline[0]) / baseline[1]
+    return [labels[int(i)] for i in np.argsort(-sims, kind="stable")[:max(int(n), 1)]]
+
+
 def detect_products(sources: list[dict], positive: np.ndarray, negative: np.ndarray, vocabulary: np.ndarray,
-                    labels: list[str], cfg: dict | None = None, packaging: np.ndarray | None = None) -> list[dict]:
+                    labels: list[str], cfg: dict | None = None, packaging: np.ndarray | None = None,
+                    naming_vocabulary: np.ndarray | None = None) -> list[dict]:
     """Products of every source, in story order.
 
     → [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}, …]
     `vocabulary` (embeddings) and `labels` (names in the output language) are aligned.
     `packaging`: embeddings of the packaging prompts (used when vision.unpacked > 0).
+    `naming_vocabulary`: the same labels embedded for naming (vision.naming frames / decider; default
+    `vocabulary`). With those modes each product also gets "_candidates" (the best names, best first)
+    and "_frame" (the time of its best frame): working keys, not part of products.json.
     """
     v = settings(cfg)
+    mode = naming_mode(v)
+    names = vocabulary if naming_vocabulary is None or not len(naming_vocabulary) else naming_vocabulary
     scores = product_scores(sources, positive, negative, vocabulary, v)
     found = []
     for si, (src, sc) in enumerate(zip(sources, scores)):
@@ -333,6 +373,8 @@ def detect_products(sources: list[dict], positive: np.ndarray, negative: np.ndar
         unpacked = (unpacked_series(src["emb"], packaging, max(int(round(float(v["smooth"]) * _rate(t))), 1))
                     if weight and packaging is not None and len(packaging) else None)
         baseline = label_baseline(src["emb"], vocabulary) if len(vocabulary) else None
+        if mode != "clip" and len(names):
+            baseline = label_baseline(src["emb"], names)
         for s in segs:
             dur = min(float(v["window"]), s["end"] - s["start"])
             inside = (t >= s["start"]) & (t <= s["end"])
@@ -340,11 +382,60 @@ def detect_products(sources: list[dict], positive: np.ndarray, negative: np.ndar
                                                     weight), s["start"], s["end"], dur)
             best = [round(a, 2), round(min(a + dur, s["end"]), 2)]
             sel = (t >= best[0]) & (t <= best[1])
-            label, conf = zero_shot_label(src["emb"][s["i0"]:s["i1"] + 1], vocabulary, labels, baseline,
-                                          float(v["label_temperature"]))
+            extra = {}
+            if mode == "clip":
+                label, conf = zero_shot_label(src["emb"][s["i0"]:s["i1"] + 1], vocabulary, labels, baseline,
+                                              float(v["label_temperature"]))
+            else:
+                pick = naming_frames(sc, s["i0"], s["i1"], int(v["name_frames"] or 1))
+                label, conf = zero_shot_label(src["emb"][pick], names, labels, baseline, float(v["label_temperature"]))
+                extra = {"_candidates": ranked_labels(src["emb"][pick], names, labels, baseline,
+                                                      int(v["name_candidates"] or 1)),
+                         "_frame": round(float(t[pick[0]]), 3)}
             found.append({"source": si, "start": s["start"], "end": s["end"], "best": best, "label": label,
-                          "confidence": conf, "score": round(float(sc[sel].mean() if sel.any() else s["score"]), 3)})
+                          "confidence": conf, "score": round(float(sc[sel].mean() if sel.any() else s["score"]), 3),
+                          **extra})
     return sorted(found, key=lambda x: (x["source"], x["start"]))
+
+
+# ── names asked to the decider (vision.naming: decider) ──────────────────────
+
+def public(segment: dict) -> dict:
+    """A product as written in products.json (without the working keys)."""
+    return {k: x for k, x in segment.items() if not k.startswith("_")}
+
+
+def name_question(segment: dict, image: str, language: str = "es") -> dd.Question | None:
+    """Which of CLIP's best names fits the product in `image` (its best frame)? None without candidates.
+
+    The rules' answer is CLIP's first name with CLIP's confidence: the language model only replaces
+    it when it is at least as sure (domain/decide.py)."""
+    cands = [str(c) for c in segment.get("_candidates") or [] if str(c).strip()]
+    cands = list(dict.fromkeys(cands))[:len(dd.KEYS)]
+    if not cands:
+        return None
+    prompt = ("¿Qué producto muestra la persona en esta imagen?" if language == "es"
+              else "Which product is the person showing in this picture?")
+    default = segment["label"] if segment.get("label") in cands else cands[0]
+    return dd.Question("product_name", "choice", prompt, tuple(dd.Option(c, c) for c in cands), "",
+                       (default,), float(segment.get("confidence") or 0.0), language, image=image)
+
+
+def apply_names(segments: list[dict], images: dict[int, str], language: str, decide: dd.Decide) -> list[dict]:
+    """The products with the decider's names: segment k is asked about with images[k] (its best frame);
+    a name a model gave takes that model's confidence. Segments without a picture keep their name."""
+    out = []
+    for k, s in enumerate(segments):
+        q = name_question(s, images[k], language) if images.get(k) else None
+        if q is None:
+            out.append(dict(s))
+            continue
+        a = dd.ask(decide, q)
+        if a.source == "rules" or a.value is None:
+            out.append(dict(s))
+        else:
+            out.append({**s, "label": a.value, "confidence": round(float(a.confidence), 3), "_named_by": a.source})
+    return out
 
 
 # ── automatic plan with one shot per product ─────────────────────────────────
