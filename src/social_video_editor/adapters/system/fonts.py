@@ -86,6 +86,12 @@ def _lookup(base: str) -> Path | None:
     return found
 
 
+def font_file_exact(name: str) -> Path | None:
+    """A font file by path or by file name (no extension), then by its Windows file name — with no
+    fallback: None when it is not installed (a theme's list of families tries the next one)."""
+    return _lookup(name)
+
+
 def _first(names: list[str]) -> Path | None:
     return next((p for p in map(_lookup, names) if p is not None), None)
 

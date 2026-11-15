@@ -18,7 +18,7 @@ from ...domain.graphics import kit
 from ...domain.graphics.paths import Path
 from ...domain.graphics.scene import Scene, Stage
 from ...domain.models import UserError
-from ..system.fonts import _lookup as _font_lookup  # exact lookup, no fallback (a public name would be nicer)
+from ..system import fonts as system_fonts
 from ..system.fonts import find_font_file, split_face
 
 MISSING = "skia-python is not installed (pip install \"social-video-editor[graphics]\")"
@@ -34,7 +34,7 @@ MONO_FAMILIES = ("Menlo", "SF Mono", "Monaco", "DejaVuSansMono", "DejaVu Sans Mo
 
 def font_file_exact(name: str) -> FilePath | None:
     """A font file by path or file name (no extension), without falling back to another font."""
-    return _font_lookup(split_face(name)[0])
+    return system_fonts.font_file_exact(split_face(name)[0])
 
 
 def _rgba(color: str, alpha: float = 1.0) -> tuple[int, int, int, int]:
