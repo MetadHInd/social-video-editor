@@ -7,7 +7,7 @@
   sve render  <project> [--draft] [--profile youtube|landscape|horizontal] [--no-music]
   sve build   <project> [--draft]          (analyze + thumbs + plan if missing + render)
   sve view    <project>                    (plan and timeline summary)
-  sve report  <project> [--json]           (one-screen project report; reads only files on disk)
+  sve report  <project> [--json] [--full]  (one-screen project report, what to do first; reads only files on disk)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
@@ -21,7 +21,7 @@
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
 productos, mejorar, grafico, tomas, hacer and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
---hasta, --cada, --simular, --sin-usar, --si.
+--hasta, --cada, --simular, --sin-usar, --si, --completo.
 """
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def cmd_view(svc, a):
 
 def cmd_report(svc, a):
     r = build_report(svc, _project(svc, a.project))
-    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r)))
+    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r, full=a.full)))
 
 
 def cmd_recipes(svc, a):
@@ -217,6 +217,7 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("report", aliases=["informe"], help="one-screen project report (for people and AI agents)")
     s.add_argument("project")
     s.add_argument("--json", action="store_true", help="machine-readable output")
+    s.add_argument("--full", "--completo", action="store_true", help="every line of every section (not collapsed)")
     s.set_defaults(f=cmd_report)
     sub.add_parser("recipes", aliases=["recetas"], help="list recipes").set_defaults(f=cmd_recipes)
     s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")

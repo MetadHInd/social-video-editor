@@ -13,7 +13,6 @@ from pathlib import Path
 from ..domain import footage
 from ..domain.models import Project
 from ..log import log
-from .broll import FRAMES, SEARCH_CACHE
 from .cutaways import footage_records
 from .services import Services
 
@@ -31,21 +30,21 @@ def unused_footage(svc: Services, project: Project, delete: bool = False) -> dic
     clips = [{"file": str(r["file"]), "bytes": svc.projects.file_size(project.dir / str(r["file"])),
               "exists": svc.projects.exists(project.dir / str(r["file"])), "source": r.get("source"),
               "query": r.get("query")} for r in unused]
-    cache = [{"file": f"{project.cache.name}/{SEARCH_CACHE}", "bytes": svc.projects.file_size(project.cache / SEARCH_CACHE)}
-             ] if svc.projects.exists(project.cache / SEARCH_CACHE) else []
+    cache = [{"file": f"{project.cache.name}/{footage.SEARCH_CACHE}", "bytes": svc.projects.file_size(project.cache / footage.SEARCH_CACHE)}
+             ] if svc.projects.exists(project.cache / footage.SEARCH_CACHE) else []
     out = {"clips": clips, "kept": [str(r["file"]) for r in kept], "cache": cache,
            "bytes": sum(c["bytes"] for c in clips + cache), "deleted": False}
     if not delete or not (clips or cache):
         return out
     for c in clips:
         svc.projects.remove(project.dir / c["file"])
-        svc.projects.remove(project.cache / FRAMES / f"{Path(c['file']).stem}.jpg")
+        svc.projects.remove(project.cache / footage.FRAMES / f"{Path(c['file']).stem}.jpg")
     gone = {c["file"] for c in clips if not svc.projects.exists(project.dir / c["file"])}   # one kept open stays
     if gone:
         svc.projects.write_json(project.dir / footage.FOLDER / footage.RECORD,
                                 [records[k] for k in sorted(records) if k not in gone])
     if cache:
-        svc.projects.remove(project.cache / SEARCH_CACHE)
+        svc.projects.remove(project.cache / footage.SEARCH_CACHE)
     log(f"B-roll: deleted {len(gone)} unused clips and {len(cache)} cache files ({footage.megabytes(out['bytes'])})")
     out["deleted"] = True
     return out

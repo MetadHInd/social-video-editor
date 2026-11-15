@@ -26,6 +26,8 @@ FOLDER = "footage"                      # inside the project folder
 RECORD = "credits.json"                 # inside FOLDER
 CREDITS_FILE = "credits.txt"            # inside a version folder, for the video's description
 CREDIT_AUTO = "credit"                  # "_auto" mark of the credit overlays `sve broll` adds
+SEARCH_CACHE = "footage_search.json"    # in the project cache: {key: {"at": epoch, "candidates": [...]}}
+FRAMES = "footage_frames"               # in the project cache: the frame the language model looks at
 OPEN_LICENSES = ("cc0", "pd", "cc-by", "cc-by-sa")
 DEFAULTS = {
     "sources": ["official", "pexels", "pixabay", "wikimedia"],     # tried in this order

@@ -4,8 +4,10 @@ Reads only what is already on disk — project.yaml, plan.json, the cache (media
 analysis, products.json) and the version folders (summary.json, check.json). It never probes,
 analyzes or renders anything, so it is instant and cheap to read:
 
-  sve report <project>          # ≲50 lines
-  sve report <project> --json   # the same data as JSON
+  sve report <project>          # ≲50 lines: TO DO first (what the engine could not settle alone and
+                                #   the command that does it), then the summary, long sections collapsed
+  sve report <project> --full   # every line of every section
+  sve report <project> --json   # the same data as JSON (everything, plus "todo")
 """
 from __future__ import annotations
 
@@ -17,19 +19,24 @@ from pathlib import Path
 from ..domain import automix, review
 from ..domain import pip as pip_window
 from ..domain.cutaways import resolve as resolve_cutaways
+from ..domain.footage import megabytes
 from ..domain.models import Project, UserError
 from ..domain.photos import is_image_name
 from ..domain.pieces import Group, Sequence
 from ..domain.timebase import mmss
 from ..domain.timeline import compute_timeline
 from .analyze import expand_sources, resolve_source_id
+from .broll_unused import unused_footage
 from .services import Services
 
 LOW_CONFIDENCE = 0.5      # products below this confidence: look at the images before trusting them
-MAX_SHOT_LINES = 10       # condensed shot lines (several shots per line)
-MAX_PRODUCTS = 8
-MAX_MESSAGES = 3          # errors / warnings shown per kind
-MAX_SENTENCES = 6         # script sentences listed per kind (missing, several takes, weak match)
+MAX_SHOT_LINES = 3        # condensed shot / cutaway lines (several per line); --full shows them all
+MAX_PRODUCTS = 4
+MAX_MESSAGES = 3          # errors shown (warnings: one less)
+MAX_SENTENCES = 3         # script sentences listed per kind (missing, several takes, weak match)
+MAX_DECISIONS = 3         # decisions left by `sve make`, with their options
+MAX_VARIANTS = 3          # variants of the latest version listed
+FULL = 10 ** 6            # the limits with --full
 WEAK_MATCH = 0.8          # a sentence found with a lower score is worth a look
 WIDTH = 112               # max characters of a condensed line
 MEDIA_EXT = (".mp4", ".mov", ".srt", ".jpg", ".png", ".wav")
@@ -42,7 +49,7 @@ def build_report(svc: Services, project: Project) -> dict:
     cfg = project.cfg
     versions = _versions(svc, project)
     latest = versions["latest"]
-    return {
+    r = {
         "project": project.name,
         "recipe": project.recipe,
         "language": project.language,
@@ -53,7 +60,72 @@ def build_report(svc: Services, project: Project) -> dict:
         "products": _products(svc, project),
         "check": _check(svc, project, latest),
         "review": _review(svc, project),
+        "footage": _footage(svc, project),
     }
+    r["todo"] = todo(r)
+    return r
+
+
+def _footage(svc: Services, project: Project) -> dict | None:
+    """Third-party clips in footage/ that no plan uses (`sve broll --unused` lists and deletes them)."""
+    if not svc.projects.exists(project.dir / "footage" / "credits.json"):
+        return None
+    u = unused_footage(svc, project)
+    return {"unused": len(u["clips"]), "bytes": u["bytes"], "cache": len(u["cache"])}
+
+
+def todo(r: dict) -> list[dict]:
+    """What the engine could not settle on its own, most important first, each with the command or
+    setting that resolves it → [{"what", "do"}]. Read from the report's data (no files)."""
+    out: list[dict] = []
+
+    def add(what: str, do: str, kind: str = "") -> None:
+        out.append({"what": what, "do": do, **({"kind": kind} if kind else {})})
+
+    pending = (r.get("review") or {}).get("pending") or []
+    if pending:
+        add(f"{len(pending)} decisions `sve make` left for you, with their options",
+            "choose one, then sve make <project>", "decisions")
+    p = r["plan"]
+    pending_codes = {x.get("code") for x in pending}
+    if p is None:
+        add("no plan yet", "sve make <project> (or sve plan <project>)")
+    else:
+        if p.get("timeline_error"):
+            add(f"the plan cannot be timed: {p['timeline_error']}", "sve plan <project> --force")
+        sc = p.get("script") or {}
+        if sc.get("missing") and "sentence_unmatched" not in pending_codes:
+            add(f"{len(sc['missing'])} script sentences not found in the recording",
+                "record them again (or take them out of the script), then sve make <project>")
+        b = (p.get("cutaways") or {}).get("broll")
+        if b and b["without_clip"]:
+            add(f"{b['without_clip']} b-roll cues without a clip", "sve broll <project> (or sve make <project>)")
+    missing = [s for s in r["sources"] if not s.get("folder") and not s.get("photo") and s.get("duration") is None]
+    if missing:
+        add(f"{len(missing)} sources not analyzed yet", "sve analyze <project>")
+    m = r["music"]
+    err = m.get("error") or (m.get("playlist") or {}).get("error")
+    if err:
+        add(f"music: {err}", "settings → music → file / playlist in project.yaml (or sve music \"artist song\")")
+    v, ck = r["versions"], r["check"]
+    if p is not None and not v["latest"]:
+        add("no render yet", "sve make <project> (or sve render <project> --draft)")
+    elif v["latest"] and ck is None:
+        add(f"{v['latest']['name']} was not checked", "sve check <project>")
+    elif ck and ck["errors"]:
+        add(f"check {ck['version']}: {len(ck['errors'])} errors (CHECK below)",
+            "sve make <project> fixes what it can; the rest stays in its decisions")
+    pr = r["products"]
+    if pr and pr["low_confidence"]:
+        add(f"{pr['low_confidence']} products of low confidence (marked ?)",
+            "look: sve thumbs <project> --source S --start A --end B")
+    fo = r.get("footage")
+    if fo and fo["unused"]:
+        add(f"{fo['unused']} clips in footage/ no plan uses ({megabytes(fo['bytes'])})",
+            "sve broll <project> --unused --yes")
+    return out
+
+
 
 
 def _review(svc: Services, project: Project) -> dict | None:
@@ -226,14 +298,22 @@ def _version_entry(svc: Services, folder: Path) -> dict:
 def _versions(svc: Services, project: Project) -> dict:
     folders = svc.projects.versions(project)
     last = svc.projects.last_version(project)
+    rendered = svc.projects.latest_rendered(project.dir)
+    if rendered is not None and (last is None or _number(rendered) > _number(last)):
+        last = rendered                 # only drafts / variants since the last main version (sve make renders drafts)
     out = {"all": [f.name for f in folders], "latest": None, "variants": []}
     if last is None:
         return out
-    n = last.name[1:]
+    n = _number(last)
     out["latest"] = _version_entry(svc, last)
     out["variants"] = [_version_entry(svc, f) for f in folders
                        if f != last and re.fullmatch(rf"v{n}\D.*", f.name)]
     return out
+
+
+def _number(folder: Path) -> int:
+    digits = re.match(r"v(\d+)", folder.name)
+    return int(digits.group(1)) if digits else -1
 
 
 def _products(svc: Services, project: Project) -> dict | None:
@@ -264,7 +344,7 @@ def _num(x, fmt: str = ".1f") -> str:
     return format(x, fmt) if isinstance(x, (int, float)) else "?"
 
 
-def _pack(tokens: list[str], indent: str = "  ", max_lines: int | None = None) -> list[str]:
+def _pack(tokens: list[str], indent: str = "  ", max_lines: int | None = None, more: str = "--full") -> list[str]:
     """Joins tokens with " | " into lines of at most WIDTH characters."""
     lines, cur, counts = [], [], []
     for t in tokens:
@@ -278,7 +358,7 @@ def _pack(tokens: list[str], indent: str = "  ", max_lines: int | None = None) -
         counts.append(len(cur))
     if max_lines is not None and len(lines) > max_lines:
         rest = len(tokens) - sum(counts[:max_lines])
-        lines = lines[:max_lines] + [f"{indent}… +{rest} more (sve view <project>)"]
+        lines = lines[:max_lines] + [f"{indent}… +{rest} more ({more})"]
     return lines
 
 
@@ -337,26 +417,30 @@ def _version_line(v: dict) -> str:
     return "  " + " · ".join(bits)
 
 
-def _script_lines(sc: dict | None) -> list[str]:
+def _more(n: int, what: str) -> str:
+    return f"  … +{n} more {what} (--full)"
+
+
+def _script_lines(sc: dict | None, limit: int = MAX_SENTENCES) -> list[str]:
     if not sc:
         return []
     out = [f"SCRIPT {sc.get('file') or ''} · {sc['sentences']} sentences · {sc['found']} found".replace("  ·", " ·")]
-    for s in sc["missing"][:MAX_SENTENCES]:
+    for s in sc["missing"][:limit]:
         out.append("  " + _message(f"⚠ sentence {s['n']} not found in the recording: {s['text']}"))
-    if len(sc["missing"]) > MAX_SENTENCES:
-        out.append(f"  … +{len(sc['missing']) - MAX_SENTENCES} more sentences not found")
+    if len(sc["missing"]) > limit:
+        out.append(_more(len(sc["missing"]) - limit, "sentences not found"))
     if sc["repeated"]:
         tokens = [f"sentence {s['n']}: {s['takes']} takes, used the one at {mmss(s['start'])}"
-                  for s in sc["repeated"][:MAX_SENTENCES]]
-        out += _pack(tokens)
-        if len(sc["repeated"]) > MAX_SENTENCES:
-            out.append(f"  … +{len(sc['repeated']) - MAX_SENTENCES} more sentences with several takes")
-    for s in sc["weak"][:MAX_SENTENCES]:
+                  for s in sc["repeated"]]
+        out += _pack(tokens, max_lines=1 if limit < FULL else None)
+    for s in sc["weak"][:limit]:
         out.append("  " + _message(f"? sentence {s['n']} matched {float(s['score']):.0%}: {s['text']}"))
+    if len(sc["weak"]) > limit:
+        out.append(_more(len(sc["weak"]) - limit, "weak matches"))
     return out
 
 
-def _cutaway_lines(cu: dict | None) -> list[str]:
+def _cutaway_lines(cu: dict | None, limit: int = MAX_SHOT_LINES) -> list[str]:
     if not cu:
         return []
     windows = sum(1 for c in cu["placed"] if c.get("pip"))
@@ -370,20 +454,51 @@ def _cutaway_lines(cu: dict | None) -> list[str]:
                                      else f" (sentences {where[0]}–{where[1]})")
         tokens.append(f"{'~' if c.get('auto') else ''}{c['what']}{'*' if c.get('overlay') else ''}"
                       f"{'+pip' if c.get('pip') else ''} {c['start']:.1f}–{c['end']:.1f} s{said}")
-    out += _pack(tokens, max_lines=MAX_SHOT_LINES)
+    out += _pack(tokens, max_lines=limit)
     b = cu.get("broll")
     if b:
         out.append(f"  b-roll: {b['cues']} cues · {b['cues'] - b['without_clip']} with a clip"
                    + (f" · ⚠ {b['without_clip']} to fetch (sve broll <project>)" if b["without_clip"] else ""))
-    for w in cu["warnings"][:MAX_MESSAGES]:
+    shown = MAX_MESSAGES - 1 if limit < FULL else FULL
+    for w in cu["warnings"][:shown]:
         out.append("  " + _message(f"⚠ {w}"))
-    if len(cu["warnings"]) > MAX_MESSAGES:
-        out.append(f"  … +{len(cu['warnings']) - MAX_MESSAGES} more warnings")
+    if len(cu["warnings"]) > shown:
+        out.append(_more(len(cu["warnings"]) - shown, "warnings"))
     return out
 
 
-def report_lines(r: dict) -> list[str]:
+def _todo_lines(r: dict, full: bool) -> list[str]:
+    items = r.get("todo") or []
+    if not items:
+        return ["TO DO nothing: the engine settled everything it found"]
+    out = [f"TO DO {len(items)} · what the engine could not settle on its own → what does it"]
+    for x in items:
+        if x.get("kind") != "decisions":            # those are listed below with their options
+            out.append("  " + _message(f"⚠ {x['what']} → {x['do']}"))
+    pending = (r.get("review") or {}).get("pending") or []
+    shown = len(pending) if full else MAX_DECISIONS
+    if pending:
+        out.append(f"  ⚠ DECISIONS ({len(pending)}) left by sve make {(r['review'] or {}).get('version') or ''}"
+                   .rstrip() + ": choose, then sve make <project>")
+        options = None
+        for k, x in enumerate(pending[:shown], 1):
+            out.append("    " + _message(f"{k}. {x.get('message', '')}"))
+            if x.get("options") and x["options"] != options:       # the same options as the one above: not repeated
+                out.append("       " + _message("→ " + " · ".join(x["options"])))
+            options = x.get("options")
+        if len(pending) > shown:
+            out.append(_more(len(pending) - shown, "decisions"))
+    return out
+
+
+def report_lines(r: dict, full: bool = False) -> list[str]:
+    """The report as text: the project, TO DO (what needs a person, with the command that does it), then
+    the summary. Long sections show their first few items and "… N more (--full)"; `full` shows all."""
+    limit = FULL if full else MAX_SHOT_LINES
+    sentences = FULL if full else MAX_SENTENCES
+    messages = FULL if full else MAX_MESSAGES
     out = [f"PROJECT {r['project']} · recipe {r['recipe']} · language {r['language']}"]
+    out += _todo_lines(r, full)
 
     src = r["sources"]
     videos = [s for s in src if not s.get("folder") and not s.get("photo")]
@@ -394,7 +509,7 @@ def report_lines(r: dict) -> list[str]:
     if len(known) < len(videos):
         head += f" · {len(videos) - len(known)} not analyzed yet (sve analyze)"
     out.append(head)
-    out += _pack([_source_token(s) for s in src])
+    out += _pack([_source_token(s) for s in src], max_lines=None if full else 2)
 
     p = r["plan"]
     if p is None:
@@ -414,11 +529,12 @@ def report_lines(r: dict) -> list[str]:
         if ph:
             out.append(f"  {ph['count']} photo shots · {ph['min_dur']:.1f}–{ph['max_dur']:.1f} s each "
                        "(before fitting to the music)")
-        out += _pack([_shot_token(e) for e in p.get("timeline", [])], max_lines=MAX_SHOT_LINES)
+        out += _pack([_shot_token(e) for e in p.get("timeline", [])], max_lines=limit,
+                     more="--full, or sve view <project>")
         if p.get("first_text"):
             out.append(f"  first text: {_message(p['first_text'])}")
-        out += _script_lines(p.get("script"))
-        out += _cutaway_lines(p.get("cutaways"))
+        out += _script_lines(p.get("script"), sentences)
+        out += _cutaway_lines(p.get("cutaways"), limit)
 
     m = r["music"]
     pl = m.get("playlist")
@@ -447,29 +563,31 @@ def report_lines(r: dict) -> list[str]:
         out.append("VERSIONS none yet (sve render <project>)")
     else:
         names = v["all"]
-        shown = names if len(names) <= 12 else ["…", *names[-11:]]
+        shown = names if len(names) <= 12 or full else ["…", *names[-11:]]
         out.append(f"VERSIONS {' '.join(shown)} · latest {v['latest']['name']}")
-        for ver in [v["latest"], *v["variants"]]:
+        variants = v["variants"] if full else v["variants"][:MAX_VARIANTS]
+        for ver in [v["latest"], *variants]:
             out.append(_version_line(ver))
+        if len(v["variants"]) > len(variants):
+            out.append(_more(len(v["variants"]) - len(variants), "variants"))
 
     pr = r["products"]
     if pr is None:
         out.append("PRODUCTS none (sve products <project> → cache/products.json)")
     else:
         meta = ", ".join(x for x in (pr.get("model"), pr.get("language")) if x)
-        out.append(f"PRODUCTS {pr['count']} segments" + (f" ({meta})" if meta else ""))
-        segs = pr["segments"]
+        out.append(f"PRODUCTS {pr['count']} segments" + (f" ({meta})" if meta else "")
+                   + (f" · ⚠ {pr['low_confidence']} low confidence (<{LOW_CONFIDENCE}, marked ?)"
+                      if pr["low_confidence"] else ""))
+        segs = pr["segments"] if full else pr["segments"][:MAX_PRODUCTS]
         tokens = []
-        for s in segs[:MAX_PRODUCTS]:
+        for s in segs:
             c = float(s.get("confidence", 0) or 0)
             tokens.append(f"{s.get('label', '?')} s{s.get('source', 0)} {_num(s.get('start'))}-{_num(s.get('end'))}"
                           f" c{c:.2f}" + ("?" if c < LOW_CONFIDENCE else ""))
         out += _pack(tokens)
-        if len(segs) > MAX_PRODUCTS:
-            out.append(f"  … +{len(segs) - MAX_PRODUCTS} more (cache/products.json)")
-        if pr["low_confidence"]:
-            out.append(f"  ⚠ {pr['low_confidence']} low confidence (<{LOW_CONFIDENCE}, marked ?): look at those "
-                       "images (sve thumbs <project> --source S --start A --end B)")
+        if len(pr["segments"]) > len(segs):
+            out.append(_more(len(pr["segments"]) - len(segs), "products"))
 
     ck = r["check"]
     if ck is None:
@@ -483,16 +601,17 @@ def report_lines(r: dict) -> list[str]:
         metrics = [f"{k}={x}" for k, x in ck["metrics"].items() if isinstance(x, (int, float, str, bool))]
         if metrics:
             out += _pack(metrics[:8])
-        for kind in ("errors", "warnings"):
-            for msg in ck[kind][:MAX_MESSAGES]:
+        for kind, n in (("errors", messages), ("warnings", messages if full else messages - 1)):
+            for msg in ck[kind][:n]:
                 out.append(f"  {kind[:-1]}: {_message(msg)}")
-            if len(ck[kind]) > MAX_MESSAGES:
-                out.append(f"  … +{len(ck[kind]) - MAX_MESSAGES} more {kind}")
+            if len(ck[kind]) > n:
+                out.append(_more(len(ck[kind]) - n, kind))
     rv = r.get("review")
     if rv:
         out.append(f"MAKE {rv.get('version') or '?'}: {len(rv.get('fixed') or [])} fixed by the engine · "
-                   f"{rv.get('renders', 1)} render(s)")
-        out += review.decision_lines(rv.get("pending") or []) or ["  no decisions left"]
+                   f"{rv.get('renders', 1)} render(s) · {len(rv.get('pending') or [])} decisions left (TO DO)")
+        if full:
+            out += [f"  fixed: {_message(x)}" for x in rv.get("fixed") or []]
     return out
 
 

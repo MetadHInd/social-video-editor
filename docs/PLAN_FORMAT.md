@@ -677,7 +677,7 @@ decisions. A plan entry a remedy changed keeps the codes in `_fixed`; a remedy t
 never tried twice, and what was removed is never proposed again.
 
 What was fixed and the **decisions** left — each with its options — are printed and written to
-`<project>/review.json`; `sve report` shows them under `MAKE`. That list is the only thing a person
+`<project>/review.json`; `sve report` shows them first, under `TO DO` (and a count under `MAKE`). That list is the only thing a person
 (or the assistant coordinating the engine) has to answer.
 
 | Key | Default | Meaning |

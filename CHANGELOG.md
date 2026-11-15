@@ -157,6 +157,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Color look: `color.fade` (lifted blacks, softer whites) and `color.tint` (green ↔ magenta).
 - `sve broll <project> --unused` (`--sin-usar`) lists the clips no plan uses any more and the search cache, with
   their size; `--yes` (`--si`) deletes them (clip, record, cached frame). A clip a plan names is never deleted.
+- `sve report` starts with `TO DO`: what the engine could not settle on its own (decisions left by `sve make`, a
+  failed or missing check, b-roll to fetch, unused clips, sentences not recorded, sources not analyzed…), each with
+  the command that resolves it; long sections collapse to their first items and `… N more (--full)`. New
+  `--full` (`--completo`); `--json` keeps everything and adds `todo` and `footage`. The latest version is a draft
+  when only drafts were rendered since the last final one (it said "none yet" for projects made with `sve make`).
+  Measured on synthetic projects of each recipe: unboxing 24 → 22 lines, haul 26 → 21, talk 19 → 15,
+  slideshow 9 → 12, a busy explainer 62 → 50.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now

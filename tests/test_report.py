@@ -134,7 +134,9 @@ def test_long_plans_are_condensed(workspace, capsys):
     _project(workspace, shots=shots)
     out = _run(capsys, "report", "demo")
     assert len(out.splitlines()) <= 50
-    assert "… +" in out and "more (sve view <project>)" in out
+    assert "… +" in out and "more (--full, or sve view <project>)" in out
+    full = _run(capsys, "report", "demo", "--full")                  # every shot
+    assert "… +" not in full and "119 s0" in full
 
 
 def test_legacy_spanish_project_and_alias(workspace, capsys):

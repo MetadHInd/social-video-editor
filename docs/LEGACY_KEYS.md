@@ -98,6 +98,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--simular` | `--dry-run` |
 | `--sin-usar` | `--unused` |
 | `--si` | `--yes` |
+| `--completo` | `--full` |
 
 ## Recipes and project settings
 

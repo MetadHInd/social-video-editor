@@ -198,7 +198,7 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve enhance <project> [--force]` | `mejorar` (`--forzar`) | Photo sources: enlarge small photos (Real-ESRGAN when installed, else Lanczos) and reduce very large ones into `cache/photos/`; the originals are never modified. |
 | `sve build <project> [render flags]` | `montar` | Analysis + contact sheets + plan if missing + render. |
 | `sve view <project>` | `ver` | Plan and timeline, shot by shot, with the same beat alignment as the render (runs the analysis if it is missing). |
-| `sve report <project> [--json]` | `informe` | One compact screen (≲50 lines) or JSON: sources, plan/timeline, texts, music, versions and their files, products, check results. Reads only files on disk — instant. |
+| `sve report <project> [--json] [--full]` | `informe` (`--completo`) | One compact screen (≲50 lines) or JSON. First `TO DO`: what the engine could not settle on its own (decisions left by `sve make`, a failed check, b-roll to fetch, unused clips, sentences not recorded…), each with the command or setting that resolves it; then sources, plan/timeline, script, cutaways, music, versions (the latest, a draft included when it is newer), products and check results. Long sections show their first items and `… N more (--full)`; `--full` shows everything, `--json` has everything plus `todo`. Reads only files on disk — instant. |
 | `sve recipes` | `recetas` | List the available recipes. |
 | `sve music "<artist song or URL>"` | `musica` | Download a track with yt-dlp into `music/` and analyze its tempo, beats and drop. |
 | `sve products <project>` | `productos` | Recognize the products shown in the sources with the local CLIP model (optional `[vision]` extra; downloaded on first use) and print them; writes `cache/products.json`. See [Product recognition](#product-recognition-optional). |
@@ -213,6 +213,9 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 
 ```
 PROJECT demo · recipe unboxing · language es
+TO DO 2 · what the engine could not settle on its own → what does it
+  ⚠ check v2: 1 errors (CHECK below) → sve make <project> fixes what it can; the rest stays in its decisions
+  ⚠ 1 products of low confidence (marked ?) → look: sve thumbs <project> --source S --start A --end B
 SOURCES 2 · 08:14.50 total
   0 clip_a.mov 08:02.00 HDR | 1 clip_b.mov 00:12.50 mute
 PLAN 5 shots · ~8.5 s before beat alignment · 1 group · 3 texts (hook 1, card 1, cta 1)
@@ -223,10 +226,11 @@ MUSIC Some Song.mp3 · start_at auto (rendered from 18.73 s) · 120.0 BPM · tem
 VERSIONS v1 v2 v2SinMusica v10_failed · latest v2
   v2           demo.mp4 · 21.4 s · 5 shots · -14.05 LUFS · +srt · check.json · listen/ 1 files
   v2SinMusica  demo_sin_musica.mp4 · 21.4 s · 5 shots · -14.05 LUFS · +srt
-PRODUCTS 2 segments (test-model, es)
+PRODUCTS 2 segments (test-model, es) · ⚠ 1 low confidence (<0.5, marked ?)
   earrings s0 12.0-15.5 c0.71 | necklace s0 30.0-33.0 c0.31?
-  ⚠ 1 low confidence (<0.5, marked ?): look at those images (sve thumbs <project> --source S --start A --end B)
 CHECK v2: FAILED · 1 errors · 2 warnings · listen: 1 files
+  lufs=-14.05 | shots=5
+  error: text 2 covers the product
   ...
 ```
 
