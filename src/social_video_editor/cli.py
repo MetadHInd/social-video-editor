@@ -127,6 +127,7 @@ def cmd_enhance(svc, a):
 def cmd_graphic(svc, a):
     from .adapters.files.workspace import workspace
     from .application import graphic
+    from .application.cutaways import project_files
     from .domain.models import UserError
 
     if a.project:
@@ -140,11 +141,13 @@ def cmd_graphic(svc, a):
     if a.proof:
         paths = graphic.proof(svc, cfg, out / "proof", video=a.video)
     elif a.cue:
-        paths = graphic.preview(svc, cfg, legacy_es_graphic(graphic.cue_spec(a.cue)), out, name="cue")
+        spec = legacy_es_graphic(graphic.cue_spec(a.cue))
+        paths = graphic.preview(svc, cfg, project_files(svc, project and project.dir, spec), out, name="cue")
     elif a.shot is not None:
         if project is None:
             raise UserError("--shot needs a project (sve graphic <project> --shot N)")
-        paths = graphic.preview(svc, cfg, graphic.plan_graphic(load_plan(svc, project), a.shot), out, name=f"shot{a.shot}")
+        spec = project_files(svc, project.dir, graphic.plan_graphic(load_plan(svc, project), a.shot))
+        paths = graphic.preview(svc, cfg, spec, out, name=f"shot{a.shot}")
     else:
         raise UserError("Say what to draw: --proof, --shot N or --cue 'bars data=\"A:1, B:2\"'")
     for p in paths:

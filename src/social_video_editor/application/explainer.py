@@ -11,7 +11,7 @@ from ..domain.script import GRAPHIC, parse_script
 from ..domain.timebase import mmss
 from ..domain.timeline import compute_timeline
 from ..log import log
-from .cutaways import place_cutaways
+from .cutaways import place_cutaways, project_files
 from .decide import run_decided
 from .graphic import build_scene, graphics_theme
 from .services import Services
@@ -26,7 +26,7 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
     name, text = svc.projects.read_script(project)
     theme = graphics_theme(svc, cfg)                     # also registers the pack's own templates
     script = parse_script(text, svc.projects.translate_cue, set(TEMPLATES))
-    _check_graphics(svc, cfg, script, theme)
+    _check_graphics(svc, cfg, script, theme, project.dir)
     words = script_align.transcript(analyses)
     if not words:
         raise PlanError("The recording has no transcribed speech: the script cannot be matched to it "
@@ -74,7 +74,7 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
     return plan
 
 
-def _check_graphics(svc: Services, cfg: dict, script, theme: dict) -> None:
+def _check_graphics(svc: Services, cfg: dict, script, theme: dict, base=None) -> None:
     """Builds every graphic cue once, so a bad cue is reported now with its script line (not at render)."""
     if svc.graphics is None or svc.graphics.ready():
         return
@@ -83,7 +83,7 @@ def _check_graphics(svc: Services, cfg: dict, script, theme: dict) -> None:
         if cue.kind != GRAPHIC:
             continue
         try:
-            build_scene(svc, cfg, cue.spec, W, H, theme)
+            build_scene(svc, cfg, project_files(svc, base, cue.spec), W, H, theme)
         except PlanError as e:
             raise PlanError(f"Script line {cue.line}: {e}") from None
 
@@ -93,7 +93,7 @@ def frame_plan(svc: Services, project: Project, plan: dict, infos: list[dict], a
     cfg = project.cfg
     tl = compute_timeline(plan, cfg)
     W, H = int(cfg["output"]["width"]), int(cfg["output"]["height"])
-    placed, warnings = place_cutaways(svc, cfg, plan, tl, W, H)
+    placed, warnings = place_cutaways(svc, cfg, plan, tl, W, H, base=project.dir)
     counts = explainer.frame_shots(plan, tl, placed, cfg, infos, analyses)
     windows = sum(c.pip for c in placed)
     log(f"Explainer: {len(tl)} shots, {tl.total:.1f} s, {len(placed)} cutaways"

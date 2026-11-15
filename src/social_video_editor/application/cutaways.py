@@ -27,6 +27,7 @@ CUTAWAY_VERSION = 2
 PHOTO_MOTION = "zoom_in"
 CLIP_MIN_SPEED = 0.5        # a clip shorter than its time on screen is slowed down, at most to this
 CLIP_KEYS = ("focus_x", "focus_y", "zoom", "color", "fit")     # shot keys a clip cutaway may carry
+FILE_KEYS = ("image",)      # graphic keys that name a file: relative to the project folder, like a photo's
 
 
 @dataclass
@@ -39,9 +40,37 @@ class RenderedCutaways:
     credits: list[dict] = field(default_factory=list)     # footage/credits.json records of the clips shown
 
 
-def entrance_of(svc: Services, cfg: dict, W: int, H: int, theme: dict | None = None) -> Callable[[dict], float]:
+def project_files(svc: Services, base: Path | None, spec: dict) -> dict:
+    """A graphic's spec with the files it names (`image` of `screen` / `product_card`…) found in the
+    project folder: a relative name that exists there becomes that path, like a photo's `file`. Anything
+    else (absolute, `@sample`, not there) is left as written."""
+    if base is None:
+        return spec
+    out = spec
+    for key in FILE_KEYS:
+        name = str(spec.get(key) or "").strip()
+        if not name or name.startswith("@"):
+            continue
+        path = Path(name).expanduser()
+        if path.is_absolute():
+            continue
+        inside = Path(base) / path
+        if svc.projects.exists(inside):
+            out = {**out, key: str(inside)}
+    return out
+
+
+def files_signature(svc: Services, spec: dict) -> dict:
+    """What the files a graphic names look like now (size, date), so a replaced picture is drawn again."""
+    return {k: svc.probe.fingerprint(spec[k]) for k in FILE_KEYS
+            if spec.get(k) and not str(spec[k]).startswith("@") and svc.projects.exists(Path(str(spec[k])).expanduser())}
+
+
+def entrance_of(svc: Services, cfg: dict, W: int, H: int, theme: dict | None = None,
+                base: Path | None = None) -> Callable[[dict], float]:
     """entrance(plan cutaway) → seconds it takes to come in: a graphic's `settle` (measured by laying
-    it out; an estimate when graphics cannot be drawn here), a short moment for photos and clips."""
+    it out; an estimate when graphics cannot be drawn here), a short moment for photos and clips.
+    base: the project folder (files a graphic names are relative to it)."""
     ready = svc.graphics is not None and not svc.graphics.ready()
     known: dict[str, float] = {}
     themes = [theme]
@@ -51,7 +80,7 @@ def entrance_of(svc: Services, cfg: dict, W: int, H: int, theme: dict | None = N
             return PHOTO_ENTRANCE
         if not ready:
             return DEFAULT_ENTRANCE
-        spec = {k: v for k, v in spec_of(cutaway).items() if k != "dur"}
+        spec = project_files(svc, base, {k: v for k, v in spec_of(cutaway).items() if k != "dur"})
         key = json.dumps(spec, sort_keys=True, default=str)
         if key not in known:
             if themes[0] is None:
@@ -62,11 +91,12 @@ def entrance_of(svc: Services, cfg: dict, W: int, H: int, theme: dict | None = N
 
 
 def place_cutaways(svc: Services, cfg: dict, plan: dict, tl: Timeline, W: int, H: int,
-                   theme: dict | None = None) -> tuple[list[Cutaway], list[str]]:
-    """The plan's cutaways on the timeline → (cutaways, warnings)."""
+                   theme: dict | None = None, base: Path | None = None) -> tuple[list[Cutaway], list[str]]:
+    """The plan's cutaways on the timeline → (cutaways, warnings). base: the project folder."""
     if not plan.get("cutaways"):
         return [], []
-    return resolve(plan, tl, int(cfg["output"]["fps"]), entrance_of(svc, cfg, W, H, theme), pip_window.settings(cfg))
+    return resolve(plan, tl, int(cfg["output"]["fps"]), entrance_of(svc, cfg, W, H, theme, base),
+                   pip_window.settings(cfg))
 
 
 def render_cutaways(svc: Services, project: Project, cfg: dict, plan: dict, tl: Timeline, W: int, H: int,
@@ -80,7 +110,7 @@ def render_cutaways(svc: Services, project: Project, cfg: dict, plan: dict, tl: 
         return out
     fps = int(cfg["output"]["fps"])
     theme = graphics_theme(svc, cfg) if any(kind_of(c, i) == "graphic" for i, c in enumerate(plan["cutaways"])) else None
-    placed, out.warnings = place_cutaways(svc, cfg, plan, tl, W, H, theme)
+    placed, out.warnings = place_cutaways(svc, cfg, plan, tl, W, H, theme, project.dir)
     sound_on = cfg["sfx"].get("enabled", True)
     base = float(cfg["sfx"].get("volume_db", -12))
     records = None                                         # footage/credits.json, read for the first clip
@@ -154,11 +184,12 @@ def _path(svc: Services, project: Project, signature: dict, suffix: str = ".mkv"
 
 def _graphic(svc: Services, project: Project, cfg: dict, c: Cutaway, n: int, W: int, H: int, fps: int,
              theme: dict, draft: bool, out: RenderedCutaways, sound_on: bool, base: float) -> Path:
-    spec = {**c.spec, "dur": n / fps}
+    spec = project_files(svc, project.dir, {**c.spec, "dur": n / fps})
     scene = build_scene(svc, cfg, spec, W, H, theme)
     if sound_on:
         out.sounds += [(name, c.start + at, base - 2) for name, at in scene.sounds() if at < n / fps]
     path = _path(svc, project, {"spec": spec, "theme": theme, "W": W, "H": H, "fps": fps, "overlay": c.overlay,
+                                **({"files": files_signature(svc, spec)} if files_signature(svc, spec) else {}),
                                 "language": cfg.get("language"), "draft": draft, "v": CUTAWAY_VERSION},
                  ".mov" if c.overlay else ".mkv")
     if svc.cache.has(path):

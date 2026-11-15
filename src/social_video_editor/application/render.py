@@ -47,7 +47,7 @@ from ..domain.timeline import Timeline, absolute_texts, compute_timeline
 from ..domain.transitions import get_transition
 from ..log import log
 from .analyze import prepare_sources
-from .cutaways import render_cutaways
+from .cutaways import files_signature, project_files, render_cutaways
 from .enhance import enhanced_or_none
 from .graphic import build_scene, graphics_theme
 from .music import prepare_music
@@ -75,9 +75,10 @@ class ShotRenderer:
     """
 
     def __init__(self, svc: Services, cfg: dict, infos: list[dict], analyses: list[dict], timeline: Timeline,
-                 W: int, H: int, draft: bool, cache: Path, jobs: int = 1):
+                 W: int, H: int, draft: bool, cache: Path, jobs: int = 1, base: Path | None = None):
         self.svc, self.cfg, self.infos, self.analyses, self.tl = svc, cfg, infos, analyses, timeline
         self.W, self.H, self.draft, self.cache = W, H, draft, cache
+        self.base = base                              # the project folder: files a graphic names are relative to it
         self.fps = int(cfg["output"]["fps"])
         self.jobs = max(1, int(jobs))
         self.segments: list[Path | None] = [None] * len(timeline)
@@ -261,14 +262,16 @@ class ShotRenderer:
         d = self.tl[shot.index].as_dict()
         if self._theme is None:
             self._theme = graphics_theme(self.svc, self.cfg)
-        spec = {**shot.spec(), "dur": d["dur"]}
+        spec = project_files(self.svc, self.base, {**shot.spec(), "dur": d["dur"]})
         try:
             scene = build_scene(self.svc, self.cfg, spec, self.W, self.H, self._theme)
         except PlanError as e:
             raise PlanError(f"Shot {shot.index} (graphic {shot.template}): {e}") from None
         shot.data["_sounds"] = [[name, round(at, 3)] for name, at in scene.sounds()]
         log(f"{self._header(shot)} graphic {shot.template} ({d['dur']:.2f} s) [{d.get('transition')}]")
+        files = files_signature(self.svc, spec)
         path = self._segment_path({"spec": spec, "theme": self._theme, "W": self.W, "H": self.H, "fps": self.fps,
+                                   **({"files": files} if files else {}),
                                    "language": self.cfg.get("language"), "draft": self.draft, "v": SEGMENT_VERSION},
                                   prefix="graphic_", n=14)
         if self.svc.cache.has(path):
@@ -422,7 +425,7 @@ def render(svc: Services, project: Project, plan: dict, draft: bool = False, pro
     total = tl.total
     log(f"Timeline: {len(tl)} shots, {total:.1f} s, {W}×{H}{' (draft)' if draft else ''}")
 
-    segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs).render(waves)
+    segments = ShotRenderer(svc, cfg, infos, analyses, tl, W, H, draft, project.cache, jobs, project.dir).render(waves)
     cuts = render_cutaways(svc, project, cfg, plan, tl, W, H, draft, infos, analyses)
 
     # Main version = new number (v4). Variants = number of the latest main version + suffix
