@@ -69,7 +69,7 @@ def _crescent(R: float, ox: float, oy: float, r: float, n: int = 28) -> Path:
 
 
 # ── the network at rush hour ─────────────────────────────────────────────────
-@icon("signal", words=("senal", "senales", "signal", "cobertura", "coverage", "rayitas", "reception", "recepcion"))
+@icon("signal", words=("senal", "senales", "signal", "cobertura", "coverage", "rayitas"))
 def signal(pen: Pen) -> None:
     heights = (20, 36, 52, 68)
     bars = [round_rect(-36 + i * 19, 34 - h, 13, h, 3) for i, h in enumerate(heights)]
@@ -97,8 +97,8 @@ def signal(pen: Pen) -> None:
             pen.stroke(_arc(-38, -16, rad, 200, 340, 8), pen.color, 2.6)
 
 
-@icon("building", words=("edificio", "edificios", "building", "apartamento", "departamento", "apartment", "condominio",
-                         "oficina", "office", "bloque de pisos", "torre de departamentos"))
+@icon("building", words=("edificio", "edificios", "building", "apartamento", "apartment", "condominio", "oficina",
+                         "bloque de pisos", "torre de departamentos"))
 def building(pen: Pen) -> None:
     body = rect(-30, -32, 60, 76)
     top = rect(-34, -38, 68, 7)
@@ -156,8 +156,8 @@ def shower(pen: Pen) -> None:
     pen.stroke(oval(10, 44, 30, 3.2), pen.ink, 1.2, 0.5)
 
 
-@icon("tap", words=("grifo", "grifos", "canilla", "llave de agua", "faucet", "tap", "agua", "water", "gota", "gotas",
-                    "tuberia", "tuberias", "caneria", "pipe", "pipes"))
+@icon("tap", words=("grifo", "grifos", "canilla", "llave de agua", "faucet", "agua", "water", "gota",
+                    "gotas", "tuberia", "tuberias", "caneria", "pipe", "pipes"), named=False)
 def tap(pen: Pen) -> None:
     spout = smooth([(-4, -16), (16, -16), (24, -8), (24, 4)], closed=False, tension=0.5)
     pen.cable(spout, 11, pen.metal)
@@ -192,8 +192,8 @@ def tap(pen: Pen) -> None:
 
 
 @icon("clock", words=("reloj", "relojes", "clock", "clocks", "hora", "horas", "horario", "hour", "hours", "minuto",
-                      "minutos", "minute", "minutes", "tiempo", "time", "alarma", "alarm", "despertador", "hora pico",
-                      "rush hour", "cronometro", "timer", "temporizador"))
+                      "minutos", "minute", "minutes", "alarma", "alarm", "despertador", "hora pico", "rush hour",
+                      "cronometro", "timer", "temporizador"))
 def clock(pen: Pen) -> None:
     ring = math.sin(TAU * 3 * pen.phase()) * 4 * max(0.0, 1 - pen.phase() * 3) if pen.alive else 0.0
     with saved(pen.cv):
@@ -283,9 +283,9 @@ def download(pen: Pen) -> None:
     pen.flash(arrow)
 
 
-@icon("gauge", words=("velocidad", "velocidades", "velocimetro", "speed", "speeds", "speedometer", "gauge", "megas",
-                      "mbps", "megabits", "ancho de banda", "bandwidth", "latencia", "latency", "ping", "rendimiento",
-                      "performance", "speed test"))
+@icon("gauge", words=("velocidad", "velocidades", "velocimetro", "speed", "speeds", "speedometer", "gauge",
+                      "megas", "mbps", "megabits", "ancho de banda", "bandwidth", "latencia", "latency", "ping",
+                      "speed test"))
 def gauge(pen: Pen) -> None:
     house = circle(0, 4, 42)
     pen.outline(house)
@@ -345,9 +345,8 @@ def _person(pen: Pen, x: float, y: float, s: float, shirt: str, hair: str, phone
         pen.fill(oval(x + 7 * s, y + 30 * s, 4 * s, 3 * s), pen.skin)
 
 
-@icon("crowd", words=("gente", "personas", "multitud", "muchedumbre", "vecinos", "vecino", "usuarios", "familia",
-                      "crowd", "crowds", "people", "users", "neighbors", "neighbours", "family", "todo el mundo",
-                      "everyone", "everybody"))
+@icon("crowd", words=("gente", "personas", "multitud", "muchedumbre", "vecinos", "vecino", "usuarios", "crowd",
+                      "crowds", "people", "users", "neighbors", "neighbours", "todo el mundo"))
 def crowd(pen: Pen) -> None:
     look = 1.0 * math.sin(TAU * pen.phase()) if pen.alive else 0.0
     _person(pen, -25, -12, 0.78, pen.muted, pen.ink, True, look)
@@ -359,9 +358,9 @@ def crowd(pen: Pen) -> None:
             pen.stroke(_arc(x, y, 9, 200, 340, 6), pen.color, 2.2)
 
 
-@icon("video", words=("video", "videos", "pelicula", "peliculas", "streaming", "reproductor", "player", "movie",
-                      "movies", "film", "films", "youtube", "netflix", "tiktok", "cargando", "loading", "buffering",
-                      "buffer", "reel", "reels"))
+@icon("video", words=("video", "videos", "pelicula", "peliculas", "streaming", "reproductor", "movie", "movies",
+                      "youtube", "netflix", "tiktok", "cargando", "loading", "buffering", "buffer", "reel",
+                      "reels"))
 def video(pen: Pen) -> None:
     frame = round_rect(-46, -36, 92, 70, 9)
     pen.outline(frame)
@@ -391,7 +390,7 @@ def video(pen: Pen) -> None:
 
 # ── everyday tech ────────────────────────────────────────────────────────────
 @icon("cable", words=("cable", "cables", "enchufe", "enchufes", "plug", "plugs", "conector", "connector", "usb",
-                      "fibra", "fiber", "fibre", "ethernet", "fibra optica", "cableado", "wired"))
+                      "fibra", "fiber", "fibre", "ethernet", "fibra optica", "cableado"))
 def cable(pen: Pen) -> None:
     cord = smooth([(0, 24), (4, 34), (22, 40), (32, 28), (20, 20), (10, 34), (-12, 44), (-46, 42)], closed=False, tension=0.5)
     pen.cable(cord, 7, pen.color)
@@ -421,7 +420,7 @@ def cable(pen: Pen) -> None:
                       pen.paper, 2.0)
 
 
-@icon("satellite", words=("satelite", "satelites", "satellite", "satellites", "orbita", "orbit", "espacial"))
+@icon("satellite", words=("satelite", "satelites", "satellite", "satellites", "orbita", "orbit"))
 def satellite(pen: Pen) -> None:
     for k in range(3):                                                       # the signal it beams down
         if pen.on(k * 0.2, 0.6):
@@ -479,8 +478,8 @@ def keyboard(pen: Pen) -> None:
     pen.flash(body)
 
 
-@icon("shield", words=("escudo", "escudos", "shield", "proteccion", "protegido", "protegida", "protection",
-                       "protected", "antivirus", "firewall", "cortafuegos", "defensa", "defense"))
+@icon("shield", words=("escudo", "escudos", "shield", "proteccion", "protection", "antivirus", "firewall",
+                       "cortafuegos"))
 def shield(pen: Pen) -> None:
     pts = [(0, -44), (20, -36), (36, -34), (35, 0), (24, 24), (0, 42), (-24, 24), (-35, 0), (-36, -34), (-20, -36)]
     outer = smooth(pts, tension=0.35)
@@ -502,7 +501,7 @@ def shield(pen: Pen) -> None:
     pen.flash(outer)
 
 
-@icon("key", words=("llave", "llaves", "key", "keys", "clave", "claves"))
+@icon("key", words=("llave", "llaves", "keys"), named=False)
 def key(pen: Pen) -> None:
     with saved(pen.cv):
         pen.cv.rotate(-32)
@@ -528,8 +527,7 @@ def key(pen: Pen) -> None:
         pen.flash(bow)
 
 
-@icon("bug", words=("bug", "bugs", "error", "errores", "errors", "falla", "fallas", "fallo", "fallos", "virus",
-                    "malware", "glitch", "insecto"))
+@icon("bug", words=("bug", "bugs", "virus", "malware", "glitch", "insecto"))
 def bug(pen: Pen) -> None:
     wig = 3 * math.sin(TAU * 2 * pen.phase()) if pen.alive else 0.0
     for side in (-1, 1):                                                     # six legs that walk
@@ -581,8 +579,8 @@ def folder(pen: Pen) -> None:
     pen.flash(front)
 
 
-@icon("file", words=("archivo", "archivos", "documento", "documentos", "file", "files", "document", "documents", "pdf",
-                     "fichero", "ficheros", "informe", "report"))
+@icon("file", words=("archivo", "archivos", "documento", "documentos", "file", "files", "document", "documents",
+                     "pdf", "fichero", "ficheros"))
 def file(pen: Pen) -> None:
     page = poly([(-30, -44), (14, -44), (32, -26), (32, 44), (-30, 44)])
     pen.outline(page)
@@ -603,8 +601,8 @@ def file(pen: Pen) -> None:
     pen.flash(page)
 
 
-@icon("photo", words=("foto", "fotos", "fotografia", "fotografias", "imagen", "imagenes", "photo", "photos", "picture",
-                      "pictures", "image", "images", "galeria", "gallery", "selfie", "selfies"))
+@icon("photo", words=("foto", "fotos", "fotografia", "fotografias", "imagen", "imagenes", "photo", "photos",
+                      "image", "images", "galeria", "gallery", "selfie", "selfies"))
 def photo(pen: Pen) -> None:
     with saved(pen.cv):
         pen.cv.rotate(10, 0, 0)
@@ -633,8 +631,7 @@ def photo(pen: Pen) -> None:
         pen.stroke(tape, pen.ink, 1.2, 0.5)
 
 
-@icon("camera", words=("camara", "camaras", "camera", "cameras", "webcam", "lente", "lentes", "lens", "fotografo",
-                       "photographer"))
+@icon("camera", words=("camara", "camaras", "camera", "cameras", "webcam", "lens", "fotografo", "photographer"))
 def camera(pen: Pen) -> None:
     hump = round_rect(-22, -34, 30, 16, 4)
     button = round_rect(20, -31, 15, 9, 3)
@@ -669,8 +666,8 @@ def camera(pen: Pen) -> None:
     pen.flash(body)
 
 
-@icon("mic", words=("microfono", "microfonos", "mic", "microphone", "microphones", "voz", "voice", "podcast",
-                    "grabacion", "recording"))
+@icon("mic", words=("microfono", "microfonos", "mic", "microphone", "microphones", "podcast", "grabacion",
+                    "recording"))
 def mic(pen: Pen) -> None:
     for k in range(3):                                                       # it hears: waves on both sides
         f = pen.phase(k / 3) if pen.alive else 0.3 * k
@@ -699,7 +696,7 @@ def mic(pen: Pen) -> None:
 
 
 @icon("speaker", words=("altavoz", "parlante", "parlantes", "bocina", "bocinas", "speaker", "speakers", "sonido",
-                        "sonidos", "sound", "audio", "volumen", "volume", "musica", "music", "cancion", "song"))
+                        "sonidos", "audio", "musica", "music", "cancion", "song"))
 def speaker(pen: Pen) -> None:
     for k in range(3):
         f = pen.phase(k / 3) if pen.alive else 0.3 * k
@@ -723,8 +720,8 @@ def speaker(pen: Pen) -> None:
     pen.flash(cab)
 
 
-@icon("message", words=("mensaje", "mensajes", "message", "messages", "chat", "chats", "whatsapp", "sms", "mensajeria",
-                        "messaging", "texto", "textos", "comentario", "comentarios", "comment", "comments", "dm"))
+@icon("message", words=("mensaje", "mensajes", "message", "messages", "chat", "chats", "whatsapp", "sms",
+                        "mensajeria", "messaging", "comentario", "comentarios", "dm"))
 def message(pen: Pen) -> None:
     b1 = round_rect(-46, -38, 64, 42, 13)
     t1 = poly([(-36, 0), (-42, 14), (-24, 2)])
@@ -749,8 +746,8 @@ def message(pen: Pen) -> None:
         pen.fill(circle(16, -36, 4), pen.alert)
 
 
-@icon("bell", words=("campana", "campanas", "campanita", "bell", "bells", "notificacion", "notificaciones", "notification",
-                     "notifications", "aviso", "avisos", "timbre"))
+@icon("bell", words=("campana", "campanas", "campanita", "bell", "bells", "notificacion", "notificaciones",
+                     "notification", "notifications", "timbre"))
 def bell(pen: Pen) -> None:
     p = pen.phase() if pen.alive else 0.6
     swing = 14 * math.sin(TAU * 3 * p) * max(0.0, 1 - p * 2.2)
@@ -833,7 +830,7 @@ def trash(pen: Pen) -> None:
 
 
 @icon("search", words=("lupa", "lupas", "busqueda", "busquedas", "buscador", "buscadores", "search", "searches",
-                       "magnifier", "google", "investigacion", "research"))
+                       "magnifier", "google"))
 def search(pen: Pen) -> None:
     a = TAU * pen.phase() if pen.alive else 0.0
     dx, dy = 3 * math.cos(a), 3 * math.sin(a)                                # it looks around
@@ -857,8 +854,7 @@ def search(pen: Pen) -> None:
         pen.flash(lens)
 
 
-@icon("gear", words=("ajustes", "ajuste", "configuracion", "settings", "setting", "engranaje", "engranajes", "gear",
-                     "gears", "mecanismo", "mechanism", "configurar", "setup"))
+@icon("gear", words=("ajustes", "configuracion", "settings", "engranaje", "engranajes", "gear", "gears"))
 def gear(pen: Pen) -> None:
     turn = 360 * pen.phase() / 8 if pen.alive else 0.0
     small = _gear_path(26, 24, 19, 14, 7, -turn * 8 / 7 + 13)
@@ -922,8 +918,8 @@ def money(pen: Pen) -> None:
     pen.flash(coin)
 
 
-@icon("calendar", words=("calendario", "calendarios", "fecha", "fechas", "calendar", "calendars", "date", "dates", "mes",
-                         "meses", "month", "months", "semana", "semanas", "week", "weeks", "agenda", "schedule",
+@icon("calendar", words=("calendario", "calendarios", "fecha", "fechas", "calendar", "calendars", "mes", "meses",
+                         "month", "months", "semana", "semanas", "week", "weeks", "agenda", "schedule",
                          "fin de semana", "weekend"))
 def calendar(pen: Pen) -> None:
     under = round_rect(-36, -28, 76, 74, 6)
@@ -949,8 +945,8 @@ def calendar(pen: Pen) -> None:
     pen.flash(page)
 
 
-@icon("pin", words=("mapa", "mapas", "ubicacion", "ubicaciones", "gps", "map", "maps", "location", "locations", "pin",
-                    "direccion", "address", "zona", "zonas", "barrio", "neighborhood", "ciudad", "city"))
+@icon("pin", words=("mapa", "mapas", "ubicacion", "ubicaciones", "gps", "map", "maps", "location", "locations",
+                    "ciudad", "city"), named=False)
 def pin(pen: Pen) -> None:
     sheet = poly([(-46, 14), (-16, 8), (14, 16), (46, 8), (46, 40), (14, 46), (-16, 38), (-46, 46)])
     pen.outline(sheet)
@@ -974,8 +970,7 @@ def pin(pen: Pen) -> None:
     pen.flash(drop)
 
 
-@icon("rocket", words=("cohete", "cohetes", "rocket", "rockets", "despegue", "despegar", "liftoff", "lanzamiento",
-                       "launch"))
+@icon("rocket", words=("cohete", "cohetes", "rocket", "rockets", "despegue", "despegar", "liftoff"))
 def rocket(pen: Pen) -> None:
     p = pen.phase() if pen.alive else 0.5
     for k in range(3):                                                       # smoke
@@ -1015,9 +1010,8 @@ def rocket(pen: Pen) -> None:
         pen.flash(body)
 
 
-@icon("idea", words=("idea", "ideas", "bombilla", "bombillas", "bombillo", "foco", "focos", "bulb", "lightbulb", "truco",
-                     "trucos", "tip", "tips", "consejo", "consejos", "solucion", "soluciones", "solution", "hack",
-                     "hacks", "trick", "tricks"))
+@icon("idea", words=("idea", "ideas", "bombilla", "bombillas", "bombillo", "bulb", "lightbulb", "truco", "trucos",
+                     "tip", "tips", "consejo", "consejos", "hack", "hacks", "trick", "tricks"))
 def idea(pen: Pen) -> None:
     for k in range(8):                                                       # rays that pulse
         a = math.radians(-180 + k * 25.7 - 90 + 90)
@@ -1045,9 +1039,8 @@ def idea(pen: Pen) -> None:
     pen.flash(glass)
 
 
-@icon("warning", words=("alerta", "alertas", "advertencia", "advertencias", "cuidado", "peligro", "peligros", "warning",
-                        "warnings", "alert", "alerts", "danger", "riesgo", "riesgos", "risk", "risks", "problema",
-                        "problemas", "problem", "problems", "ojo"))
+@icon("warning", words=("alerta", "alertas", "advertencia", "advertencias", "peligro", "peligros", "warning",
+                        "warnings", "alert", "alerts", "danger"))
 def warning(pen: Pen) -> None:
     tri = poly([(0, -42), (44, 36), (-44, 36)])
     if pen.on(0.0, 0.5) or pen.active > 0.2:                                 # it flashes

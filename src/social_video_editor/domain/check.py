@@ -18,6 +18,7 @@ DEFAULTS = {
     "cut_jump_lu": 8.0,               # momentary loudness jump across a cut
     "sfx_max_vs_mix_lu": -6.0,        # sound-effect stem at most mix − 6 LU
     "music_max_vs_original_lu": 0.0,  # ASMR mode: music no louder than the original sound
+    "music_min_under_voice_lu": 6.0,  # with voice: the music at least this far under it while it speaks
     "typing_max_per_sec": 20.0,       # keystroke clicks per second inside a typing burst
     "typing_max_vs_mix_lu": -6.0,     # typing clicks at most mix − 6 LU
     "harsh_ratio": 0.35,              # share of 2–5 kHz energy (60 Hz–16 kHz) of the whole mix
@@ -290,6 +291,12 @@ def pause_to_voice(jump: dict, integrated: float | None, pause: float = PAUSE_LU
     return quiet < pause and integrated is not None and loud <= integrated + 3
 
 
+def speech_moments(momentary: list[float], integrated: float, below: float = 10.0) -> list[bool]:
+    """Which momentary-loudness values (0.1 s apart) of a voice stem are speech: within `below` LU of
+    its integrated loudness (a pause of 0.4 s or more falls further)."""
+    return [m is not None and math.isfinite(m) and m > integrated - below for m in momentary]
+
+
 def window_level(t: list[float], m: list[float], a: float, b: float) -> float:
     """Energy-mean momentary loudness of the windows ending inside [a + 0.2, b + 0.4]."""
     tt = np.asarray(t)
@@ -473,6 +480,10 @@ def report_lines(result: dict, notes: list[str]) -> list[str]:
     if st:
         lines.append("  stems (LUFS, master gain applied): "
                      + ", ".join(f"{k} {v}" for k, v in st.items() if k in ("original", "music", "sfx")))
+    mv = m.get("music_vs_voice")
+    if mv:
+        lines.append(f"  music under the voice: {mv.get('speech_lu')} LU while it speaks, {mv.get('pause_lu')} LU in "
+                     f"pauses (closest {mv.get('worst_lu')} LU at {mv.get('worst_t')} s)")
     lines += [f"  ERROR  {e}" for e in result["errors"]]
     lines += [f"  warn   {w}" for w in result["warnings"]]
     lines += [f"  note   {x}" for x in notes]

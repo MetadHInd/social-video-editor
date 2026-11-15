@@ -31,10 +31,12 @@ ALONE = {"tu", "yo", "you", "la", "el"}  # words that only name an illustration 
 PUNCTUATION = "¿?¡!.,;:«»\"'()…“”‘’-"
 
 
-def icon(name: str, words: tuple[str, ...] = ()):
+def icon(name: str, words: tuple[str, ...] = (), named: bool = True):
+    """Registers an illustration and the words that select it (`named`: its own name is one of them;
+    False for a name that is also a common word in another sense, like "tap" or "key")."""
     def register(fn: Callable) -> Callable:
         ICONS[name] = fn
-        for w in (name, *words):
+        for w in ((name,) if named else ()) + tuple(words):
             WORDS[_norm(w)] = name
         return fn
     return register
@@ -300,7 +302,7 @@ def router(pen: Pen) -> None:
     pen.fill(circle(0, 5, 3.6), pen.color)
 
 
-@icon("globe", words=("internet", "web", "red", "network", "mundo", "world", "online"))
+@icon("globe", words=("internet", "web", "network", "world", "online"))
 def globe(pen: Pen) -> None:
     ball = circle(0, 0, 38)
     pen.outline(ball)
@@ -326,7 +328,7 @@ def _lune(r: float) -> Path:
     return smooth([(r * 0.2, r * 0.97), (r * 0.78, r * 0.6), (r * 0.98, -r * 0.1), (r * 0.62, r * 0.28), (r * 0.36, r * 0.62)])
 
 
-@icon("cloud", words=("nube", "icloud", "drive"))
+@icon("cloud", words=("nube", "icloud"))
 def cloud(pen: Pen) -> None:
     parts = [circle(-20, 6, 18), circle(2, -9, 24), circle(25, 6, 16), round_rect(-38, 6, 79, 20, 10)]
     pen.outline(*parts)
@@ -439,7 +441,7 @@ def disk(pen: Pen) -> None:
     pen.flash(label)
 
 
-@icon("battery", words=("bateria", "energia", "pila", "battery", "batteries", "pilas"))
+@icon("battery", words=("bateria", "battery", "batteries"))
 def battery(pen: Pen) -> None:
     body = round_rect(-24, -36, 48, 78, 8)
     cap = round_rect(-10, -45, 20, 12, 3)
@@ -474,7 +476,7 @@ def tower(pen: Pen) -> None:
     pen.part(circle(0, -33, 6), pen.color, thin=False)
 
 
-@icon("app", words=("aplicacion", "apps", "aplicaciones", "programa", "software"))
+@icon("app", words=("aplicacion", "apps", "aplicaciones", "software"))
 def app(pen: Pen) -> None:
     card = round_rect(-32, -32, 64, 64, 15)
     pen.outline(card)

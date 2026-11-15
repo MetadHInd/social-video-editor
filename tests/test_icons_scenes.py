@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from social_video_editor.domain.graphics import RecordingCanvas, Stage, build_theme, make_scene
-from social_video_editor.domain.graphics.icons import DESCRIPTIONS, ICONS, describe_icon, draw_icon, find_icon, match_icon
+from social_video_editor.domain.graphics.icons import ALONE, DESCRIPTIONS, ICONS, describe_icon, draw_icon, find_icon, match_icon
 from social_video_editor.domain.graphics.scenes import ACTION_TEXTS, ACTIONS, TARGETED, action_of, actions_in, negated
 
 VERTICAL, LANDSCAPE = (1080, 1920), (1920, 1080)
@@ -17,7 +17,7 @@ PRINTED = {"stroke": {"outline": 6, "halo": 3, "thread": 6, "thread_halo": 3.5},
 def first_icon(sentence: str) -> str | None:
     """What the engine picks for a sentence: the first word that names an illustration (as the director and
     the notes read them, word by word)."""
-    return next((i for w in sentence.split() if (i := find_icon(w))), None)
+    return next((i for w in sentence.split() if w.lower().strip(",.") not in ALONE and (i := find_icon(w))), None)
 
 
 # ── every new illustration, reached from a sentence ─────────────────────────
@@ -25,7 +25,7 @@ SAID_ICONS = {          # icon → (Spanish sentence, English sentence, a near m
     "signal": ("Tengo dos rayitas de señal", "The signal drops at night", "Señalar con el dedo"),
     "building": ("Vivo en un edificio grande", "I live in a big building", "Una charla edificante"),
     "shower": ("Me doy una ducha", "I take a shower", "Duchamp pintó eso"),
-    "tap": ("Abres el grifo", "Turn on the tap", "Aguerrido como siempre"),
+    "tap": ("Abres el grifo", "Turn on the faucet", "Tap the screen"),
     "clock": ("A esa hora todos se conectan", "At that hour everyone connects", "Ahora mismo"),
     "moon": ("De noche va mejor", "At night it is faster", "Nochebuena en familia"),
     "download": ("La descarga tarda", "The download is slow", "Un descargo de responsabilidad"),
@@ -36,7 +36,7 @@ SAID_ICONS = {          # icon → (Spanish sentence, English sentence, a near m
     "satellite": ("Un satélite en órbita", "A satellite in orbit", "Una ciudad satelital"),
     "keyboard": ("El teclado del celular", "The keyboard of the phone", "Teclear rápido"),
     "shield": ("Un escudo contra virus", "A shield against viruses", "El escudero llegó"),
-    "key": ("La llave de tu casa", "Your house key", "Un llavero bonito"),
+    "key": ("La llave de tu casa", "Your house keys", "The key is patience"),
     "bug": ("Un bug en la app", "A bug in the app", "Un Bugatti rojo"),
     "folder": ("Esa carpeta pesa", "That folder is heavy", "Un carpetazo"),
     "file": ("Ese archivo pesa", "That file is big", "Archivar todo"),
@@ -52,7 +52,7 @@ SAID_ICONS = {          # icon → (Spanish sentence, English sentence, a near m
     "gear": ("Entra en ajustes", "Open the settings", "Un traje ajustado"),
     "money": ("Cuesta dinero", "It costs money", "Un dinerario"),
     "calendar": ("Cada semana pasa", "Every week it happens", "Un semanario"),
-    "pin": ("En el mapa se ve", "On the map you see it", "Un mapache"),
+    "pin": ("En el mapa se ve", "On the map you see it", "Pin it to the top"),
     "rocket": ("Sale como cohete", "Like a rocket", "La cohetería"),
     "idea": ("Una buena idea", "A good idea", "Es ideal"),
     "warning": ("Una alerta roja", "A warning for you", "Alertar a todos"),
@@ -84,6 +84,28 @@ def test_every_illustration_has_words_a_description_and_a_sentence():
 ])
 def test_names_are_whole_words_never_pieces_of_one(label, name):
     assert find_icon(label) == name
+
+
+@pytest.mark.parametrize("sentence, name", [
+    ("Every time you send one, it splits again", None), ("This time it works", None), ("One more time", None),
+    ("At the same time", None), ("Llegó a tiempo", None), ("Hace tiempo que pasa", None), ("Mucho tiempo después", None),
+    ("El tiempo está feo", None), ("Otra vez lo mismo", None), ("A red alert", "warning"), ("Drive to work", None),
+    ("El mundo entero", None), ("Con mucha energía", None), ("Una pila de ropa", None),
+    ("El programa de lealtad", None), ("Pregunta en recepción", None), ("El departamento de ventas", None),
+    ("Tap the screen", None), ("Mejor rendimiento", None), ("Toda la familia", None), ("Everyone knows it", None),
+    ("The player wins", None), ("Film it", None), ("Wired magazine", None), ("Estación espacial", None),
+    ("Está protegido", None), ("La defensa ganó", None), ("The key is patience", None), ("La clave está en eso", None),
+    ("Es un error pensarlo", None), ("Falla mucho", None), ("El informe dice", None), ("The big picture", None),
+    ("Usa lentes", None), ("En voz alta", None), ("Sounds good", None), ("Sube el volumen", None),
+    ("El texto dice", None), ("Sin previo aviso", None), ("La investigación dice", None), ("Un ajuste fino", None),
+    ("Up to date", None), ("Pin it", None), ("Esa zona", None), ("En esa dirección", None),
+    ("El lanzamiento del iPhone", "phone"), ("El foco está en eso", None), ("La solución es simple", None),
+    ("Ten cuidado", None), ("El problema es ese", None), ("Ojo con eso", None), ("Hay riesgo", None),
+])
+def test_broad_words_and_idioms_name_no_illustration(sentence, name):
+    """An illustration only for a concrete thing named: not "every time", "a tiempo", "red alert" (→ globe),
+    "the key is…", "un error", "el problema"…"""
+    assert first_icon(sentence) == name and find_icon(sentence) == name
 
 
 def test_among_limits_the_illustrations_and_exact_names_are_told_apart():
