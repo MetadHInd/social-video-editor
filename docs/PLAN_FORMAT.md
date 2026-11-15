@@ -322,8 +322,9 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `subtitles.auto` | true | Word-by-word subtitles from the transcription when there is speech. |
 | `subtitles.max_words` / `max_chars` | 3 / 18 | Words and characters per subtitle. |
 | `subtitles.uppercase`, `font`, `size`, `color`, `highlight`, `stroke`, `stroke_color`, `shadow` | true, Inter-Black, 82, white, `#FFE14D`, 9, black, true | Look (active word in `highlight`). |
-| `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). |
+| `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). In a landscape frame a subtitle is raised, if needed, so it ends above the bottom of the safe zone (`check.landscape_safe_bottom`, 0.90). |
 | `subtitles.animation` | `pop` | `pop` or `none`. |
+| `subtitles.style` | `pillow` | `caption`: every subtitle is drawn in the graphics' narration box (`kit.caption`: the pack's paper box and font), the word being said marked with an ink band that grows under it. Same words, timing and splitting as the default subtitles; the box is centered at `subtitles.y`, as wide as their lines may be and kept inside the safe zone `sve check` measures; drawn as one transparent graphic over the video (`cache/segments/subs_*.mov`). Needs the graphics extra (otherwise the default subtitles are drawn). Spanish `estilo: caja`. |
 | `texts.styles.<name>` | see `base.yaml` | `size`, `font`, `color`, `background` (`#RRGGBBAA`), `x`, `y`, `max_width`, `uppercase`, `radius`, `outline`, `animation`, `speed`, `desc_font`, `desc_size`, `desc_color`; without a `background` the text is outlined with `stroke` px (default size/10) in `stroke_color` (default black). Sizes are for a 1080-px-wide output and scale with it. |
 
 ### `export`, `polaroid`, `collage`
@@ -662,6 +663,69 @@ The recipe also turns off what would jump at every cut (slow push, per-shot nois
 punches), uses no music unless you set `music.file` (kept low under the voice, cuts not moved to
 the beat) and puts the subtitles in the band under the graphics (`subtitles.y: 0.835`,
 `check.safe_bottom: 0.88`).
+
+### Shorts from the same project
+
+A **short** is a stretch of the script rendered as a vertical video of its own: its sentences only, the
+cutaways that fall inside them, the same framing on the face, subtitles and sound. Mark it in the script
+(Spanish `[corto nombre]` … `[/corto]`):
+
+```
+How does a message travel?
+[short packets]
+Every time you send one, the phone cuts it into packets.
+[bars data="Under the sea:95, By satellite:5" unit="%"]
+And they travel apart.
+[/short]
+```
+
+The marks are not cues (the cue in force goes on through them) and the long video ignores them: its plan is
+the same, plus `"shorts": [{"name": "packets", "from_sentence": 1, "to_sentence": 2}]`. A short left open runs
+to the end; shorts do not overlap. `sve plan` lists them with their estimated length.
+
+```
+sve render talk --short packets [--draft]      # one short (repeat --short for more); Spanish --corto
+sve render talk --shorts                       # every short of the plan; Spanish --cortos
+```
+
+Each one goes to a new variant folder that never overwrites another — `v3CortoPackets` / `v3ShortPackets`
+(+ `Borrador` / `Draft`…), files `<project>_corto_<name>` — and its `summary.json` has `short`. A camera shot
+that also plays a sentence outside the short is trimmed halfway between the two sentences; a cutaway that starts
+before the short (or ends after it) is clamped to it; cutaways placed by seconds of the long video and plan texts
+are left out. A landscape project renders its shorts at 1080×1920 (`shorts` profile, framed on the face again);
+`--profile` still wins.
+
+**Shorts proposed by the engine** (`script.shorts: auto`, off by default). `sve plan` looks for stretches that
+stand on their own and records them in `shorts` with `"_auto": "shorts"`, a `score` and a `why` (rendered like
+any other short; `sve plan` runs again → proposed again). Every stretch of consecutive sentences found in the
+recording that lasts `short_min`–`short_max` seconds and **starts with a question or a hook** (a first word like
+*did you know*, *imagine*, *secret*, *nobody*, *never*, *mistake*, *truth* — `sabías`, `imagina`, `secreto`,
+`nadie`, `nunca`, `error`, `verdad`… — or a figure) is a candidate, scored:
+
+| Points | When |
+|---|---|
+| +3 / +2 | it starts with a question / with a hook word or a figure |
+| −1 | its first word leans on what came before (`and`, `but`, `so`, `y`, `pero`, `entonces`…) |
+| +2 / +1 | a full-frame graphic is shown inside it (a cue, or one the director proposed) / else it says a figure |
+| +1 | it ends on a statement (`.` `!`), or with the script's last sentence |
+| +1 | the sentence after it opens something new (a question or a hook) |
+| +1 − \|s − 40\| / 40 | its length s in seconds: about 40 s is best |
+
+The best ones that overlap neither each other nor a short written in the script are kept (`auto-1`, `auto-2`…).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `script.shorts` | `false` | `auto`: propose shorts (written marks work either way). |
+| `script.shorts_max` | 3 | At most this many proposals. |
+| `script.short_min` / `short_max` | 20 / 60 | Seconds a proposed short lasts (estimated from the sentences found). |
+
+### A voice memo instead of a recording
+
+The source of an `explainer` project may be sound only (a voice memo: `.m4a`, `.wav`, `.mp3`…). Nothing else
+changes: the analysis runs on a plain stand-in picture (no scenes, no face), the script is matched to the
+voice, and every shot of that source is drawn on the theme's own moving backdrop (the grid, circuit traces
+with pulses, blinking chips of the pack — what is behind every full-frame graphic) with the voice going
+through the same chain (`audio.clean_voice` included), so a stretch no graphic or clip covers is never black.
 
 ## The whole video with one command (`sve make`)
 
