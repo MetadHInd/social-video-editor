@@ -164,6 +164,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   when only drafts were rendered since the last final one (it said "none yet" for projects made with `sve make`).
   Measured on synthetic projects of each recipe: unboxing 24 → 22 lines, haul 26 → 21, talk 19 → 15,
   slideshow 9 → 12, a busy explainer 62 → 50.
+- Slideshows: `photo.skip_duplicates` (`omitir_duplicadas`) shows only the sharpest of the photos that show the same
+  scene in a row, and `photo.skip_blurred` (`omitir_borrosas`) leaves out clearly blurred ones (sharpness and lost
+  fine detail, measured once per photo in `cache/photo_quality.json`). Both off by default; what was left out and
+  why is in `plan.json` (`skipped_photos`), the log and `sve report`.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now

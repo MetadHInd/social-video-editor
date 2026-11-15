@@ -316,3 +316,144 @@ def auto_tone_setting(cfg: dict, shot: dict | None = None) -> float:
         return min(max(float(v or 0), 0.0), 1.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+# ── near-duplicates and blurred shots (photo.skip_duplicates / photo.skip_blurred) ──────────
+
+QUALITY = {
+    "skip_duplicates": False,          # the same scene shot twice in a row: only the sharper one is shown
+    "skip_blurred": False,             # clearly blurred photos are left out
+    "duplicate_seconds": 30.0,         # taken at most this far apart (when both capture times are known)
+    "duplicate_difference": 0.2,       # share of the signature that may differ (0 = identical;
+                                       # reframed by 5 % ≈ 0.15; unrelated pictures ≥ 0.4)
+    "min_sharpness": 60.0,             # blurred: under this sharpness…
+    "blur_share": 0.3,                 # …and under this share of the album's median sharpness
+}
+MEASURE_SIDE = 512                     # long side, pixels, of the picture that is measured
+HASH_SIZE = 8                          # the signature: 8×8 brightness steps across + 8×8 down (128 bits)
+BLUR_DETAIL = 0.5                      # blurred also needs its finest detail under this share of the next scale's
+MEASURE_VERSION = 1
+
+
+def quality_settings(cfg: dict) -> dict:
+    p = cfg.get("photo") or {}
+    return {k: type(v)(p[k]) if p.get(k) is not None else v for k, v in QUALITY.items()}
+
+
+def _area(g, h: int, w: int):
+    """Mean of each cell of an h×w grid laid over `g` (exact area resize, downscaling only)."""
+    import numpy as np
+
+    H, W = g.shape
+    ys = np.linspace(0, H, h + 1).round().astype(int)
+    xs = np.linspace(0, W, w + 1).round().astype(int)
+    c = np.pad(g.astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    s = c[ys[1:]][:, xs[1:]] - c[ys[:-1]][:, xs[1:]] - c[ys[1:]][:, xs[:-1]] + c[ys[:-1]][:, xs[:-1]]
+    return s / np.maximum(np.outer(np.diff(ys), np.diff(xs)), 1)
+
+
+def measure_photo(bgr) -> dict:
+    """A photo's sharpness and signature from its pixels (H×W×3 BGR, 0–255, as the video analyzer
+    reads frames). Sharpness: variance of the Laplacian of the gray picture at MEASURE_SIDE pixels (the
+    same measure as the video samples); detail: that sharpness over the one at half the size (≈1 for a
+    sharp photo, even a smooth one; ≈0.15 for a blurred one); signature: which way the brightness steps between neighbours of a
+    HASH_SIZE grid, across and down (hex), so a second shot of the same scene differs in few of them."""
+    import numpy as np
+
+    a = np.asarray(bgr, dtype=np.float32)
+    g = a[..., 0] * 0.114 + a[..., 1] * 0.587 + a[..., 2] * 0.299 if a.ndim == 3 else a
+    H, W = g.shape
+    f = max(int(max(H, W) // MEASURE_SIDE), 1)
+    if f > 1:                                       # block means first (cheap), then the exact size
+        g = g[:H // f * f, :W // f * f].reshape(H // f, f, W // f, f).mean(axis=(1, 3))
+    H, W = g.shape
+    if max(H, W) > MEASURE_SIDE:
+        k = MEASURE_SIDE / max(H, W)
+        g = _area(g, max(int(round(H * k)), 1), max(int(round(W * k)), 1))
+    sharpness = _laplacian_var(g)
+    h2, w2 = g.shape[0] // 2, g.shape[1] // 2
+    coarse = _laplacian_var(g[:h2 * 2, :w2 * 2].reshape(h2, 2, w2, 2).mean(axis=(1, 3))) if min(h2, w2) > 2 else 0.0
+    across = _area(g, HASH_SIZE, HASH_SIZE + 1)
+    down = _area(g, HASH_SIZE + 1, HASH_SIZE)
+    bits = np.concatenate([(across[:, 1:] > across[:, :-1]).ravel(), (down[1:, :] > down[:-1, :]).ravel()])
+    return {"sharpness": round(sharpness, 2),
+            "detail": round(sharpness / coarse, 3) if coarse > 0 else 1.0,   # a blurred photo lost its finest detail
+            "signature": np.packbits(bits).tobytes().hex(), "v": MEASURE_VERSION}
+
+
+def _laplacian_var(g) -> float:
+    lap = g[1:-1, :-2] + g[1:-1, 2:] + g[:-2, 1:-1] + g[2:, 1:-1] - 4 * g[1:-1, 1:-1]
+    return float(lap.var()) if lap.size else 0.0
+
+
+def signature_difference(a: str, b: str) -> float:
+    """Share of the signature bits that differ (0 = the same picture, ≈0.5 = unrelated pictures)."""
+    x, y = bytes.fromhex(a), bytes.fromhex(b)
+    if not x or len(x) != len(y):
+        return 1.0
+    return sum(bin(p ^ q).count("1") for p, q in zip(x, y)) / (8 * len(x))
+
+
+def _seconds_apart(a, b) -> float | None:
+    try:
+        return abs((datetime.fromisoformat(str(a)) - datetime.fromisoformat(str(b))).total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
+def skip_photos(photos: list[dict], measures: dict[str, dict], s: dict) -> tuple[list[dict], list[dict]]:
+    """(the photos to show, the ones left out [{"source", "reason": "duplicate" | "blurred", "why", …}]).
+
+    photos: media infos ("path", "taken"); measures: {path: measure_photo(…)} — a photo without a
+    measure is always kept. Near-duplicates: consecutive photos (in chronological order) whose
+    signatures differ by at most `duplicate_difference` and that were taken at most `duplicate_seconds`
+    apart form a group; its sharpest photo is kept. Blurred: under `min_sharpness`, under `blur_share` ×
+    the median sharpness of the measured photos and with its finest detail lost (`detail` under
+    BLUR_DETAIL: a smooth but sharp picture — fog, a sky — is kept). Never leaves out every photo."""
+    ordered = chronological([p for p in photos if p.get("image", True)])
+    skipped: list[dict] = []
+    keep = list(ordered)
+    if s.get("skip_duplicates"):
+        groups: list[list[dict]] = []
+        for p in ordered:
+            m = measures.get(str(p["path"])) or {}
+            last = groups[-1][-1] if groups else None
+            lm = measures.get(str(last["path"])) or {} if last else {}
+            gap = _seconds_apart(p.get("taken"), last.get("taken")) if last else None
+            if (last is not None and m.get("signature") and lm.get("signature")
+                    and signature_difference(m["signature"], lm["signature"]) <= float(s["duplicate_difference"])
+                    and (gap is None or gap <= float(s["duplicate_seconds"]))):
+                groups[-1].append(p)
+            else:
+                groups.append([p])
+        keep = []
+        for g in groups:
+            best = max(g, key=lambda p: float((measures.get(str(p["path"])) or {}).get("sharpness") or 0))
+            keep.append(best)
+            bm = measures.get(str(best["path"])) or {}
+            for p in g:
+                if p is not best:
+                    m = measures.get(str(p["path"])) or {}
+                    skipped.append({"source": str(p["path"]), "reason": "duplicate", "kept": str(best["path"]),
+                                    "difference": round(signature_difference(m["signature"], bm["signature"]), 3),
+                                    "sharpness": m.get("sharpness"),
+                                    "why": f"same scene as {PurePath(str(best['path'])).name}, which is sharper "
+                                           f"({m.get('sharpness')} < {bm.get('sharpness')})"})
+    if s.get("skip_blurred"):
+        values = sorted(float(m["sharpness"]) for m in measures.values() if m.get("sharpness") is not None)
+        if values:
+            median = values[len(values) // 2]
+            limit = min(float(s["min_sharpness"]), float(s["blur_share"]) * median)
+            blurred = [p for p in keep if (measures.get(str(p["path"])) or {}).get("sharpness") is not None
+                       and float(measures[str(p["path"])]["sharpness"]) < limit
+                       and float(measures[str(p["path"])].get("detail", 0)) < BLUR_DETAIL]
+            if len(blurred) < len(keep):
+                for p in blurred:
+                    v = measures[str(p["path"])]["sharpness"]
+                    skipped.append({"source": str(p["path"]), "reason": "blurred", "sharpness": v,
+                                    "why": f"blurred: sharpness {v} under {round(limit, 1)} (photo.min_sharpness "
+                                           f"{s['min_sharpness']:g}, {s['blur_share']:g} × the album's median "
+                                           f"{median:g}), fine detail {measures[str(p['path'])].get('detail')}"})
+                keep = [p for p in keep if p not in blurred]
+    order = {str(p["path"]): k for k, p in enumerate(ordered)}
+    return keep, sorted(skipped, key=lambda x: order.get(x["source"], 0))

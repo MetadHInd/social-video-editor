@@ -138,7 +138,9 @@ VISION = Ctx(
 PHOTO = Ctx(   # new section: still photos and slideshows
     keys={"duracion": "duration", "transicion": "transition", "cantidad_movimiento": "motion_amount",
           "ajustar_a_musica": "fit_to_music", "duracion_min": "min_duration", "duracion_max": "max_duration",
-          "tono_auto": "auto_tone"},
+          "tono_auto": "auto_tone", "omitir_duplicadas": "skip_duplicates", "omitir_borrosas": "skip_blurred",
+          "segundos_duplicadas": "duplicate_seconds", "diferencia_duplicadas": "duplicate_difference",
+          "nitidez_min": "min_sharpness", "parte_borrosa": "blur_share"},
     values={"transition": TRANSITIONS},
 )
 

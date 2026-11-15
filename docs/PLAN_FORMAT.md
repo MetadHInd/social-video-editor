@@ -916,6 +916,18 @@ zoom out, pan left; photos whose aspect differs a lot from the output's — port
 landscape video — only zoom in / out). Each shot's `note` is its capture time. With mixed
 sources and no `slideshow`, the regular video plan is made from the videos only.
 
+**Near-duplicates and blurred photos** (off by default, so existing plans do not change). With
+`photo.skip_duplicates: true` (`omitir_duplicadas`), photos next to each other in that order that show the
+same scene — a signature of their brightness steps differs by at most `photo.duplicate_difference`, and
+they were taken at most `photo.duplicate_seconds` apart — form a group and only the sharpest is shown. With
+`photo.skip_blurred: true` (`omitir_borrosas`), a photo is left out when its sharpness (variance of the
+Laplacian at 512 pixels, the measure of the video samples) is under both `photo.min_sharpness` and
+`photo.blur_share` × the album's median, **and** it lost its finest detail (a smooth but sharp picture —
+fog, a sky — is kept). Each photo is read once (OpenCV) and measured in `cache/photo_quality.json`; a photo
+that cannot be read is kept, and no setting leaves out every photo. What was left out is in the plan
+(`skipped_photos`: `source`, `reason` `duplicate` | `blurred`, `why`, and for a duplicate the photo `kept`),
+in the log of `sve plan` and in `sve report`; nothing needs to be reviewed by hand.
+
 ### `sve enhance` (alias `mejorar`)
 
 `sve enhance <project> [--force]` prepares the photos for the output size, never touching the originals:
@@ -937,6 +949,9 @@ are skipped (a replaced photo gets a new hash).
 | `photo.duration` | 4.5 | Seconds per photo proposed by the planner. |
 | `photo.transition` | `fade` | Transition between photos proposed by the planner. |
 | `photo.motion_amount` | 0.06 | Maximum Ken Burns zoom (at most 0.25). |
+| `photo.skip_duplicates` / `skip_blurred` | `false` / `false` | Leave out near-duplicates (the sharpest of a group is shown) / clearly blurred photos (see above). |
+| `photo.duplicate_seconds` / `duplicate_difference` | 30 / 0.2 | Near-duplicates: taken at most this far apart (when both times are known) / share of the signature that may differ (a 5 % reframing ≈ 0.15; unrelated photos ≥ 0.4). |
+| `photo.min_sharpness` / `blur_share` | 60 / 0.3 | Blurred: sharpness under this and under this share of the album's median (a sharp photo ≈ 500–2000). |
 | `photo.auto_tone` | 0 | Gentle automatic exposure fix at render time, 0–1 (0 = off; the `slideshow` recipe uses 0.6). Dark or backlit photos get a smooth lightness lift (CIE Lab: blacks and whites stay put, hue kept) plus a little local contrast; backlit photos (people in shadow before a bright window or sky) get their shadows lifted locally along an edge-aware illumination map, so the bright areas stay as they are; well-exposed photos are left untouched. Applied before framing, so the blurred background matches. A shot may override it with `"auto_tone"`. |
 | `color.warmth` | 0 | Photos only: gentle warm tint, 0–1 (0 = off). |
 | `color.vignette` | `false` | Photos: strength 0–1 (`true` = 0.5); videos keep their on/off vignette. |

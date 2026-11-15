@@ -214,6 +214,10 @@ def _plan(svc: Services, project: Project) -> dict | None:
         out["timeline_error"] = str(exc) or type(exc).__name__
     if plan.get("sentences"):
         out["script"] = _script(plan)
+    skipped = [x for x in plan.get("skipped_photos") or [] if isinstance(x, dict)]
+    if skipped:                         # photo.skip_duplicates / photo.skip_blurred
+        out["skipped_photos"] = [{"file": Path(str(x.get("source"))).name, "reason": x.get("reason"),
+                                  "why": x.get("why")} for x in skipped]
     return out
 
 
@@ -467,6 +471,18 @@ def _cutaway_lines(cu: dict | None, limit: int = MAX_SHOT_LINES) -> list[str]:
     return out
 
 
+def _skipped_lines(skipped: list[dict] | None, limit: int) -> list[str]:
+    if not skipped:
+        return []
+    kinds = Counter(x.get("reason") for x in skipped)
+    out = [f"  {len(skipped)} photos left out: {kinds.get('duplicate', 0)} near-duplicates (the sharper one is shown), "
+           f"{kinds.get('blurred', 0)} blurred"]
+    out += ["    " + _message(f"{x['file']}: {x['why']}") for x in skipped[:limit]]
+    if len(skipped) > limit:
+        out.append("  " + _more(len(skipped) - limit, "photos left out"))
+    return out
+
+
 def _todo_lines(r: dict, full: bool) -> list[str]:
     items = r.get("todo") or []
     if not items:
@@ -531,6 +547,7 @@ def report_lines(r: dict, full: bool = False) -> list[str]:
                        "(before fitting to the music)")
         out += _pack([_shot_token(e) for e in p.get("timeline", [])], max_lines=limit,
                      more="--full, or sve view <project>")
+        out += _skipped_lines(p.get("skipped_photos"), sentences)
         if p.get("first_text"):
             out.append(f"  first text: {_message(p['first_text'])}")
         out += _script_lines(p.get("script"), sentences)
