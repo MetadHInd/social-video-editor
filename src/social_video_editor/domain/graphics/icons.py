@@ -15,6 +15,7 @@ the decider, domain/decide.py). Packs add or replace illustrations:
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 from collections.abc import Callable
 
@@ -27,6 +28,7 @@ from .theme import ink as resolve_ink
 ICONS: dict[str, Callable] = {}
 WORDS: dict[str, str] = {}             # normalized word → icon name
 ALONE = {"tu", "yo", "you", "la", "el"}  # words that only name an illustration when they are the whole label
+PUNCTUATION = "¿?¡!.,;:«»\"'()…“”‘’-"
 
 
 def icon(name: str, words: tuple[str, ...] = ()):
@@ -43,20 +45,51 @@ def _norm(text: str) -> str:
     return "".join(ch for ch in text if unicodedata.category(ch) != "Mn").strip()
 
 
-def find_icon(label: str) -> str | None:
-    """The illustration for a label: the label itself or any of its words ("Tu celular" → phone)."""
-    whole = _norm(label)
-    if whole in WORDS:
+def _tokens(text: str) -> list[str]:
+    """The words of a label, normalized, without the punctuation around them ("¿Celular?" → celular;
+    "wi-fi" stays one word, then is tried as two)."""
+    return [t for t in re.split(r"[^0-9a-zñ'’]+", text.replace("’", "'")) if t.strip("'")]
+
+
+def _forms(word: str) -> list[str]:
+    """A word and the singulars it may be the plural of (Spanish and English): servidores → servidor,
+    luces → luz, batteries → battery, apps → app. Only whole words are ever compared."""
+    out = [word]
+    if len(word) > 3 and word.endswith("ces"):
+        out.append(word[:-3] + "z")
+    if len(word) > 4 and word.endswith("ies"):
+        out.append(word[:-3] + "y")
+    if len(word) > 3 and word.endswith("es"):
+        out.append(word[:-2])
+    if len(word) > 2 and word.endswith("s"):
+        out.append(word[:-1])
+    return out
+
+
+def find_icon(label: str, among=None) -> str | None:
+    """The illustration for a label: the label itself or the first of its words (or two- and three-word
+    names: "hora pico", "disco duro") that names one ("Tu celular" → phone). Whole words only, in their
+    plural too; a word that only starts like a name is not it ("cargando" is not "carga"), and a label
+    with no such word has no illustration (None). `among`: the illustrations allowed (default: all)."""
+    def ok(name: str | None) -> str | None:
+        return name if name is not None and (among is None or name in among) else None
+
+    whole = _norm(label).strip(PUNCTUATION)
+    if whole in WORDS and ok(WORDS[whole]):
         return WORDS[whole]
-    for word in whole.replace("-", " ").split():
-        if word in ALONE:                       # "tu celular" is a phone, not a person
+    words = _tokens(_norm(label))
+    for i, word in enumerate(words):
+        for n in (3, 2):                                   # "llave de agua", "hora pico", "torres celulares"
+            if len(words) - i >= n:
+                head = " ".join(words[i:i + n - 1])
+                for form in _forms(words[i + n - 1]):
+                    if (found := ok(WORDS.get(f"{head} {form}"))) is not None:
+                        return found
+        if word in ALONE:                                  # "tu celular" is a phone, not a person
             continue
-        if word in WORDS:
-            return WORDS[word]
-        if word.endswith("es") and word[:-2] in WORDS:
-            return WORDS[word[:-2]]
-        if word.endswith("s") and word[:-1] in WORDS:
-            return WORDS[word[:-1]]
+        for form in _forms(word):
+            if (found := ok(WORDS.get(form))) is not None:
+                return found
     return None
 
 
@@ -71,10 +104,44 @@ DESCRIPTIONS = {        # icon → what it shows, for a model that picks one (Sp
     "ram": ("la memoria RAM", "memory (RAM)"),
     "disk": ("el almacenamiento o un disco", "storage or a disk"),
     "battery": ("una batería o la energía", "a battery or energy"),
-    "tower": ("una antena o la señal", "a cell tower or the signal"),
+    "tower": ("una antena de telefonía", "a cell tower"),
     "app": ("una aplicación", "an app"),
     "user": ("una persona", "a person"),
     "lock": ("un candado o la seguridad", "a lock or security"),
+    "signal": ("las rayitas de señal del celular", "the signal bars of a phone"),
+    "building": ("un edificio de departamentos u oficinas", "an apartment or office building"),
+    "shower": ("una ducha", "a shower"),
+    "tap": ("un grifo o el agua", "a tap or water"),
+    "clock": ("un reloj, la hora o el tiempo", "a clock, the time of day or time"),
+    "moon": ("la luna o la noche", "the moon or the night"),
+    "download": ("una descarga", "a download"),
+    "gauge": ("un velocímetro o la velocidad", "a speedometer or speed"),
+    "crowd": ("mucha gente o los usuarios", "many people or the users"),
+    "video": ("un video que se reproduce o carga", "a video playing or loading"),
+    "cable": ("un cable o un enchufe", "a cable or a plug"),
+    "satellite": ("un satélite", "a satellite"),
+    "keyboard": ("un teclado", "a keyboard"),
+    "shield": ("un escudo o la protección", "a shield or protection"),
+    "key": ("una llave o una clave", "a key"),
+    "bug": ("un bicho: un error o un virus", "a bug: an error or a virus"),
+    "folder": ("una carpeta", "a folder"),
+    "file": ("un archivo o un documento", "a file or a document"),
+    "photo": ("una foto", "a photo"),
+    "camera": ("una cámara", "a camera"),
+    "mic": ("un micrófono o la voz", "a microphone or the voice"),
+    "speaker": ("un parlante o el sonido", "a speaker or sound"),
+    "message": ("un mensaje o un chat", "a message or a chat"),
+    "bell": ("una campana: una notificación", "a bell: a notification"),
+    "charger": ("un cargador", "a charger"),
+    "trash": ("un bote de basura", "a trash can"),
+    "search": ("una lupa: buscar", "a magnifier: searching"),
+    "gear": ("un engranaje: los ajustes", "a gear: the settings"),
+    "money": ("dinero o un precio", "money or a price"),
+    "calendar": ("un calendario o una fecha", "a calendar or a date"),
+    "pin": ("un mapa o un lugar", "a map or a place"),
+    "rocket": ("un cohete", "a rocket"),
+    "idea": ("una idea o un consejo", "an idea or a tip"),
+    "warning": ("una alerta o un peligro", "a warning or a danger"),
 }
 NO_ICON = ("ninguna de estas cosas", "none of these things")
 
@@ -91,7 +158,7 @@ def match_icon(label: str) -> tuple[str, bool] | None:
     found = find_icon(label)
     if found is None:
         return None
-    return found, _norm(label).strip("¿?¡!.,;:«»\"'()…") in WORDS
+    return found, _norm(label).strip(PUNCTUATION) in WORDS
 
 
 def icon_ink(st: Stage, name: str, given: str | None = None) -> tuple[str, str | None]:
@@ -207,7 +274,7 @@ def phone(pen: Pen) -> None:
         pen.fill(circle(15.5, -31, 3.4), pen.alert)
 
 
-@icon("router", words=("wifi", "wi-fi", "modem", "enrutador"))
+@icon("router", words=("wifi", "wi-fi", "wi fi", "modem", "enrutador", "routers", "modems"))
 def router(pen: Pen) -> None:
     body = round_rect(-42, 12, 84, 27, 7)
     left = poly([(-30, 14), (-37, -32)], closed=False)
@@ -351,7 +418,7 @@ def ram(pen: Pen) -> None:
     pen.flash(board)
 
 
-@icon("disk", words=("disco", "ssd", "almacenamiento", "storage", "hdd", "archivo", "archivos"))
+@icon("disk", words=("disco", "ssd", "almacenamiento", "storage", "hdd", "disco duro", "hard drive", "hard disk", "disk"))
 def disk(pen: Pen) -> None:
     body = round_rect(-37, -29, 74, 55, 6)
     plug = rect(-22, 26, 44, 7)
@@ -372,7 +439,7 @@ def disk(pen: Pen) -> None:
     pen.flash(label)
 
 
-@icon("battery", words=("bateria", "carga", "cargador", "energia", "pila"))
+@icon("battery", words=("bateria", "energia", "pila", "battery", "batteries", "pilas"))
 def battery(pen: Pen) -> None:
     body = round_rect(-24, -36, 48, 78, 8)
     cap = round_rect(-10, -45, 20, 12, 3)
@@ -388,7 +455,8 @@ def battery(pen: Pen) -> None:
     pen.part(bolt, pen.dark, thin=False)
 
 
-@icon("tower", words=("antena", "torre", "operador", "4g", "5g", "senal", "cobertura"))
+@icon("tower", words=("antena", "antenas", "torre", "torres", "operador", "operadora", "4g", "5g", "antenna", "cell tower",
+                       "torre celular", "torre de celular"))
 def tower(pen: Pen) -> None:
     mast = poly([(0, -30), (-21, 44), (-12, 44), (0, 0), (12, 44), (21, 44)])
     base = round_rect(-30, 40, 60, 7, 3)
@@ -420,7 +488,7 @@ def app(pen: Pen) -> None:
     pen.fill(circle(27, -27, r), pen.alert)
 
 
-@icon("user", words=("tu", "usuario", "persona", "you", "cliente", "gente", "yo"))
+@icon("user", words=("tu", "usuario", "persona", "you", "cliente", "yo", "user", "person", "customer"))
 def user(pen: Pen) -> None:
     shoulders = smooth([(-37, 44), (-33, 20), (-13, 8), (13, 8), (33, 20), (37, 44)], tension=0.45)
     head = circle(0, -15, 20)
@@ -440,7 +508,8 @@ def user(pen: Pen) -> None:
     pen.fill(circle(12, -6, 3), pen.alert, 0.3)
 
 
-@icon("lock", words=("candado", "seguridad", "contrasena", "password", "cifrado", "privacidad", "seguro"))
+@icon("lock", words=("candado", "seguridad", "contrasena", "contrasenas", "password", "passwords", "cifrado", "privacidad",
+                      "security", "privacy", "encryption", "padlock"))
 def lock(pen: Pen) -> None:
     shackle = poly([(-17, -4), (-17, -22)], closed=False)
     arc = _arc(0, -22, 17, 180, 360, 14)
@@ -457,3 +526,6 @@ def lock(pen: Pen) -> None:
     pen.fill(circle(0, 10, 6.5), pen.ink)
     pen.fill(poly([(-3, 12), (3, 12), (4.5, 26), (-4.5, 26)]), pen.ink)
     pen.flash(body)
+
+
+from . import icons_extra  # noqa: E402,F401  (registers the rest of the illustrations)
