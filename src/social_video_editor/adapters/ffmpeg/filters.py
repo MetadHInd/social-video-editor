@@ -283,6 +283,9 @@ def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx
               has_voice: bool, stems: dict | None = None) -> tuple[str, str]:
     """Mix filter: shot audio + music (with ducking) + sound-effect track.
 
+    With music._bed (music.relative_to_voice, set by voice_mix.music_bed) the music input is taken
+    as it is: its level was already measured against the voice. Otherwise the fixed chain below.
+
     stems: if a dict is given, every part is also split off (asplit, same pass) and the dict is
     filled with {"original" | "music" | "sfx": output label} for the caller to map to stem files.
     "original" = the shots' own audio after processing, "music" = after volume/fades/ducking.
@@ -302,7 +305,13 @@ def final_mix(voice_in: str, total: float, cfg: dict, music_idx: int | None, sfx
                  f"{loop}atrim=0:{total:.4f},volume={float(vol):.1f}dB,"
                  f"afade=t=in:d={float(m.get('fade_in', 0.25)):.2f},"
                  f"afade=t=out:st={max(total - float(m['fade_out']), 0):.3f}:d={float(m['fade_out']):.3f}")
-        if m.get("ducking", True) and (has_voice or m.get("ducking_asmr")):
+        if m.get("_bed"):
+            # music.relative_to_voice: the input is a bed whose level already follows the voice
+            # (adapters/ffmpeg/voice_mix.py): cut, looped, faded and levelled there
+            parts.append(f"[{music_idx}:a]aresample=48000,aformat=channel_layouts=stereo,"
+                         f"apad,atrim=0:{total:.4f}[mus]")
+            mix.append("[mus]")
+        elif m.get("ducking", True) and (has_voice or m.get("ducking_asmr")):
             # the music ducks by itself under the voice (or under the ASMR sounds of an unboxing)
             ratio, threshold = (8, 0.04) if has_voice else (float(m.get("ducking_ratio", 4)), 0.03)
             parts.append(f"{voice_in}asplit=2[vz][sc]")

@@ -384,6 +384,8 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `pico` | `true_peak` |
 | `ganancia_max_master_db` | `master_max_gain_db` |
 | `dibujadas_db` | `drawn_shot_db` |
+| `respiraciones` | `breaths` |
+| `nivelador_voz` | `voice_leveler` |
 
 ### Keys of `config.music`
 
@@ -404,6 +406,10 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `bpm` | `bpm` |
 | `factor_tempo` | `tempo_factor` |
 | `lista` | `playlist` |
+| `relativa_a_voz` | `relative_to_voice` |
+| `bajo_voz_db` | `under_voice_db` |
+| `bajo_pausa_db` | `under_pause_db` |
+| `entrada_mas_db` | `intro_db` |
 
 ### Values of `config.music.file`
 
@@ -594,6 +600,7 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `salto_corte_lu` | `cut_jump_lu` |
 | `sfx_max_vs_mezcla_lu` | `sfx_max_vs_mix_lu` |
 | `musica_max_vs_original_lu` | `music_max_vs_original_lu` |
+| `musica_min_bajo_voz_lu` | `music_min_under_voice_lu` |
 | `tecleo_max_por_seg` | `typing_max_per_sec` |
 | `tecleo_max_vs_mezcla_lu` | `typing_max_vs_mix_lu` |
 | `aspereza` | `harsh_ratio` |
