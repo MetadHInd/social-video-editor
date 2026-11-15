@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Fixed
+- Landscape renders: subtitles are raised into the safe zone `sve check` measures (a real 43 s explainer at
+  1920×1080: 13 safe-zone warnings → 0).
 - A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
   (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
   one frame of the presenter showed through).
@@ -20,6 +22,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
 
 ### Added
+- **Shorts from the same project** (stage 7): `[short name]` … `[/short]` (Spanish `[corto nombre]` … `[/corto]`)
+  in an explainer script; `sve render <project> --short name` / `--shorts` (`--corto`, `--cortos`) renders each as
+  a vertical video of its own (its sentences, the cutaways inside, framing, subtitles and sound; a variant folder
+  such as `v3CortoName` that never overwrites). The long video's plan is the same (plus `shorts`).
+  `script.shorts: auto` (off) proposes self-contained stretches of 20–60 s by a simple, explained score (starts
+  with a question / hook, holds a graphic or a figure, ends on a statement, ≈40 s), recorded with `_auto: shorts`,
+  `score` and `why` (`domain/shorts.py`).
+- **Subtitles in the narration box** (`subtitles.style: caption`, Spanish `estilo: caja`; default unchanged): the
+  pack's paper box (`kit.caption`) with the word being said marked, same groups and timing as the default
+  subtitles, kept inside the safe zone, one transparent graphic track over the video, both orientations.
+- **A voice memo as the recording**: a source with sound and no picture gets a plain proxy for the analysis and
+  its shots are drawn on the theme's moving backdrop (never black), with the same voice chain.
+- Graphics: a file a graphic names (`image` of `screen` / `product_card`) is found in the project folder, like a
+  photo, in `sve render`, cutaways, `sve plan` and `sve graphic <project>`; a theme font role may be a list of
+  fonts tried in order, and `mono` falls back to a monospace font (DejaVu Sans Mono, Consolas, Courier New…),
+  never to a proportional one.
+- `summary.json`: `short`, `breaths` (what `audio.breaths` lowered, per recording) and `music_levels` (what
+  `music.relative_to_voice` measured).
+
 - **Voice and music levels** (stage 6, `domain/voice_levels.py`): `audio.breaths` (Spanish `respiraciones`; on in
   `explainer`) lowers the pauses between sentences — breaths, mouth noise — by 12 dB in the same whole-recording
   pass as `clean_voice`, with short fades inside the pause and margins around the speech and the transcribed

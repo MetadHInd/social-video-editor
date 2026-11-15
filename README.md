@@ -54,7 +54,10 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   voice, with subtitles that say what the script says. While the presenter is on screen, small
   illustrated notes pop up around them as things are named, and cuts and long shots rotate three
   framings and drift slowly, so one camera reads like several. Optionally the presenter stays in a
-  corner window (picture-in-picture) over the graphics.
+  corner window (picture-in-picture) over the graphics. Mark stretches with `[short name]` … `[/short]`
+  (or let the engine propose them, `script.shorts: auto`) and `sve render <project> --short name` makes each a
+  vertical video of its own; a voice memo works as the recording too (drawn on the theme's backdrop), and
+  `subtitles.style: caption` draws the subtitles in the graphics' narration box.
   See [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#scripts-and-cutaways-the-explainer-recipe).
 - **B-roll with a paper trail** — a `[broll query="…"]` cue becomes a clip fetched from sources you
   allow: free stock libraries (Pexels, Pixabay), Wikimedia Commons (open licenses only) and the official
@@ -194,7 +197,7 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve analyze <project> [--force]` | `analizar` (`--forzar`) | Probe every source, make proxies/16 kHz wav, analyze image, scenes, audio and speech (cached). |
 | `sve thumbs <project> [--source N --start S --end S --every S]` | `vistazo` (`--fuente --desde --hasta --cada`) | Contact sheets (frames with time, motion and loudness bars) + transcript in `cache/thumbs/`. |
 | `sve plan <project> [--force]` | `planear` | Propose `plan.json` (an existing one is kept as `plan_previous.json` with `--force`). |
-| `sve render <project> [--draft] [--profile P] [--no-music]` | `--borrador`, `--perfil`, `--sin-musica` | Render a new version folder (or a variant). Profiles: `tiktok`, `reels`, `shorts`, `youtube`, `landscape` (`horizontal`, 1920×1080), `square` (`cuadrado`). `--draft` = half resolution, fast encode. |
+| `sve render <project> [--draft] [--profile P] [--no-music]` | `--borrador`, `--perfil`, `--sin-musica` | Render a new version folder (or a variant). Profiles: `tiktok`, `reels`, `shorts`, `youtube`, `landscape` (`horizontal`, 1920×1080), `square` (`cuadrado`). `--draft` = half resolution, fast encode. `--short NAME` / `--shorts` (`--corto`, `--cortos`): a short of the script (or all of them), each a vertical video in its own folder. |
 | `sve enhance <project> [--force]` | `mejorar` (`--forzar`) | Photo sources: enlarge small photos (Real-ESRGAN when installed, else Lanczos) and reduce very large ones into `cache/photos/`; the originals are never modified. |
 | `sve build <project> [render flags]` | `montar` | Analysis + contact sheets + plan if missing + render. |
 | `sve view <project>` | `ver` | Plan and timeline, shot by shot, with the same beat alignment as the render (runs the analysis if it is missing). |

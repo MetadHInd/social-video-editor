@@ -93,6 +93,7 @@ PIP_CORNERS = {"abajo_derecha": "bottom_right", "abajo_izquierda": "bottom_left"
                "arriba_izquierda": "top_left"}
 SCRIPT_TAKES = {"ultima": "last", "mejor": "best"}
 SCRIPT_SUBTITLES = {"guion": "script", "voz": "speech"}
+SUBTITLE_STYLES = {"caja": "caption", "recuadro": "caption", "normal": "pillow"}
 ROLES = {"gancho": "hook", "historia": "story", "revelacion": "reveal", "cierre": "outro",
          "apertura": "opening", "producto": "product", "estrella": "star"}
 # unchanged: polaroid, collage; any other role (free text) is kept
@@ -173,7 +174,9 @@ CONFIG = Ctx(
                             "acercamiento": "punch_in", "subtitulos": "subtitles", "reencuadre_cada": "reframe_every",
                             "deriva": "drift", "apoyos": "support", "primer_plano": "close_up",
                             "tomas_auto": "auto_broll", "apertura": "opening", "camara_max": "max_camera",
-                            "toma_min": "auto_min", "transicion": "transition", "fundido_tomas": "cutaway_fade"},
+                            "toma_min": "auto_min", "transicion": "transition", "fundido_tomas": "cutaway_fade",
+                            "cortos": "shorts", "cortos_max": "shorts_max", "corto_min": "short_min",
+                            "corto_max": "short_max"},
                       values={"take": SCRIPT_TAKES, "subtitles": SCRIPT_SUBTITLES, "transition": TRANSITIONS}),
         "pip": Ctx(keys={"activo": "enabled", "esquina": "corner", "tam": "size", "segundos_min": "min_seconds"},
                    values={"corner": PIP_CORNERS}),
@@ -223,8 +226,8 @@ CONFIG = Ctx(
         "subtitles": Ctx(keys={"max_palabras": "max_words", "max_caracteres": "max_chars",
                                "mayusculas": "uppercase", "fuente": "font", "tam": "size", "resalte": "highlight",
                                "borde": "stroke", "borde_color": "stroke_color", "sombra": "shadow",
-                               "animacion": "animation"},
-                         values={"animation": ANIMATIONS}),
+                               "animacion": "animation", "estilo": "style"},
+                         values={"animation": ANIMATIONS, "style": SUBTITLE_STYLES}),
         "texts": Ctx(keys={"estilos": "styles"},
                      children={"styles": Ctx(entry=TEXT_STYLE, entry_names=TEXT_STYLES)}),
         "export": Ctx(keys={"portada": "cover", "portada_seg": "cover_at"}),
