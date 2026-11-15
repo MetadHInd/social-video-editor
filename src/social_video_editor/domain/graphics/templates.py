@@ -794,6 +794,7 @@ class Diagram(Scene):
         if not self.flow and n > 5:
             raise PlanError(f"Graphic 'diagram' takes 2 to 5 nodes (6 when it branches), not {n}")
         if self.flow:
+            self.tag_w = tag_w
             top = self._flow_layout(parsed, title_h, cell_w, label_w)
         elif st.vertical:                                  # a zigzag down the frame: left, right, left…
             pitch = self.cell_h * 0.6 + z(30)
@@ -924,6 +925,10 @@ class Diagram(Scene):
                     self.centers[i] = (x, y)
             self.loop_x = x1 - z(14)
         else:                                              # steps are columns, left to right
+            if m > 1:                                      # things stacked in a column: smaller illustrations
+                self.s = z(180)
+                self.cell_h = self.s + z(12) + self.tag_h
+                cell_w = max(self.s, self.tag_w)
             min_gap = max(z(150), label_w + z(60))
             row_gap = z(60)
             below = self.bulge + z(60) + self.edge_size * 1.6 if loops else 0
