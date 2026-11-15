@@ -158,3 +158,14 @@ def test_a_failed_answer_never_empties_a_multi_question():
     assert many and keys == ["a", "b", "c", "d"] and "d) ninguna de estas" in prompt
     assert dd.pick(m, "llm", ["d"], 0.9, s, dd.rules_only(m)) == dd.Answer((), 0.9, "llm")   # "none" is an answer
     assert dd.from_keys(m, ["a", "d"]) is None                                # none together with options: unclear
+
+
+def test_a_question_never_has_more_options_than_letters():
+    many = tuple(dd.Option(f"o{i}", f"option {i}") for i in range(len(dd.KEYS) + 1))
+    with pytest.raises(ValueError, match="shortlist"):
+        dd.Question("icon", "choice", "?", many, "", ("o0",), 0.5)
+    with pytest.raises(ValueError):                    # a multi question needs one more letter, for "none"
+        dd.Question("label_words", "multi", "?", many[:len(dd.KEYS)], "", (), 0.5)
+    ok = dd.Question("label_words", "multi", "?", many[:len(dd.KEYS) - 1], "", (), 0.5)
+    prompt, keys, _ = dd.llm_request(ok)
+    assert len(keys) == len(dd.KEYS)
