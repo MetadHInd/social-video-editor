@@ -260,7 +260,8 @@ CONFIG = Ctx(
                              "modelo_llm": "llm_model", "llm": "llm", "llm_min": "llm_min", "espera_max": "timeout",
                              "dispositivo": "device"}),
         "review": Ctx(keys={"vueltas": "rounds", "lectura_cps": "read_cps", "grafico_max": "graphic_max",
-                            "holgura_camara": "camera_slack"}),
+                            "holgura_camara": "camera_slack", "escalera": "ladder", "intentos_toma": "clip_tries",
+                            "parecido_toma": "clip_match", "caras": "faces", "guardar_intentos": "keep_attempts"}),
         "vision": VISION,
         "photo": PHOTO,
         "graphics": Ctx(keys={"paquete": "pack", "tema": "theme"}),      # the theme's own keys are English only

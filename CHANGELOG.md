@@ -304,8 +304,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   is installed.
 - The decider's language model receives pictures larger than 960 pixels scaled down (a full-HD b-roll frame
   took ≈16 s a question).
+- `sve make` goes further: a **remedy ladder** — a finding whose remedy did not hold gets the next one. A
+  b-roll clip that freezes (or matches its search under `review.clip_match`, off by default) gets another
+  clip, the next candidate of the same search (`_rejected` in the plan; `review.clip_tries`, 2), then ends
+  where it stops, then a drawing of its sentence (the director's card, of a kind it has not had), then is
+  removed; an engine card too long to read is shortened, then drawn another way, then removed. New findings:
+  `face_out_of_frame` (the crop of a shot cuts the presenter's face: framed again, then plain framing),
+  `text_too_short` (a plan text kept to the end of the next shot), plan texts outside the safe zone moved in,
+  `music_covers_voice` (the music lowered by what was missing — a setting kept in `review.json` and listed
+  under TO DO), `loudness_off`. A voice memo allows no camera time in the review either. `review.ladder:
+  false` gives the remedies of before.
+- `sve make` works for **every recipe** (talk, unboxing, haul, slideshow, vlog…) with the findings that apply
+  to them; `sve plan` / `sve render` are unchanged. One run leaves one version folder: an attempt replaced by
+  a later round of the same run is deleted (`review.keep_attempts: true` keeps them; folders from before the
+  run are never touched). `sve make --short NAME` / `--shorts` also render the plan's shorts, each checked.
+- `sve report`: who transcribed the words (SOURCES line), a SHORTS section (proposals with their why), the
+  breaths lowered and the music levels of the latest render, how products are named and how many names are
+  unsure, composed music (preset, tempo, key, sections); still one screen. `sve check` reviews the cuts of a
+  composed track against the composer's own beat grid.
+- `adapters/system/fonts.font_file_exact`: the exact font lookup (no fallback) is public; the graphics
+  renderer uses it.
 
 ### Fixed
+- `lower_third` in a landscape frame sat on the subtitles (0.72–0.82·H against subtitles from 0.77·H): it now
+  ends at 0.74·H; vertical and square frames are unchanged.
+- A b-roll clip the language model turned down on the second try was downloaded again by the next `sve
+  broll`: it is now kept in `cache/footage_rejected.json` too. `sve broll`, `sve view` and `sve make` place
+  a graphic that names a project-relative picture as the render does.
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
   laid on the frame grid and hold their last frame to the end of their window.
 - `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included

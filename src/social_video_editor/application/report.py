@@ -17,6 +17,9 @@ from collections import Counter
 from pathlib import Path
 
 from ..domain import automix, review
+from ..domain import compose as dc
+from ..domain import products as dp
+from ..domain import shorts as dshorts
 from ..domain import pip as pip_window
 from ..domain.cutaways import resolve as resolve_cutaways
 from ..domain.footage import megabytes
@@ -33,7 +36,11 @@ LOW_CONFIDENCE = 0.5      # products below this confidence: look at the images b
 MAX_SHOT_LINES = 3        # condensed shot / cutaway lines (several per line); --full shows them all
 MAX_PRODUCTS = 4
 MAX_MESSAGES = 3          # errors shown (warnings: one less)
-MAX_SENTENCES = 3         # script sentences listed per kind (missing, several takes, weak match)
+MAX_SENTENCES = 3         # script sentences listed per kind (weak match)
+MAX_MISSING = 1           # sentences not found listed (each one is also a decision of `sve make`)
+MAX_SHORTS = 2            # shorts listed (the first one on the SHORTS line)
+NO_PRODUCTS = ("explainer", "talk", "slideshow")     # recipes that never detect products: no PRODUCTS line
+UNRECORDED = "faster-whisper (not recorded)"         # an analysis made before the engine was written down
 MAX_DECISIONS = 3         # decisions left by `sve make`, with their options
 MAX_VARIANTS = 3          # variants of the latest version listed
 FULL = 10 ** 6            # the limits with --full
@@ -119,6 +126,11 @@ def todo(r: dict) -> list[dict]:
     if pr and pr["low_confidence"]:
         add(f"{pr['low_confidence']} products of low confidence (marked ?)",
             "look: sve thumbs <project> --source S --start A --end B")
+    adjusted = (r.get("review") or {}).get("settings") or {}
+    if adjusted:
+        said = ", ".join(f"{k}.{x}: {y!r}" for k, vals in adjusted.items() if isinstance(vals, dict) for x, y in vals.items())
+        add(f"sve make renders with settings it adjusted ({said}; review.json)",
+            "copy them into project.yaml settings so sve render uses them too")
     fo = r.get("footage")
     if fo and fo["unused"]:
         add(f"{fo['unused']} clips in footage/ no plan uses ({megabytes(fo['bytes'])})",
@@ -143,13 +155,27 @@ def _sources(svc: Services, project: Project) -> list[dict]:
             out.append({"index": i, "file": Path(str(s["path"])).name + "/", "folder": True,
                         "photos": len(expanded), "duration": None, "hdr": None, "has_audio": None})
             continue
-        info = svc.cache.load(project.cache, "media", resolve_source_id(svc, project.cache, s["path"])) or {}
+        sid = resolve_source_id(svc, project.cache, s["path"])
+        info = svc.cache.load(project.cache, "media", sid) or {}
         entry = {"index": i, "file": Path(s["path"]).name, "duration": info.get("duration"),
                  "hdr": info.get("hdr"), "has_audio": info.get("has_audio")}
         if info.get("image") or is_image_name(s["path"]):
             entry.update(photo=True, duration=None, has_audio=None)
+        elif info and info.get("has_audio") is not False:
+            entry["words_by"] = _heard_by(svc.cache.load(project.cache, "analysis", sid))
         out.append(entry)
     return out
+
+
+def _heard_by(analysis) -> str | None:
+    """Who transcribed a source's words: "faster-whisper small (CPU (int8))" (the analysis records it);
+    UNRECORDED for an analysis made before that was written down; None when it was not analyzed."""
+    if not isinstance(analysis, dict) or "words" not in analysis:
+        return None
+    t = analysis.get("transcription")
+    if not isinstance(t, dict) or not t.get("engine"):
+        return UNRECORDED
+    return " ".join(str(x) for x in (t["engine"], t.get("model")) if x) + (f" ({t['device']})" if t.get("device") else "")
 
 
 def _timeline_plan(plan: dict) -> dict:
@@ -214,6 +240,9 @@ def _plan(svc: Services, project: Project) -> dict | None:
         out["timeline_error"] = str(exc) or type(exc).__name__
     if plan.get("sentences"):
         out["script"] = _script(plan)
+    if dshorts.shorts_of(plan):
+        out["shorts"] = {"lines": dshorts.lines(plan),
+                         "proposed": sum(1 for x in dshorts.shorts_of(plan) if x.get("_auto") == dshorts.AUTO)}
     skipped = [x for x in plan.get("skipped_photos") or [] if isinstance(x, dict)]
     if skipped:                         # photo.skip_duplicates / photo.skip_blurred
         out["skipped_photos"] = [{"file": Path(str(x.get("source"))).name, "reason": x.get("reason"),
@@ -250,6 +279,12 @@ def _music(svc: Services, project: Project, cfg: dict, latest: dict | None) -> d
            "settings": {k: m[k] for k in MUSIC_SETTINGS if m.get(k) is not None}}
     if m.get("playlist") and m.get("file") not in (False, "none"):
         out["playlist"] = _playlist(svc, project, m)
+        return out
+    if dc.is_compose(m):                    # music.file: compose — the engine writes the track at render time
+        made = ((latest or {}).get("summary") or {}).get("music_composed") or {}
+        out["composed"] = {"preset": made.get("preset") or (m.get("compose") or {}).get("preset") or "default",
+                           "bpm": made.get("bpm"), "key": made.get("key"),
+                           "sections": [str(x[0]) for x in made.get("sections") or []]}
         return out
     try:
         path = svc.projects.find_music(m, project.dir)
@@ -295,6 +330,8 @@ def _version_entry(svc: Services, folder: Path) -> dict:
         "true_peak": audio.get("true_peak_dbtp"), "files": files,
         "check": svc.projects.exists(folder / "check.json"),
         "listen": len(svc.projects.list_files(listen)) if listen else 0,
+        "breaths": summary.get("breaths") if isinstance(summary.get("breaths"), dict) else None,
+        "music_levels": summary.get("music_levels") if isinstance(summary.get("music_levels"), dict) else None,
         "summary": summary or None,
     }
 
@@ -328,7 +365,7 @@ def _products(svc: Services, project: Project) -> dict | None:
     low = [s for s in segs if float(s.get("confidence", 0) or 0) < LOW_CONFIDENCE]
     return {"count": len(segs), "model": data.get("model"), "language": data.get("language"),
             "segments": sorted(segs, key=lambda s: (s.get("source", 0), s.get("start", 0))),
-            "low_confidence": len(low)}
+            "low_confidence": len(low), "naming": dp.naming_mode(project.cfg.get("vision") or {})}
 
 
 def _check(svc: Services, project: Project, latest: dict | None) -> dict | None:
@@ -429,18 +466,52 @@ def _script_lines(sc: dict | None, limit: int = MAX_SENTENCES) -> list[str]:
     if not sc:
         return []
     out = [f"SCRIPT {sc.get('file') or ''} · {sc['sentences']} sentences · {sc['found']} found".replace("  ·", " ·")]
-    for s in sc["missing"][:limit]:
+    missing = MAX_MISSING if limit < FULL else limit
+    for s in sc["missing"][:missing]:
         out.append("  " + _message(f"⚠ sentence {s['n']} not found in the recording: {s['text']}"))
-    if len(sc["missing"]) > limit:
-        out.append(_more(len(sc["missing"]) - limit, "sentences not found"))
+    if len(sc["missing"]) > missing:
+        out.append(_more(len(sc["missing"]) - missing, "sentences not found"))
     if sc["repeated"]:
-        tokens = [f"sentence {s['n']}: {s['takes']} takes, used the one at {mmss(s['start'])}"
-                  for s in sc["repeated"]]
-        out += _pack(tokens, max_lines=1 if limit < FULL else None)
+        tokens = [f"sentence {s['n']}: {s['takes']} takes, used the one at {mmss(s['start'])}" for s in sc["repeated"]]
+        lines = _pack(tokens)
+        out += lines if len(lines) == 1 or limit >= FULL else \
+            [f"  {len(sc['repeated'])} sentences said more than once: the last good take is used (--full)"]
     for s in sc["weak"][:limit]:
         out.append("  " + _message(f"? sentence {s['n']} matched {float(s['score']):.0%}: {s['text']}"))
     if len(sc["weak"]) > limit:
         out.append(_more(len(sc["weak"]) - limit, "weak matches"))
+    return out
+
+
+def _shorts_lines(sh: dict | None, full: bool) -> list[str]:
+    """SHORTS n: the first one on the same line, then one line each (~ = proposed by the engine, with why)."""
+    if not sh:
+        return []
+    lines = [x.strip() for x in sh["lines"]]
+    shown = lines if full else lines[:MAX_SHORTS]
+    head = f"SHORTS {len(lines)}" + (f" ({sh['proposed']} proposed ~)" if sh.get("proposed") else "")
+    out = [_message(f"{head} · {shown[0]}")] + ["  " + _message(x) for x in shown[1:]]
+    if len(lines) > len(shown):
+        out.append(_more(len(lines) - len(shown), "shorts"))
+    return out
+
+
+def _sound_lines(v: dict) -> list[str]:
+    """What the voice pass and the music mix of a render measured (summary.json), one line each."""
+    out = []
+    b = v.get("breaths")
+    if b:
+        recs = [x for x in b.values() if isinstance(x, dict)]
+        pauses, sounds = sum(int(x.get("pauses") or 0) for x in recs), sum(int(x.get("with_sound") or 0) for x in recs)
+        secs = sum(float(x.get("seconds") or 0) for x in recs)
+        depth = next((x.get("depth_db") for x in recs if x.get("depth_db") is not None), None)
+        out.append(f"  breaths: {pauses} pauses lowered" + (f" {float(depth):g} dB" if depth is not None else "")
+                   + f" ({sounds} with a breath or mouth noise, {secs:.1f} s)")
+    m = v.get("music_levels")
+    if m:
+        out.append(f"  music: {_num(m.get('under_voice_db'), 'g')} dB under the voice while it speaks, "
+                   f"{_num(m.get('under_pause_db'), 'g')} dB in pauses (voice {_num(m.get('voice_lufs'))} LUFS, "
+                   f"music {_num(m.get('music_lufs'))} LUFS → {_num(m.get('gain_db'), '+.1f')} dB)")
     return out
 
 
@@ -524,6 +595,9 @@ def report_lines(r: dict, full: bool = False) -> list[str]:
     head += f" · {mmss(sum(known))} total" if known else ""
     if len(known) < len(videos):
         head += f" · {len(videos) - len(known)} not analyzed yet (sve analyze)"
+    heard = list(dict.fromkeys(s["words_by"] for s in videos if s.get("words_by")))
+    if heard:
+        head += " · words: " + ", ".join(heard)
     out.append(head)
     out += _pack([_source_token(s) for s in src], max_lines=None if full else 2)
 
@@ -552,6 +626,7 @@ def report_lines(r: dict, full: bool = False) -> list[str]:
             out.append(f"  first text: {_message(p['first_text'])}")
         out += _script_lines(p.get("script"), sentences)
         out += _cutaway_lines(p.get("cutaways"), limit)
+        out += _shorts_lines(p.get("shorts"), full)
 
     m = r["music"]
     pl = m.get("playlist")
@@ -564,6 +639,15 @@ def report_lines(r: dict, full: bool = False) -> list[str]:
                        if pl["minutes"] is not None else "length unknown (not analyzed)")
             out.append(f"MUSIC playlist of {pl['songs']} songs · {minutes} · "
                        f"AutoMix {'on' if pl['automix'] else 'off'}")
+    elif m.get("composed"):
+        c = m["composed"]
+        line = f"MUSIC compose ({c['preset']})"
+        if c.get("bpm"):
+            line += f" · {_num(c['bpm'], 'g')} BPM" + (f" · {c['key']}" if c.get("key") else "")
+            line += (" · " + " → ".join(c["sections"])) if c["sections"] else ""
+        else:
+            line += " · composed at the next render"
+        out.append(_message(line))
     elif m.get("error"):
         out.append(f"MUSIC {_message(m['error'])}")
     elif not m["file"] and not m.get("rendered_file"):
@@ -585,16 +669,20 @@ def report_lines(r: dict, full: bool = False) -> list[str]:
         variants = v["variants"] if full else v["variants"][:MAX_VARIANTS]
         for ver in [v["latest"], *variants]:
             out.append(_version_line(ver))
+            if ver is v["latest"]:
+                out += _sound_lines(ver)
         if len(v["variants"]) > len(variants):
             out.append(_more(len(v["variants"]) - len(variants), "variants"))
 
     pr = r["products"]
     if pr is None:
-        out.append("PRODUCTS none (sve products <project> → cache/products.json)")
+        if r["recipe"] not in NO_PRODUCTS:
+            out.append("PRODUCTS none (sve products <project> → cache/products.json)")
     else:
         meta = ", ".join(x for x in (pr.get("model"), pr.get("language")) if x)
         out.append(f"PRODUCTS {pr['count']} segments" + (f" ({meta})" if meta else "")
-                   + (f" · ⚠ {pr['low_confidence']} low confidence (<{LOW_CONFIDENCE}, marked ?)"
+                   + f" · named by {pr.get('naming') or 'clip'}"
+                   + (f" · ⚠ {pr['low_confidence']} low confidence: names unsure (<{LOW_CONFIDENCE}, marked ?)"
                       if pr["low_confidence"] else ""))
         segs = pr["segments"] if full else pr["segments"][:MAX_PRODUCTS]
         tokens = []

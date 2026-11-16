@@ -239,10 +239,12 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `selection.coverage` | 8 | Split the footage in N parts and take the best of each (0 = off). |
 | `analysis.samples_per_sec` | 4 | Image samples per second. |
 | `analysis.scene_threshold` | 27 | PySceneDetect content threshold. |
+| `analysis.jobs` | `auto` | Sources prepared and analyzed at once: `auto` (= `render.jobs` / `$SVE_JOBS`) or 1–16 (1 = one after another). The wavs are extracted first and Whisper transcribes them one source at a time while proxies and picture analysis run. |
 | `transcription.model` | `small` | faster-whisper model (`tiny` … `large-v3`). |
 | `transcription.language` | `null` | `null` = follow `language`. |
 | `transcription.context` | `""` | Prompt with names/brands that help Whisper. |
 | `transcription.min_probability` | 0.35 | Words below this probability are dropped (voice activity detection is always on). |
+| `transcription.engine` | `faster-whisper` | Who runs Whisper: `faster-whisper` (CPU), `mlx` (Apple GPU, the `[apple]` extra; opt-in: measured not faster enough and less accurate on real speech) or `auto` (mlx when installed on Apple Silicon). A failing engine falls back to faster-whisper. The analysis records `transcription: {engine, model, device}` (`sve report` names it on the SOURCES line); cached transcripts are never redone because the engine changed, and with `auto` a source analyzed again keeps the engine it had. |
 
 ### `color`, `framing`
 
@@ -299,7 +301,8 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `audio.gain_without_voice_db` | 3 | Extra gain on shots without speech (ASMR sounds). |
 | `audio.asmr` | false | Without speech: brighter EQ + strong compression so every crackle is heard. |
 | `audio.loudness` / `true_peak` | −14 / −1.0 | Mastering target (integrated LUFS / dBTP). |
-| `music.file` | `null` | Track path (relative to the project or the workspace); `null` = first track in `music.folder` (default `music/`); `none` = no music. |
+| `music.file` | `null` | Track path (relative to the project or the workspace); `null` = first track in `music.folder` (default `music/`); `none` = no music; `compose` = the engine composes an original track for the video ([Composed music](#composed-music)). |
+| `music.compose` | see `base.yaml` | With `file: compose`: `preset` (`upbeat`, `calm`, `tense`, `warm`, `trap`, or a pack's `music.presets`), `seed` (default from the project name), `bpm`, `silences` (cut dead at the conflict and the twist), `accents` (cymbal + thump when a full-screen graphic comes in), `lufs`. |
 | `music.folder` | — | Workspace-relative folder to take the first track from. |
 | `music.volume_with_voice_db` / `volume_without_voice_db` | −20 / −11 | Music level. |
 | `music.ducking` / `ducking_asmr` / `ducking_ratio` | true / false / 4 | Lower the music under the voice (and optionally under the video's own sounds). |
@@ -366,6 +369,9 @@ Used by `sve products`, by `search.text`, by `sve plan` when `product_plan` is o
 | `vision.vocabulary` | null | null = packaged list of ~80 small products (es/en); or your own list of names. |
 | `vision.product_plan` | false (`unboxing`: true) | `sve plan` makes one shot per detected product (card with its name + `n/N` counter, collage at the end). |
 | `vision.product_search` | false | Opt-in: `search` with `criterion: product` uses the vision model (changes the windows of existing plans). `search.text` uses it regardless. |
+| `vision.naming` | `clip` | How each product gets its name: `clip` = the vocabulary label closest to the whole segment (as before); `frames` = the label closest to its `name_frames` best frames, the packaged vocabulary embedded with the image model's own text encoder; `decider` = as `frames`, then the decider's local language model looks at the best frame (`cache/product_frames/`) and picks among CLIP's `name_candidates` best names. Asking for it is enough (it works with `decider.enabled: false`); without the language model the CLIP names stand. Measured on a labeled unboxing (16 products): exact names 3 → 8 → 10. Recommended for `unboxing` / `haul` when Ollama is installed. `sve report` says the mode and how many names are unsure. |
+| `vision.name_frames` | 3 | `frames` / `decider`: the frames with the highest product score that name a product. |
+| `vision.name_candidates` | 5 | `decider`: CLIP's best names offered to the language model. |
 
 ### Export profiles (`sve render --profile`)
 
@@ -413,7 +419,8 @@ A shot is split at each pause of at least `pauses.min_pause` seconds; the pause 
 `pauses.keep_pause` seconds (half on each side of the cut) and the new piece enters with
 `pauses.transition` (`soft_cut`: a 0.12 s crossfade of sound and picture, added on top so the pause
 heard is still `keep_pause`). Shorter pauses (breaths between sentences) are never cut. Pauses come
-from the cached audio levels of the source (`cache/<id>_analysis.json`, every 0.1 s); a quiet stretch
+from the cached audio levels of the source (`cache/<id>_analysis.json`, every 0.1 s; the analysis also
+records who transcribed its words, `transcription`); a quiet stretch
 with a transcribed word inside is not a pause. Left alone: the hook, beat-locked shots (`beats`),
 sped-up shots, drawn shots, and shots without voice. Shot indices in texts, polaroids and collages are
 renumbered. Existing plans are not changed (only `sve plan` does this).
@@ -603,6 +610,29 @@ que …" (the outlet is X). The source must be named (a word written with a capi
 "people say…" is not a source). They start when the figure (or the source) is said and are proposed wherever the sentence is not
 already covered, whatever the clock says.
 
+**Graphics the director chooses by itself** (each a `script.*` setting, on). Shown, never searched for, in
+this order of preference: a screenshot of the project that the sentence names (a picture in the project
+folder or in `photos/`, `fotos/`, `screens/`, `screenshots/`, `capturas/`, `pantallas/`, `images/`, whose name
+says it is one — `screenshot_wifi_settings.png` — when every word of its name is said) → `screen`
+(`auto_screen`; a `photo` cue whose file is a screenshot, by its name or a phone screen's shape, is shown as
+one too, `"_auto": "screen"`); a command between backticks or a shell command with its arguments → `code`
+(`auto_code`); figures tied to three or more years, in digits or in words, in one sentence or over up to
+three → `line_chart` (`auto_line_chart`); two things with a proper name and a figure each (*vs*, *frente a*,
+or a sentence giving each its figure; rows gathered over two sentences about the same two things) → `versus`
+(`auto_versus`); then `bars` and `headline` as before. A flow between two or more illustrated things
+(branches and loops too) → `diagram`, preferred to a scene (`auto_diagram`). `script.figure_context` (on): a
+figure whose unit is left unsaid takes the one said before it, so two sentences can make one `bars`, each bar
+named by its clause ("the laptop lasts 9 hours. The tablet, 14."); "from 7 to 9" is a time, not a figure.
+`script.scene_fit` (on): no "open an app" scene for a sentence that opens something else ("open the
+window"). `script.verb_bars` (off): a bar with no noun is named by its verb. With all of these off the plan
+is the one of before.
+
+**A voice memo.** When the recording has no picture (the plan's `"pictureless"`: the indices of those
+sources), the director has no camera time: every sentence, the closing ones too, gets a graphic, card or
+footage from its start (a sentence too short to stand alone goes on under its neighbour), and the notes over
+the backdrop keep only figures and illustrations. `sve make` reviews it the same way: there, any stretch with
+nothing on screen is `camera_too_long`.
+
 **Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
 presenter is seen in between). When it is on, while a full-frame graphic or
 photo is on screen for at least `pip.min_seconds`, the presenter stays in a window in a corner
@@ -651,6 +681,10 @@ saturation or sharpening; exposure only nudged) and measures it once for the who
 | `script.auto_broll` | `false` (`true` in `explainer`) | The director: footage where the presenter would stay alone on camera too long. |
 | `script.opening` / `max_camera` | 2.5 / 4.0 | Seconds of camera at the start / afterwards before the director cuts to footage. |
 | `script.auto_min` | 1.8 | Shortest footage the director proposes. |
+| `script.auto_line_chart` / `auto_versus` / `auto_code` / `auto_screen` / `auto_diagram` | `true` | The graphics the director chooses by itself (above): `line_chart`, `versus`, `code`, `screen`, `diagram`. |
+| `script.figure_context` | `true` | A figure whose unit is left unsaid takes the one said before it (two sentences can make one `bars`). |
+| `script.scene_fit` | `true` | No "open an app" scene for a sentence that opens something else. |
+| `script.verb_bars` | `false` | A bar with no noun to name it is named by its verb. |
 | `script.transition` | `dissolve` | How two camera shots are joined (`cut` = a plain jump cut). |
 | `script.cutaway_fade` | 0.2 | Seconds a full-frame graphic / clip fades in and out (0 = hard cut). |
 | `pip.enabled` | `false` | The presenter stays in a window over full-frame cutaways (a cutaway's own `pip` wins). |
@@ -732,9 +766,15 @@ through the same chain (`audio.clean_voice` included), so a stretch no graphic o
 `sve make <project>` (alias `hacer`): the plan when there is none (`--force` makes it again), the footage
 (fetched, or drawn by the engine when no clip is good enough), a draft render (`--final`: final quality),
 the automatic review (`sve check`) and a short summary. Running it again keeps the plan, the clips and the
-rendered segments.
+rendered segments. `--short NAME` (repeatable) / `--shorts` (Spanish `--corto` / `--cortos`) also render
+those shorts of the plan once the video is settled, each checked like the video.
 
-**It reviews and fixes itself** (explainer projects; `domain/review.py`). Before rendering, the engine
+It works for **every recipe**. An explainer gets the whole review below; the others (`talk`, `unboxing`,
+`haul`, `slideshow`, `vlog`…) the findings that apply to them: plan texts too short to read or outside the
+safe zone, a face cut by the frame, a clip that stops moving, music covering the voice, the loudness. `sve
+plan` and `sve render` never apply any of it: only `sve make` changes a plan that already exists.
+
+**It reviews and fixes itself** (`domain/review.py`). Before rendering, the engine
 places the plan on the video (nothing is rendered for this) and looks for what a viewer would notice; each
 finding has a fixed remedy, applied once, and the footage is fetched again for anything it added:
 
@@ -746,12 +786,38 @@ finding has a fixed remedy, applied once, and the footage is fetched again for a
 | `cutaway_too_long`: a full-frame graphic or photo over `review.graphic_max` | it ends earlier and the presenter comes back for the rest of the sentence (a cue spanning several sentences: a decision) |
 | `camera_too_long`: the presenter alone longer than the director allows (+ `review.camera_slack`) | the director proposes footage for that stretch · nothing to propose: a decision |
 | `sentence_unmatched`: a script sentence not found in the recording | a decision |
+| `broll_low_relevance`: a fetched clip whose match score is under `review.clip_match` (off by default) | another clip → a drawing → removed (by hand: another clip, then a decision) |
+| `face_out_of_frame`: the crop of a camera shot (framing, punch-in, slow zoom at its closest) cuts more than 10 % of the presenter's face (the face the analysis found: `framing.face`) | framed on the face again → plain framing (no punch-in, no slow zoom; kept when the punch-ins are placed again) → a decision |
+| `text_too_short`: a plan text (unboxing card, hook…) shown less than it takes to read | a text anchored to a shot stays to the end of the next shot (when that one has no text) · else a decision |
 
 Then it renders and runs `sve check`; what the check finds on screen is fixed the same way and the video
-rendered again (only what changed; at most `review.rounds` renders): a clip that stops moving
-(`frozen_picture`) ends where it stops; text outside the safe zone and any error of the check are
-decisions. A plan entry a remedy changed keeps the codes in `_fixed`; a remedy that did not hold is
-never tried twice, and what was removed is never proposed again.
+rendered again (only what changed; at most `review.rounds` renders):
+
+| Finding (render) | Remedy |
+|---|---|
+| `frozen_picture`: a clip that stops moving | another clip for the same cue (the next candidate of its search; `review.clip_tries`) → it ends where it stops → a drawing of its sentence (engine cues) → removed |
+| `text_outside_safe_zone` | a plan text: its `y` moved by what is out · a subtitle, or a text under the buttons on the right: a decision |
+| `music_covers_voice`: the music less than `check.music_min_under_voice_lu` under the voice while it speaks | the music lowered by what was missing + 1 dB (`music.under_voice_db` with `music.relative_to_voice`, else its two volumes) |
+| `loudness_off`, any other error of the check | a decision |
+
+**The remedy ladder** (`review.ladder`, on). A finding may have several remedies, tried in order, one per
+round: a remedy that did not hold is never tried twice and the next one is tried; with none left it becomes
+a decision. A b-roll clip that does not work gets **another clip** first: the plan entry keeps the clips
+turned down in `_rejected` and `sve broll` / `sve make` take the next candidate of the same search (never
+one turned down, never one already on screen). Then a **drawing**: the card a director's cue carries
+(`fallback`) or the director's card for the sentence (`domain/director.card`), of a kind it has not had
+(`_was`). Then it is removed. A card whose text is too long is shortened, then drawn as another kind of
+graphic, then removed. A plan entry a remedy changed keeps the codes in `_fixed`; what was removed is never
+proposed again.
+
+**One folder per run.** Each round renders a new attempt; once a later attempt is rendered, the one it
+replaces (made by the same run) is deleted, so a run leaves one version folder — the last attempt's, with
+its own number (`v1Borrador_2` when two rounds were needed). A folder that existed before the run is never
+touched. `review.keep_attempts: true` keeps every attempt.
+
+**Settings it adjusts.** A remedy that is a setting (the music level) is not written to project.yaml: it is
+kept in `review.json` (`"settings"`), used by every later `sve make`, printed, and listed under `TO DO` by
+`sve report` (copy it into the project's settings so `sve render` uses it too).
 
 What was fixed and the **decisions** left — each with its options — are printed and written to
 `<project>/review.json`; `sve report` shows them first, under `TO DO` (and a count under `MAKE`). That list is the only thing a person
@@ -763,6 +829,11 @@ What was fixed and the **decisions** left — each with its options — are prin
 | `review.read_cps` | 15 | Characters a viewer reads per second. |
 | `review.graphic_max` | 6.0 | Seconds a full-frame graphic or photo stays at most (0 = off). |
 | `review.camera_slack` | 1.5 | Seconds the presenter alone may run over the director's limits before it counts. |
+| `review.ladder` | `true` | Several remedies per finding, tried in order (above), and the findings of every recipe; `false` = the remedies of before (explainer only). |
+| `review.clip_tries` | 2 | Other clips (the next candidates) tried for one b-roll cue before a drawing. |
+| `review.clip_match` | 0 | A fetched clip whose match score (vision model) is under this is replaced (`broll_low_relevance`); 0 = off (`broll.min_match` is 0.27). |
+| `review.faces` | `true` | Look for faces cut by the frame (needs `framing.face`). |
+| `review.keep_attempts` | `false` | Keep the folder of every render of one `sve make`. |
 
 ## Local decider (optional)
 
@@ -777,6 +848,7 @@ Some of the engine's judgments are closed questions asked by the pure domain cod
 | `icon` | a card's illustration | a shortlist: the things the sentence names, the rules' pick, the topic's illustration, none |
 | `card_type` | what the director draws | the candidate drawings |
 | `shorten` | a card too long to read | shorter versions |
+| `product_name` | `sve products` / `sve plan` with `vision.naming: decider` | CLIP's best names for the product (with its best frame) |
 | `clip_shows` / `clip_lively` | b-roll near the thresholds | is it related, even loosely? · does it look clear? (yes / no, with a frame); only a sure "no" (≥ 0.85) turns a clip down, and the next candidate is fetched before any drawing (`cache/footage_rejected.json`) |
 
 Which stages may answer each question is `ROUTES` in `domain/decide.py`, set from a labeled set of 215
@@ -790,7 +862,7 @@ it). With the routes measured, a 2-minute script asks the language model about 1
 
 The rules answer each with a confidence. Questions under `decider.threshold` go, in batches, first to a
 small zero-shot classifier (when their route has it and the question has a hypothesis), then to a local
-language model through Ollama (which sees the frame for clip questions); the vision model is unloaded before it and every model
+language model through Ollama (which sees the frame for clip questions; pictures larger than 960 pixels are sent scaled down); the vision model is unloaded before it and every model
 after its batch. A model's answer replaces the previous one only when it is one of the options and at least
 as sure (and, for the language model, at least `decider.llm_min`). The language model answers with an
 option letter; its confidence comes from the token probabilities (when the server cannot force the answer's
@@ -1040,6 +1112,21 @@ are skipped (a replaced photo gets a new hash).
 | `enhance.headroom` | 1.25 | Large photos are reduced to this × the output short side. |
 
 ---
+
+## Composed music
+
+`music.file: compose`: the engine writes an original instrumental track for the video — no samples, no
+loops — into `cache/compose/`, with `<track>.origin.json` next to it (engine version, preset, seed, tempo,
+key, sections, SHA-256 of the samples and of the score). It follows the video: a hit on frame 0; the chorus on
+the first word of the question; a silence (at most 8 s, cut dead in 60 ms) at the conflict and another at
+the twist; an emotive outro with a 1 s fade. These moments come from the script's `#` arc headings, else from
+the first question, the full-screen graphics (the twist is the first sentence after the last one, at 55–90 %)
+or the 72 % point; without sentences, from the cuts at 30 % / 72 %. The beat grid is exact and continuous
+inside a run of music, and an entry after a silence lands exactly on it (`sve check` reviews the cuts against
+that grid). Pack presets: `music: {preset: name, presets: {name: {base: trap, bpm: …, key: …, mode: …,
+progressions: …}}}`. The render writes `summary.music_composed` (file, origin, preset, seed, bpm, key,
+sections) and copies the proof to `vN/music_origin.json` (`summary.music_origin`); `sve report` shows the
+preset, tempo, key and sections on its MUSIC line.
 
 ## Playlists, AutoMix and long videos
 

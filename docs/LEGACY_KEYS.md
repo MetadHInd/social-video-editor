@@ -583,6 +583,11 @@ The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPH
 | `lectura_cps` | `read_cps` |
 | `grafico_max` | `graphic_max` |
 | `holgura_camara` | `camera_slack` |
+| `escalera` | `ladder` |
+| `intentos_toma` | `clip_tries` |
+| `parecido_toma` | `clip_match` |
+| `caras` | `faces` |
+| `guardar_intentos` | `keep_attempts` |
 
 ### Keys of `config.broll` (third-party footage fetched by `sve broll` / `sve tomas`)
 

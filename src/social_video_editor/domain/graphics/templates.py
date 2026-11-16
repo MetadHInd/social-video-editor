@@ -666,10 +666,17 @@ class ListScene(Scene):
 
 
 # ── lower third ──────────────────────────────────────────────────────────────
+# In a landscape frame the subtitles of the explainer recipe start at 0.77·H (measured: one line at its
+# widest, popped in); the safe zone's bottom (0.82·H) would put the box right on them. Vertical and square
+# frames keep the bottom of the safe zone (their subtitles sit in the band under it).
+LOWER_THIRD_LANDSCAPE_BOTTOM = 0.74
+
+
 @template("lower_third")
 class LowerThird(Scene):
     """A small caption box over the video, in the bottom-left corner of the safe zone so it covers as
     little of the picture as possible: who is talking, what is on screen, or where a clip comes from.
+    In a landscape frame it ends at LOWER_THIRD_LANDSCAPE_BOTTOM, clear of the subtitles.
 
     text · kicker (small line above: "Video", "On the channel"…) · color
     """
@@ -694,7 +701,8 @@ class LowerThird(Scene):
         head = self.k_size + z(10) if self.kicker else 0
         self.w, self.h = inner_w + 2 * pad_x + self.strip, pad_y * 2 + head + len(self.rows) * self.lh - z(8)
         self.x = st.safe[0]
-        self.y = st.safe[3] - self.h                         # bottom-left corner of the safe zone
+        bottom = st.safe[3] if st.H >= st.W else min(st.safe[3], LOWER_THIRD_LANDSCAPE_BOTTOM * st.H)
+        self.y = bottom - self.h                             # bottom-left corner of the safe zone
         self.pad_x, self.pad_y, self.head = pad_x, pad_y, head
         self.settle = 0.2 + motion.PRINT_SECONDS + 0.2
         self.exit_at = max(self.dur - 0.2, self.settle)
