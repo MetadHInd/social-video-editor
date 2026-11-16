@@ -6,20 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Fixed
-- Landscape renders: subtitles are raised into the safe zone `sve check` measures (a real 43 s explainer at
-  1920×1080: 13 safe-zone warnings → 0).
-- A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
-  (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
-  one frame of the presenter showed through).
-- A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
-  that the transcription split or misheard are kept, so no word is cut in half.
-- Illustrations and scene actions are read from whole words only: a label with no word that names an
-  illustration has none (no more picture from a piece of a word), punctuation around a word no longer hides it
-  (`celular.`), and `tus`/`your`-style words never pick the person. A scene's verb is read by its forms:
-  negated verbs (`no tienes que limpiarlo`, `you don't have to clean it`, `sin cerrarla`) and look-alikes
-  (`abiertas`, `abril`, `cuesta`, `tarde`, `trabajar` read as `freeze`, `quite`) no longer trigger an action;
-  `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
+## [0.6.0] - 2026-11-16
+
+From a script to a finished explainer with one command: the engine chooses and draws the graphics, fetches
+licensed footage, cleans the voice, composes the music, reviews its own render and fixes what it can.
+Everything new is behind a setting; the old recipes render exactly as before.
 
 ### Added
 - **Music the engine composes** (`music.file: compose`, Spanish `componer`): an original instrumental track
@@ -330,6 +321,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   action in any box. Without a pack nothing changes.
 
 ### Fixed
+- Landscape renders: subtitles are raised into the safe zone `sve check` measures (a real 43 s explainer at
+  1920×1080: 13 safe-zone warnings → 0).
+- A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
+  (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
+  one frame of the presenter showed through).
+- A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
+  that the transcription split or misheard are kept, so no word is cut in half.
+- Illustrations and scene actions are read from whole words only: a label with no word that names an
+  illustration has none (no more picture from a piece of a word), punctuation around a word no longer hides it
+  (`celular.`), and `tus`/`your`-style words never pick the person. A scene's verb is read by its forms:
+  negated verbs (`no tienes que limpiarlo`, `you don't have to clean it`, `sin cerrarla`) and look-alikes
+  (`abiertas`, `abril`, `cuesta`, `tarde`, `trabajar` read as `freeze`, `quite`) no longer trigger an action;
+  `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
 - `lower_third` in a landscape frame sat on the subtitles (0.72–0.82·H against subtitles from 0.77·H): it now
   ends at 0.74·H; vertical and square frames are unchanged.
 - A b-roll clip the language model turned down on the second try was downloaded again by the next `sve

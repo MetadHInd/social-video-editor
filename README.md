@@ -8,6 +8,11 @@ a hook in the first second, cuts that land on the music's beat, typed text cards
 polaroid and collage pieces, ASMR-friendly audio, loudness mastering (targets −14 LUFS) and correct handling of
 iPhone HDR footage.
 
+It also makes **explainer videos from a script**: you write what you say and record yourself, and one
+command (`sve make`) finds your best takes, draws animated graphics and illustrated scenes for what you
+say, fetches licensed b-roll, cleans the voice, composes an original music track, reviews its own render
+and fixes what it can.
+
 Everything the engine decides is written to a plain `plan.json` that you (or an AI agent) can edit
 and render again. Originals are never modified.
 
@@ -44,10 +49,22 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
 - **Beat-synced editing** — music beat grid and "drop" detection; the song can start so its drop
   lands at a chosen second; cuts snap to the nearest beat, or every cut lands exactly on a beat
   (`"beats": N` per shot); `beat_pulse` zooms on every beat.
-- **Animated graphics from data** — bars, big numbers, product cards, titles, headlines, lists and
-  step-by-step diagrams with illustrations (phone, router, server, chip…), written as a few
-  key/value pairs and drawn locally: laid out for vertical or landscape, alive (scenery, blinking
-  lights, a marker that travels), themeable per channel with packs. See [docs/GRAPHICS.md](docs/GRAPHICS.md).
+- **Animated graphics from data** — bars, line charts, versus (two things face to face), big numbers,
+  product cards, titles, headlines, lists, a terminal that types code, a screenshot in a device frame
+  with a zoom, animated scenes (20 actions: send, store, compare, search, download, share…) and
+  diagrams (chains, branches and loops) with 48 illustrations (phone, router, cell tower, server,
+  chip…), written as a few key/value pairs and drawn locally: laid out for vertical or landscape,
+  alive (scenery, blinking lights, a marker that travels), themeable per channel with packs — a pack
+  can also draw its own characters and places. See [docs/GRAPHICS.md](docs/GRAPHICS.md).
+- **The engine chooses the graphics** — in the `explainer` recipe a director reads each sentence and
+  decides what to show without any cue: figures said aloud become bars (also across two sentences, and
+  when the numbers are said in words), dated figures a line chart, two named things a versus, a command
+  a terminal, a flow between things a diagram, a list a list, a quote a headline, an action an animated
+  scene. Cues in the script (`[bars …]`) are still there when you want to decide yourself.
+- **One command that reviews itself** — `sve make` plans, fetches or draws the footage, renders a
+  draft, checks it and fixes what it finds, step by step (another clip → another drawing → removed;
+  a face cut by the frame → re-framed; text out of the safe area → moved; music over the voice →
+  lowered), then tells you what is left to decide. It works for every recipe.
 - **From a script to the video** — write what you say with cues for what is on screen
   (`[bars data="…"]`), record yourself repeating whatever goes wrong, and the `explainer` recipe finds
   the best take of every sentence, puts them in script order and shows each graphic or photo over your
@@ -83,6 +100,15 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   mastering that targets −14 LUFS integrated / −1 dBTP (EBU R128 measurement, capped gain +
   oversampled true-peak limiter, true peak re-verified after AAC; a warning in `summary.json` if it
   cannot get there); `sve check` verifies the result with the same measurement.
+- **Voice** — for recordings of someone talking, the whole recording is cleaned once (RNNoise) so cuts
+  have no seams, and the breaths and mouth noise between sentences are lowered without touching words
+  (`audio.clean_voice`, `audio.breaths`; on in `explainer`).
+- **Music that follows the voice — or composed for the video** — `music.relative_to_voice` keeps the
+  music a fixed distance under the measured voice (10 dB while it speaks, 4 dB in pauses) instead of
+  a fixed level. With `music.file: compose` the engine writes and synthesizes an **original
+  instrumental track** for the video (no samples): a hit on the first frame, silence at the conflict,
+  the chorus at the question, a softer close — and a proof of origin (preset, seed, tempo, sections,
+  hashes) so the same track can be regenerated. `sve music --compose` makes a standalone one.
 - **Color** — iPhone HLG HDR → SDR (BT.709) via a generated 3D LUT, automatic levels, white
   balance and brightness matching across shots, optional creative `.cube` LUT and vignette.
 - **Export** — 1080×1920 H.264 High / yuv420p / BT.709 + AAC 48 kHz, CRF 17 with a 20 Mbps cap,
@@ -99,7 +125,9 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   or an AI agent needs to know about a project.
 - **Product recognition (optional)** — a local CLIP model finds the products shown in the footage
   (`sve products`), picks windows from a text description (`search.text`) and proposes one shot
-  per product in unboxing plans.
+  per product in unboxing plans. With `vision.naming: decider` a local language model looks at the
+  best frame and picks the product's name among the model's candidates (measured on a labeled video:
+  exact names 3 → 10 of 16).
 
 ## Requirements
 
@@ -516,7 +544,6 @@ defaults is summarized in [docs/RESEARCH.md](docs/RESEARCH.md).
 ## Roadmap
 
 - Subject-aware framing: keep faces and subjects inside the crop for Ken Burns and 16:9 → 9:16 reframing.
-- Smarter photo selection for slideshows: skip near-duplicates and blurry shots.
 - Harmonic (key-aware) song ordering and transitions in AutoMix.
 - A lightweight timeline preview to edit `plan.json` visually.
 - Publish the package on PyPI.
@@ -541,7 +568,9 @@ the container always decodes in software.
 
 Tracks you mix into the video are your responsibility. Platforms may mute or limit videos with
 copyrighted music; `--no-music` renders the same edit without the song so you can add a sound
-from inside the app instead.
+from inside the app instead. `music.file: compose` avoids the question: the track is generated by
+the engine from a seed, and the proof of origin written next to it (`music_origin.json` in the version
+folder) says so.
 
 ## License
 
