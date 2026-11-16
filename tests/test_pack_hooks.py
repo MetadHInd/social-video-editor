@@ -119,3 +119,31 @@ def test_a_synthetic_pack_registers_a_place_a_backdrop_and_a_dresser(workspace, 
     assert ("fill", None, "#0000FF") in [c[:3] for c in drawn(Backdrop({"dur": 1}, st)).calls]
     assert dress({"template": "title"}, ["at", "night"])["place"] == "room"
     assert "place" not in dress({"template": "title"}, ["by", "day"])
+
+
+def test_the_director_lets_a_pack_dress_the_card_it_chose():
+    """Without a dresser the plan is the one of before; with one, the card gets what the pack adds from the sentence."""
+    from social_video_editor.domain import director
+    from social_video_editor.domain.graphics import DRESSERS
+
+    text = "Every night the whole building is on the phone at once."
+    words = [[w, 1.0 + 0.4 * i] for i, w in enumerate(text.split())]
+    plan = {"sentences": [{"n": 0, "text": "A first line said to the camera here.", "source": 0, "start": 0.0, "end": 0.9,
+                           "words": [["A", 0.0], ["first", 0.2], ["line", 0.4], ["said", 0.5], ["here.", 0.7]]},
+                          {"n": 1, "text": text, "source": 0, "start": 1.0, "end": 5.6, "words": words},
+                          {"n": 2, "text": "And that is the end of it.", "source": 0, "start": 6.0, "end": 7.5,
+                           "words": [["And", 6.0], ["that", 6.2], ["is", 6.4], ["the", 6.6], ["end.", 6.9]]}],
+            "cutaways": []}
+    cfg = {"language": "en", "script": {"opening": 0.5, "max_camera": 1.0}}
+    before = director.propose(plan, cfg)
+    saved = list(DRESSERS)
+    try:
+        DRESSERS.append(lambda spec, said, language: {**spec, "place": "building"} if "building" in said else None)
+        after = director.propose(plan, cfg)
+    finally:
+        DRESSERS[:] = saved
+    assert before == director.propose(plan, cfg)                      # nothing registered: the same plan again
+    drawn = [c for c in after if c.get("at_sentence") == 1]
+    plain = [c for c in before if c.get("at_sentence") == 1]
+    assert drawn and plain and all("place" not in str(c) for c in plain)
+    assert any(c.get("place") == "building" or (c.get("fallback") or {}).get("place") == "building" for c in drawn)

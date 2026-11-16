@@ -36,6 +36,7 @@ from . import flow as flows
 from .decide import Answer, Decide, Option, Question, ask
 from .graphics import suggest
 from .graphics.icons import ALONE, ICONS, describe_icon, find_icon, match_icon
+from .graphics.scene import dress
 from .graphics.scenes import ACTIONS, TARGETED, action_of, action_text, actions_in
 from .script import tokens
 
@@ -1462,6 +1463,7 @@ def propose(plan: dict, cfg: dict, overlay: set[str] = frozenset(), decide: Deci
         turns[icon] += 1
         last_query = query
         drawn = card(s, at, main, last, decide=decide, language=language, about=about, opts=p, screens=screens)
+        drawn = dress(drawn, [w for w, _ in words], language)      # a pack may complete it (the place of a scene…)
         stretch = n
         if memo and end - start < shortest and k + 1 < len(sentences) and int(sentences[k + 1]["n"]) not in under \
                 and sentences[k + 1].get("source") == s.get("source"):

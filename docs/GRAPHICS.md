@@ -204,6 +204,17 @@ class Timeline(Scene):
 Templates draw on a small canvas interface (`domain/graphics/canvas.py`), so they can be tested
 without the drawing library.
 
+A pack may also draw places and decide how a card is dressed:
+
+- a template's `scenery(cv, t)` (default: the theme's stage) can be overridden to draw a room or a
+  street instead;
+- an element `backdrop` (`fn(cv, st, x, y, t, **options)`) is drawn as the picture of a voice memo;
+- `@dresser def fn(spec, words, language) -> dict | None` completes the graphic the engine chose for a
+  sentence with what the whole sentence says (the director calls `dress(spec, words, language)` on
+  every card it draws; without a pack nothing is registered and the plan is unchanged);
+- `SceneAction.arrange((x0, y0, x1, y1), tall=None)` and `play(cv, t)` draw a scene's action in any box
+  (for example inside a speech bubble).
+
 ## Speed
 
 A graphic says which frames look the same: each state is drawn once and reused. Objects move on twos
