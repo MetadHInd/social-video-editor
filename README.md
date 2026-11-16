@@ -141,8 +141,13 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
 - **Speed:** video and photo shots render in parallel (`render.jobs`, default `auto` = half the
   CPUs, 1–3: 17 % faster than one at a time in the benchmark; `SVE_JOBS=1` renders one at a time),
   and numba's compiled librosa code is cached in the user cache folder (`NUMBA_CACHE_DIR`): the first song analysis of a new process took 13 s
-  without it and ~3 s with it (measured on 4 cores). `python scripts/bench.py` measures render
-  speed on synthetic 4K footage.
+  without it and ~3 s with it (measured on 4 cores). Sources are analyzed side by side too
+  (`analysis.jobs`, default `auto` = `render.jobs`): the wavs are extracted first and Whisper
+  transcribes them one at a time while the proxies and the picture analysis run (−30 % on 4 clips).
+  `transcription.engine`: `faster-whisper` (default), `mlx` (Apple GPU, the `[apple]` extra; opt-in —
+  measured not faster enough and less accurate on real speech) or `auto`. `python scripts/bench.py`
+  measures render speed on synthetic 4K footage; `--scenario analyze | explainer75` measures the
+  analysis of several clips / an explainer render.
 
 ## Install
 
@@ -204,12 +209,13 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve report <project> [--json] [--full]` | `informe` (`--completo`) | One compact screen (≲50 lines) or JSON. First `TO DO`: what the engine could not settle on its own (decisions left by `sve make`, a failed check, b-roll to fetch, unused clips, sentences not recorded…), each with the command or setting that resolves it; then sources, plan/timeline, script, cutaways, music, versions (the latest, a draft included when it is newer), products and check results. Long sections show their first items and `… N more (--full)`; `--full` shows everything, `--json` has everything plus `todo`. Reads only files on disk — instant. |
 | `sve recipes` | `recetas` | List the available recipes. |
 | `sve music "<artist song or URL>"` | `musica` | Download a track with yt-dlp into `music/` and analyze its tempo, beats and drop. |
+| `sve music --compose [--preset P] [--seconds N] [--seed S] [--bpm B] [--out FILE] [--pack NAME] [--project P]` | `musica` | An original track composed by the engine (no samples) and its proof of origin; in a project, `music.file: compose` composes one that follows the video. |
 | `sve products <project>` | `productos` | Recognize the products shown in the sources with the local CLIP model (optional `[vision]` extra; downloaded on first use) and print them; writes `cache/products.json`. See [Product recognition](#product-recognition-optional). |
 | `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). Without `--version` it checks the most recently rendered one, draft or variant included (failed renders are skipped), and says which. |
 | `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
 | `sve broll <project> [--dry-run] [--force]` | `tomas` (`--simular`, `--forzar`) | Fetches a clip for every `broll` cutaway of the plan from the allowed sources into `footage/`, records where it comes from (`footage/credits.json`) and adds the credit caption. `--dry-run` only lists the candidates. Keys: `PEXELS_API_KEY`, `PIXABAY_API_KEY` (environment variables). |
 | `sve broll <project> --unused [--yes]` | `tomas` (`--sin-usar`, `--si`) | Lists the clips in `footage/` that no plan uses any more (turned down, replaced with `--force`) and the search cache, with their size; `--yes` deletes them (the clip, its record and its cached frame). A clip `plan.json` or `plan_previous.json` names is never deleted; files without a record (your own) are never touched. `sve report` says when there are some. |
-| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review, the engine's own fixes (re-rendered, ≤ 3 renders) and the decisions left for you (`review.json`). |
+| `sve make <project> [--final] [--force] [--short NAME \| --shorts]` | `hacer` (`--forzar`, `--corto`, `--cortos`) | The whole video with one command, for every recipe: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review, the engine's own fixes — a ladder of remedies: another clip, another drawing, texts moved into the safe zone, faces framed again, the music lowered… (re-rendered, ≤ 3 renders, one version folder left) — and the decisions left for you (`review.json`). `--short` / `--shorts` also render the plan's shorts. |
 | `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music), the b-roll sources and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):

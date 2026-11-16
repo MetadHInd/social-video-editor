@@ -292,6 +292,12 @@ review:                  # sve make: the engine reviews its own plan and render 
   read_cps: 15           # characters a viewer reads per second: a graphic is shown at least its text / this
   graphic_max: 6.0       # seconds a full-frame graphic or photo stays at most; longer, the presenter comes back (0 = off)
   camera_slack: 1.5      # the presenter alone may run this much over script.opening / max_camera before it counts
+  ladder: true           # a remedy that did not hold makes way for the next: another clip → another drawing → removed;
+                         # texts moved into the safe zone / kept longer, faces framed again, music lowered (false = before)
+  clip_tries: 2          # other clips (the next candidates) tried for one b-roll cue before a drawing
+  clip_match: 0          # a fetched clip matching its search under this is replaced (0 = off; broll.min_match is 0.27)
+  faces: true            # a camera shot whose crop cuts the presenter's face is framed again (needs framing.face)
+  keep_attempts: false   # true = keep the folder of every render of one sve make (else only the last one stays)
 
 polaroid:                # shot {"type": "polaroid", "from_shot": k, "beats": 2, "text": "…"}
   width: 0.70
