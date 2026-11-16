@@ -154,6 +154,21 @@ RHYTHMS = ("x..x..x.x...x...", "x...x.x...x.x...", "x.x...x.x.x.....", "x..x..x.
 SPARSE_RHYTHMS = ("x.......x.......", "x.....x.........", "x...........x...", "x.......x...x...")
 
 
+# music.compose settings (recipes/base.yaml) and their defaults
+SETTINGS = {"preset": None, "seed": None, "bpm": None, "silences": True, "accents": True, "lufs": -16.0}
+
+
+def settings(music_cfg: dict | None) -> dict:
+    """music.compose with its defaults (a missing or empty section = all defaults)."""
+    own = (music_cfg or {}).get("compose")
+    return {**SETTINGS, **(own if isinstance(own, dict) else {})}
+
+
+def is_compose(music_cfg: dict | None) -> bool:
+    """music.file: compose — the engine composes the track itself."""
+    return str((music_cfg or {}).get("file") or "").strip().lower() == "compose"
+
+
 # ── presets ──────────────────────────────────────────────────────────────────
 
 def resolve_preset(name: str | None, extra: dict | None = None) -> tuple[str, dict]:
