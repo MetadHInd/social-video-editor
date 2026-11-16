@@ -6,7 +6,9 @@ last good one: people repeat a sentence until it comes out right) and its source
 returned. Nothing is invented: a sentence that was not said is reported as missing.
 
 Matching is done on words (script.tokens), tolerant to the transcription's mistakes: two words are
-the same when they are identical or look alike (ratio ≥ 0.8, words of 4+ letters).
+the same when they are identical or look alike (ratio ≥ 0.8, words of 4+ letters). Numbers are compared
+by value (numbers.fold): "cincuenta y cuatro" in the script and "54" heard are one and the same token,
+both ways, and a different number never matches.
 """
 from __future__ import annotations
 
@@ -14,7 +16,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from math import ceil
 
-from .script import tokens
+from .numbers import NUMBER_MARK, fold, same_number
 
 DEFAULTS = {
     "min_match": 0.6,     # share of the sentence's words that must be found for a take to count
@@ -64,20 +66,23 @@ def settings(cfg: dict) -> dict:
 
 
 def transcript(analyses: list[dict]) -> list[Word]:
-    """Every transcribed word of every source, in order, as comparable tokens."""
+    """Every transcribed word of every source, in order, as comparable tokens (numbers.fold: a number
+    heard as several words — "cincuenta", "y", "cuatro" — is one token, from its first word's start to
+    its last word's end)."""
     out = []
     for source, an in enumerate(analyses):
-        for w in (an or {}).get("words") or []:
-            raw = str(w.get("word", "")).strip()
-            for tok in tokens(raw):
-                out.append(Word(tok, float(w["start"]), float(w["end"]), source, raw))
+        heard = [w for w in (an or {}).get("words") or []]
+        raws = [str(w.get("word", "")).strip() for w in heard]
+        for tok, a, b in fold(raws):
+            raw = raws[a] if a == b else " ".join(raws[a:b + 1])
+            out.append(Word(tok, float(heard[a]["start"]), float(heard[b]["end"]), source, raw))
     return out
 
 
 def same_word(a: str, b: str) -> bool:
-    if a == b:
+    if a == b or same_number(a, b):
         return True
-    if min(len(a), len(b)) < FUZZY_MIN_LETTERS:
+    if min(len(a), len(b)) < FUZZY_MIN_LETTERS or a.startswith(NUMBER_MARK) or b.startswith(NUMBER_MARK):
         return False
     return SequenceMatcher(None, a, b, autojunk=False).ratio() >= SIMILAR
 
@@ -265,7 +270,7 @@ def align(sentences: list[str], words: list[Word], cfg: dict | None = None) -> l
     """Where each sentence is in the recording: {"source", "start", "end", "score", "takes",
     "alternatives": [[source, start, end, score], …]} (source seconds), or None when it was not said."""
     p = settings(cfg or {})
-    split = [tokens(s) for s in sentences]
+    split = [[t for t, _, _ in fold(s.split())] for s in sentences]
     takes = [find_takes(t, words, float(p["min_match"])) for t in split]
     chosen = choose(takes, [len(t) for t in split], str(p["take"]))
     pads = float(p["pad_start"]), float(p["pad_end"])
@@ -288,15 +293,18 @@ def script_words(sentence: str, take: Take, words: list[Word]) -> list[list]:
     """The sentence as written, word by word, with the times it was said in a take: [[word, start, end]].
     Subtitles made from these say what the script says ("zero") and not what the transcription heard
     ("hero"). A written word that was heard takes its time; the ones in between share the time between
-    their neighbors; a word with no time left for it (it was not said) is dropped."""
+    their neighbors; a word with no time left for it (it was not said) is dropped. A number written in
+    several words ("cincuenta y cuatro") heard as one ("54") shares that word's time, in order."""
     shown = sentence.split()
-    owner: list[int] = []                                   # sentence token → the written word it belongs to
-    for k, w in enumerate(shown):
-        owner += [k] * len(tokens(w))
+    owner = [(a, b) for _, a, b in fold(shown)]             # sentence token → the written words it stands for
     heard: dict[int, list[float]] = {}
     for at, token in take.pairs:
-        k, w = owner[token], words[at]
-        heard[k] = [min(heard[k][0], w.start), max(heard[k][1], w.end)] if k in heard else [w.start, w.end]
+        a, b = owner[token]
+        w = words[at]
+        step = (w.end - w.start) / (b - a + 1)
+        for k in range(a, b + 1):
+            s, e = w.start + step * (k - a), w.start + step * (k - a + 1)
+            heard[k] = [min(heard[k][0], s), max(heard[k][1], e)] if k in heard else [s, e]
     first, last = words[take.first].start, words[take.last].end
     out: list[list] = []
     k = 0
