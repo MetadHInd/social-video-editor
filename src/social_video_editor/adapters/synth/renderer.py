@@ -17,7 +17,7 @@ from pathlib import Path
 from ...domain.models import UserError
 
 SR = 48000
-DEFAULTS = {"sample_rate": SR, "lufs": -16.0, "ceiling_db": -1.5, "voice_dip_db": 2.0, "reverb": 1.0,
+DEFAULTS = {"sample_rate": SR, "lufs": -16.0, "ceiling_db": -2.0, "voice_dip_db": 2.0, "reverb": 1.0,
             "mix": {}}
 ROLE_DB = {"drums": 0.0, "bass": -2.0, "pad": -7.0, "arp": -8.0, "lead": -6.0, "fx": -8.0}   # LU from the drums
 INST_DB = {"kick": 0.0, "snare": 3.0, "clap": 2.0, "rim": 1.0, "hat": 6.0, "ohat": 2.0, "shaker": 5.0, "tom": -2.0,

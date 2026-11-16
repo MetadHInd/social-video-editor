@@ -37,7 +37,7 @@ DEAD_CUT = 0.06             # the music is cut dead before a silence (60 ms)
 FINAL_FADE = 1.0            # the last second fades out
 MIN_INTRO = 2.0             # the intro lasts at least this long before the music may stop
 MIN_SECTION = 2.0           # a music section shorter than this joins the previous one
-MAX_SILENCE = 6.0           # a silence never lasts longer than this
+MAX_SILENCE = 8.0           # a silence never lasts longer than this
 MAX_HEADING_WORDS = 6       # a comment with more words is a note, not an arc heading
 ACCENT_GAP = 4.0            # at most one accent (a full-screen graphic coming in) every 4 s
 
@@ -562,9 +562,17 @@ def compose(preset: dict, seed: int, sections: list[dict], duration: float, bpm:
     return {"v": COMPOSER_VERSION, "preset": preset_name, "seed": int(seed), "bpm": round(bpm, 3),
             "key": NOTE_NAMES[root], "mode": mode, "duration": round(duration, 4),
             "sections": secs,
-            "beats": [round(b, 4) for b in beats if b < duration],
-            "downbeats": [round(b, 4) for b in downbeats if b < duration],
+            "beats": _unique(beats, duration),
+            "downbeats": _unique(downbeats, duration),
             "gates": [[round(x, 4) for x in g] for g in gates], "events": events}
+
+
+def _unique(times: list[float], duration: float) -> list[float]:
+    out: list[float] = []
+    for t in sorted(times):
+        if t < duration and (not out or t - out[-1] > 1e-3):
+            out.append(round(t, 4))
+    return out
 
 
 def _snap(sections: list[dict], T: float, duration: float) -> list[dict]:
@@ -646,18 +654,18 @@ def _section_events(events, s, nxt, preset, seed, index, occurrence, root, mode,
     nbars = max(int((end - start) / bar - 1e-6) + 1, 1)
     for b in range(nbars):
         t0 = start + b * bar
-        if t0 >= end - 1e-6:
+        if t0 >= end - 1e-3:
             break
         bar_end = min(t0 + bar, end)
-        last_bar = t0 + bar >= end - 1e-6
+        last_bar = t0 + bar >= end - 1e-3
         ch = chords[b % len(chords)]
         if b < 16:
             s["chords"].append(prog[b % len(prog)])
         downbeats.append(t0)
         for k in range(4):
-            if t0 + k * T < end - 1e-6:
+            if t0 + k * T < end - 1e-3:
                 beats.append(t0 + k * T)
-        steps = [k for k in range(16) if t0 + k * step < end - 1e-6]
+        steps = [k for k in range(16) if t0 + k * step < end - 1e-3]
 
         def at(k, swing_on=True):
             return t0 + k * step + (swing * step if swing_on and k % 2 else 0.0) + r.uniform(-0.003, 0.003)
@@ -694,11 +702,11 @@ def _section_events(events, s, nxt, preset, seed, index, occurrence, root, mode,
             if nxt and nxt["kind"] == "chorus":
                 _ev(events, t0, bar_end - t0, "riser", "fx", 0.7)
         # bass
-        bass_note = ch[0] - 12 if bass.get("sound") != "808" else ch[0] - 24
+        bass_note = ch[0] - 12                             # 55–98 Hz (an 808 adds a mid layer)
         if bass_pattern == "kick" and kicks:
             for j, k in enumerate(kicks):
                 nk = kicks[j + 1] if j + 1 < len(kicks) else 16
-                glide = ch[0] - 12 if (j == len(kicks) - 1 and b % 2 == 1 and r.random() < 0.6) else None
+                glide = ch[0] if (j == len(kicks) - 1 and b % 2 == 1 and r.random() < 0.6) else None
                 e_d = (min(nk, len(steps)) - k) * step
                 _ev(events, t0 + k * step, e_d, bass.get("sound", "808"), "bass", 0.85 * (0.7 + 0.3 * energy), bass_note)
                 if glide is not None:
@@ -707,7 +715,7 @@ def _section_events(events, s, nxt, preset, seed, index, occurrence, root, mode,
             pattern = {"offbeat": [(2, 2), (6, 2), (10, 2), (14, 2)], "eighths": [(k, 2) for k in range(0, 16, 2)],
                        "half": [(0, 7), (8, 7)], "whole": [(0, 15)], "kick": [(0, 7), (8, 7)]}.get(bass_pattern, [(0, 7), (8, 7)])
             for k, n in pattern:
-                if t0 + k * step >= end - 1e-6:
+                if t0 + k * step >= end - 1e-3:
                     continue
                 note = bass_note + (12 if bass_pattern == "eighths" and k in (6, 14) else 0)
                 _ev(events, t0 + k * step, n * step, bass.get("sound", "synth"), "bass", 0.8 * (0.75 + 0.25 * energy), note)
@@ -728,7 +736,7 @@ def _section_events(events, s, nxt, preset, seed, index, occurrence, root, mode,
                 seq = [seq[0], seq[2], seq[1], seq[3 % len(seq)], seq[2], seq[1]] if len(seq) >= 4 else seq
             vel = (0.5 + 0.4 * energy) * (0.6 if kind in ("break", "verse") else 1.0)
             for j, k in enumerate(range(0, 16, max(arp_rate, 1))):
-                if t0 + k * step >= end - 1e-6:
+                if t0 + k * step >= end - 1e-3:
                     break
                 pan = (-0.35 if j % 2 else 0.35) if arp_rate <= 2 else 0.0
                 _ev(events, at(k), max(arp_rate, 1) * step * (1.6 if arp_sound in ("keys", "string") else 0.9),
@@ -748,7 +756,7 @@ def _section_events(events, s, nxt, preset, seed, index, occurrence, root, mode,
             if density < 0.3 and b % 2:
                 continue
             for o, L, d in phrase:
-                if t0 + o * step >= end - 1e-6:
+                if t0 + o * step >= end - 1e-3:
                     continue
                 idx = max(0, min(len(pool) - 1, len(pool) // 3 + d))
                 note = pool[idx]
