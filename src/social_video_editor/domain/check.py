@@ -15,6 +15,7 @@ DEFAULTS = {
     "loudness_tolerance_lu": 1.0,     # integrated loudness within ±1 LU of audio.loudness
     "silence_db": -50.0,              # below this (dBFS RMS, 50 ms windows) is silence…
     "silence_sec": 0.5,               # …reported when longer than this
+    "composed_silence_max_sec": 1.5,  # a silence inside a composed track's own silence is by design up to this
     "cut_jump_lu": 8.0,               # momentary loudness jump across a cut
     "sfx_max_vs_mix_lu": -6.0,        # sound-effect stem at most mix − 6 LU
     "music_max_vs_original_lu": 0.0,  # ASMR mode: music no louder than the original sound
@@ -282,6 +283,44 @@ def cut_jumps(t: list[float], momentary: list[float], cuts: list[float], floor: 
 
 
 PAUSE_LUFS = -30.0          # momentary loudness of a pause in speech (the room, no voice)
+
+
+VOICE_SILENT_LUFS = -45.0   # the voice stem quieter than this: nobody is speaking
+VOICE_SPEAKING_LUFS = -40.0  # … louder than this: the voice is there
+
+
+def voice_starts_or_stops(jump: dict, voice_t: list[float], voice_m: list[float]) -> bool:
+    """A cut where the voice stem is silent on the quiet side and speaking on the loud one: speech
+    starting or stopping (with music under it the pause is not near silence, so `pause_to_voice` misses
+    it), not a loudness jump of the edit."""
+    if not voice_t:
+        return False
+    c = float(jump["t"])
+    at_before, at_after = momentary_at(voice_t, voice_m, c), momentary_at(voice_t, voice_m, c + 0.4)
+    if at_before is None or at_after is None:
+        return False
+    quiet, loud = (at_before, at_after) if jump["jump_lu"] > 0 else (at_after, at_before)
+    return quiet < VOICE_SILENT_LUFS and loud > VOICE_SPEAKING_LUFS
+
+
+def designed_silence(span: tuple[float, float], composed: dict | None, longest: float, slack: float = 0.1) -> bool:
+    """A silence of the mix inside a section a composed track leaves silent on purpose (it cuts the music
+    dead at the conflict and the twist) and no longer than `longest` — longer, the gap is in the voice
+    (a sentence missing) and is reported."""
+    a, b = float(span[0]), float(span[1])
+    if not composed or b - a > longest:
+        return False
+    return any(kind == "silence" and a >= float(s0) - slack and b <= float(s1) + slack
+               for kind, s0, s1 in composed.get("sections") or [])
+
+
+def cuts_follow_beat(music: dict | None, shots: list[dict] | None) -> bool:
+    """Whether the edit puts its cuts on the beat (application/music.py): `music.align: exact`, a shot
+    with "beats", or `music.cuts_on_beat` (true unless the recipe says otherwise; `explainer` and `talk`
+    cut on the voice). Only then are cuts off the beat a finding."""
+    m = music or {}
+    return (str(m.get("align") or "") == "exact" or any(isinstance(s, dict) and "beats" in s for s in shots or [])
+            or bool(m.get("cuts_on_beat", True)))
 
 
 def pause_to_voice(jump: dict, integrated: float | None, pause: float = PAUSE_LUFS) -> bool:

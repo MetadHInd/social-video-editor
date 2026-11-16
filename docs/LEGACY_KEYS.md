@@ -640,6 +640,7 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `tolerancia_volumen_lu` | `loudness_tolerance_lu` |
 | `silencio_db` | `silence_db` |
 | `silencio_seg` | `silence_sec` |
+| `silencio_compuesto_max_seg` | `composed_silence_max_sec` |
 | `salto_corte_lu` | `cut_jump_lu` |
 | `sfx_max_vs_mezcla_lu` | `sfx_max_vs_mix_lu` |
 | `musica_max_vs_original_lu` | `music_max_vs_original_lu` |

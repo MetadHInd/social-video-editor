@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- `sve check` with music: cuts off the beat are a warning only when the edit puts cuts on the beat
+  (`music.cuts_on_beat` / `align: exact` / shots with `beats`); a silence inside a composed track's own
+  silence is by design up to `check.composed_silence_max_sec` (1.5 s); a loudness jump where the voice stem
+  shows speech starting after a pause filled by music is not flagged. A composed-music explainer rehearsal:
+  3 warnings → 0, with a dropout elsewhere or a long gap still reported.
+
 ## [0.6.0] - 2026-11-16
 
 From a script to a finished explainer with one command: the engine chooses and draws the graphics, fetches
