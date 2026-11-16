@@ -21,6 +21,8 @@ removed in plan.json; `script.support: false` turns them off. A word that says a
 shows (its plural, or the same illustration) is neither asked about nor shown twice. When a full-frame
 cutaway starts inside a sentence, the notes of the words under it are left out; with
 `script.support_spread` (off by default) they come in earlier, spread over the part said on camera.
+A sentence of a source with no picture (a voice memo: the plan's "pictureless") has no presenter to
+point at: only the notes that read well alone over the backdrop (a figure, an illustration) are kept.
 """
 from __future__ import annotations
 
@@ -268,13 +270,20 @@ def _spread(chosen: list[dict], later: list[dict], begin: float, end: float, las
     return moved
 
 
-def propose(plan: dict, language: str = "es", decide: Decide | None = None, settings: dict | None = None) -> list[dict]:
+ALONE_KINDS = ("figure", "icon")    # the notes that read well over a backdrop, without a presenter
+
+
+def propose(plan: dict, language: str = "es", decide: Decide | None = None, settings: dict | None = None,
+            pictureless: set[int] | None = None) -> list[dict]:
     """Cutaway entries (`callouts` overlays) for the sentences said on camera with nothing else on
     screen. The plan is not changed. Sentences under a cutaway of the plan are left alone; a sentence
     whose cutaway starts at one of its words (from_word) keeps notes on its part said on camera.
     settings: the project's (`script.support_spread`: the notes whose words fall under that cutaway
-    appear earlier, spread over the part said on camera, instead of being lost; off by default)."""
+    appear earlier, spread over the part said on camera, instead of being lost; off by default).
+    pictureless: the sources with no picture (default: the plan's "pictureless"): their sentences keep
+    only figures and illustrations (ALONE_KINDS)."""
     spread = bool(((settings or {}).get("script") or {}).get("support_spread", SPREAD))
+    blind = {int(k) for k in plan.get("pictureless") or []} if pictureless is None else set(pictureless)
     taken: set[int] = set()
     cover_from: dict[int, tuple[int, float]] = {}          # sentence → (source, second) a cutaway covers it from
     for c in plan.get("cutaways") or []:
@@ -327,6 +336,8 @@ def propose(plan: dict, language: str = "es", decide: Decide | None = None, sett
         quiet = not same or float(s["start"]) - last_note[1] > QUIET_SECONDS
         shown = {x.lower() for x in group["items"]} if group else set()
         notes, decided = _notes(s["words"], language, quiet and length >= 1.2, decide)
+        if int(s.get("source", 0)) in blind:
+            notes = [note for note in notes if note["kind"] in ALONE_KINDS]
         offered = [note for note in notes
                    if clock + (note["t"] - float(s["start"])) >= OPENING_SECONDS
                    and note["t"] < until

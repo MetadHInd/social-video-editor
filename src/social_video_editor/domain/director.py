@@ -41,10 +41,11 @@ from .script import tokens
 
 DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8,
             "auto_line_chart": True, "auto_versus": True, "auto_code": True, "auto_screen": True,
-            "auto_diagram": True, "figure_context": True, "scene_fit": True}
+            "auto_diagram": True, "figure_context": True, "scene_fit": True, "verb_bars": False}
 # the graphics the director chooses by itself besides footage and its cards (each one a setting); all
 # False = the director of before them, exactly
-CHOICES = ("auto_line_chart", "auto_versus", "auto_code", "auto_screen", "auto_diagram", "figure_context", "scene_fit")
+CHOICES = ("auto_line_chart", "auto_versus", "auto_code", "auto_screen", "auto_diagram", "figure_context", "scene_fit",
+           "verb_bars")
 OFF = {k: False for k in CHOICES}
 LEAD_IN = 0.3               # a cutaway never starts in the first moment of a sentence (the word before it is heard)
 MIN_FACE = 1.5              # the presenter is on screen at least this long before footage covers them
@@ -555,20 +556,20 @@ def _figures(words: list[tuple[str, float]], context: bool = False, prev: dict |
 
 
 def comparison(words: list[tuple[str, float]], decide: Decide | None = None, language: str | None = None,
-               context: bool = False) -> dict | None:
+               context: bool = False, verbs: bool = False) -> dict | None:
     """Two to six figures of the same kind compared in one sentence ("dos minutos por semana, al año dos
     horas"; "de 15 % antes a 40 % hoy") as `bars`: times are put in the smallest unit said; each bar is
     named by a word such as "antes / hoy" next to it, else by the words after it (or before it).
     → the spec plus "at" (the second the first figure is said), or None. With `decide`, a model may
     say whether figures the rules are unsure of are compared (`is_comparison`) and name a bar whose
     name the rules guessed (`bar_labels`). context (script.figure_context): a figure whose unit is left
-    unsaid takes the one said before it ("duermes ocho horas y pasas cinco en el celular"), and a bar
-    whose only name is the verb it is said with is named by that verb ("Duermes")."""
-    rules = _comparison(words, None, context)
+    unsaid takes the one said before it ("duermes ocho horas y pasas cinco en el celular"); verbs
+    (script.verb_bars): a bar whose only name is the verb it is said with is named by it ("Duermes")."""
+    rules = _comparison(words, None, context, verbs)
     if decide is None:
         return rules
     asker = _Asker(decide, language_of(words, language))
-    return _decided(_comparison(words, asker, context), rules, asker)
+    return _decided(_comparison(words, asker, context, verbs), rules, asker)
 
 
 def _bar_label(words: list[tuple[str, float]], plain: list[str], pick: list[int]) -> tuple[str, list[int]]:
@@ -635,7 +636,8 @@ def _verb_label(words: list[tuple[str, float]], plain: list[str], closes: list[b
     return _capital(word)
 
 
-def _comparison(words: list[tuple[str, float]], asker: _Asker | None, context: bool = False) -> dict | None:
+def _comparison(words: list[tuple[str, float]], asker: _Asker | None, context: bool = False,
+                verbs: bool = False) -> dict | None:
     found = _figures(words, context)
     for f in found:
         f["base"] = TIME_UNITS.get(f["unit"])
@@ -699,7 +701,7 @@ def _comparison(words: list[tuple[str, float]], asker: _Asker | None, context: b
             pick = whole
             label = _capital(" ".join(_clean(words[k][0]) for k in pick))
         good = bool(label) and _names_thing(words, plain, whole, not weak)
-        if context and not good and (verb := _verb_label(words, plain, closes, whole)):
+        if verbs and not good and (verb := _verb_label(words, plain, closes, whole)):
             label, pick, good = verb, [k for k in whole if _clean(words[k][0]).lower() not in VERB_SUBJECTS], True
         label = label or f"{n + 1}"
         pronoun = len(label.split()) == 1 and "".join(tokens(label)) in PRONOUNS | DETERMINERS
@@ -756,7 +758,7 @@ def said_data(words: list[tuple[str, float]], decide: Decide | None = None, lang
     first = _chosen(words, p, screens)
     if first is not None:
         return first
-    return comparison(words, decide, language, bool(p.get("figure_context"))) or quote(words)
+    return comparison(words, decide, language, bool(p.get("figure_context")), bool(p.get("verb_bars"))) or quote(words)
 
 
 def _chosen(words: list[tuple[str, float]], p: dict, screens=()) -> dict | None:
@@ -770,7 +772,8 @@ def _chosen(words: list[tuple[str, float]], p: dict, screens=()) -> dict | None:
 
 def _said_data(words: list[tuple[str, float]], asker: _Asker | None, p: dict | None = None, screens=()) -> dict | None:
     p = p or OFF
-    return _chosen(words, p, screens) or _comparison(words, asker, bool(p.get("figure_context"))) or quote(words)
+    return _chosen(words, p, screens) or _comparison(words, asker, bool(p.get("figure_context")),
+                                                     bool(p.get("verb_bars"))) or quote(words)
 
 
 def quote(words: list[tuple[str, float]]) -> dict | None:
