@@ -6,21 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Fixed
-- `sve check` with music: cuts off the beat are a warning only when the edit puts cuts on the beat
-  (`music.cuts_on_beat` / `align: exact` / shots with `beats`); a silence inside a composed track's own
-  silence is by design up to `check.composed_silence_max_sec` (1.5 s); a loudness jump where the voice stem
-  shows speech starting after a pause filled by music is not flagged. A composed-music explainer rehearsal:
-  3 warnings → 0, with a dropout elsewhere or a long gap still reported.
-- A script sentence whose numbers are spelled out ("a cincuenta y cuatro") is found in a recording whose
-  transcription writes digits ("a 54"), and the other way round: numbers are matched by value, as one word
-  however they are written ("ciento sesenta y un" = "161", "17 mil" = "17.000" = "17,000", "2,5" = "2.5",
-  "161Mbps", "54%"; Spanish and English), a different number never matches, a lone "un / one" stands for "1"
-  only when the other side says 1, and the written words share the time of the one word heard (subtitles,
-  notes and cut points stay right). The number parser moved from the director to `domain/numbers.py`
-  (its figures are read exactly as before). A real rehearsal: a key sentence was reported missing; now
-  found at 100 %, and two others went from 75–77 % to 92–100 %.
-
 ## [0.6.0] - 2026-11-16
 
 From a script to a finished explainer with one command: the engine chooses and draws the graphics, fetches
@@ -336,6 +321,19 @@ Everything new is behind a setting; the old recipes render exactly as before.
   action in any box. Without a pack nothing changes.
 
 ### Fixed
+- `sve check` with music: cuts off the beat are a warning only when the edit puts cuts on the beat
+  (`music.cuts_on_beat` / `align: exact` / shots with `beats`); a silence inside a composed track's own
+  silence is by design up to `check.composed_silence_max_sec` (1.5 s); a loudness jump where the voice stem
+  shows speech starting after a pause filled by music is not flagged. A composed-music explainer rehearsal:
+  3 warnings → 0, with a dropout elsewhere or a long gap still reported.
+- A script sentence whose numbers are spelled out ("a cincuenta y cuatro") is found in a recording whose
+  transcription writes digits ("a 54"), and the other way round: numbers are matched by value, as one word
+  however they are written ("ciento sesenta y un" = "161", "17 mil" = "17.000" = "17,000", "2,5" = "2.5",
+  "161Mbps", "54%"; Spanish and English), a different number never matches, a lone "un / one" stands for "1"
+  only when the other side says 1, and the written words share the time of the one word heard (subtitles,
+  notes and cut points stay right). The number parser moved from the director to `domain/numbers.py`
+  (its figures are read exactly as before). A real rehearsal: a key sentence was reported missing; now
+  found at 100 %, and two others went from 75–77 % to 92–100 %.
 - Subtitles (both styles and the .srt) no longer lose the first word of a sentence that starts under a
   transition: a word heard under a dissolve now goes to the shot it is heard in, split at the transition's middle
   only when both shots play that same moment of the recording (so nothing is written twice). Before, every word
