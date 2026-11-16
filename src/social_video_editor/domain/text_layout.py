@@ -240,17 +240,30 @@ def subtitle_groups(analyses: list[dict], timeline, cfg: dict) -> list[dict]:
 
     s = cfg["subtitles"]
     words = []
-    for clip in timeline:     # every word belongs to ONE shot and must fit inside it
+    clips = list(timeline)
+    for k, clip in enumerate(clips):     # every word belongs to ONE shot
         window = clip.piece.source_window()
         if window is None:
             continue
         source, start, end, v = window
+        # A transition is shared by the two shots around it; its middle is the cut (Timeline.cut). A word
+        # said under it belongs to the shot it is heard in: the one coming in (a sentence that starts under a
+        # dissolve keeps its first word), unless the shot going out plays that same moment of the recording
+        # (a crossfade inside one take) — then the word goes to the side of the cut it starts on, once.
+        prev = clips[k - 1].piece.source_window() if k > 0 and clip.overlap > 0 else None
+        nxt = clips[k + 1].piece.source_window() if k + 1 < len(clips) and clips[k + 1].overlap > 0 else None
+        cut_in = clip.out_start + clip.overlap / 2
+        cut_out = timeline.cut(k) if nxt is not None else float("inf")
         for w in analyses[source].get("words", []):
-            if w["start"] < start - 0.02 or w["end"] > end + 0.08:
+            if w["start"] < start - 0.02:
                 continue
             t0 = clip.out_start + (w["start"] - start) / v
-            if clip.index > 0 and t0 < clip.out_start + clip.overlap:
-                continue                                    # inside the entry transition
+            if w["end"] > end + 0.08 and not (nxt is not None and w["start"] < end and t0 < cut_out):
+                continue                                    # must fit inside the shot (or start before its cut)
+            if t0 < cut_in and _plays(prev, source, w["start"]):
+                continue                                    # the shot going out has it
+            if t0 >= cut_out and _plays(nxt, source, w["start"]):
+                continue                                    # the shot coming in has it
             t1 = clip.out_start + (min(w["end"], w["start"] + 1.5) - start) / v
             words.append({"word": clean(w["word"]), "start": t0, "end": max(t1, t0 + 0.12), "shot": clip.index})
     words.sort(key=lambda w: w["start"])
@@ -273,6 +286,11 @@ def subtitle_groups(analyses: list[dict], timeline, cfg: dict) -> list[dict]:
         nxt = groups[i + 1][0]["start"] if i + 1 < len(groups) else g[-1]["end"] + 0.4
         res.append({"words": g, "start": g[0]["start"], "end": min(g[-1]["end"] + 0.15, nxt)})
     return res
+
+
+def _plays(window, source: int, t: float) -> bool:
+    """Whether a shot (its source window) plays second `t` of `source`."""
+    return window is not None and window[0] == source and window[1] - 0.02 <= t < window[2]
 
 
 def _srt_time(s: float) -> str:

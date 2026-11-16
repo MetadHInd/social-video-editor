@@ -336,6 +336,12 @@ Everything new is behind a setting; the old recipes render exactly as before.
   action in any box. Without a pack nothing changes.
 
 ### Fixed
+- Subtitles (both styles and the .srt) no longer lose the first word of a sentence that starts under a
+  transition: a word heard under a dissolve now goes to the shot it is heard in, split at the transition's middle
+  only when both shots play that same moment of the recording (so nothing is written twice). Before, every word
+  starting inside the entry transition was dropped — with the explainer's 0.2 s dissolves, the first word of
+  most sentences after a cut (a real voice memo: 6 of 191 words lost → 0; a real presenter: 3 of 116 → 0).
+  The audio was never affected.
 - Landscape renders: subtitles are raised into the safe zone `sve check` measures (a real 43 s explainer at
   1920×1080: 13 safe-zone warnings → 0).
 - A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too

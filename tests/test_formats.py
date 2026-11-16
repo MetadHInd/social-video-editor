@@ -263,3 +263,36 @@ def test_a_font_role_may_be_a_list_and_mono_never_falls_back_to_a_proportional_f
     windows = renderer.FontBook(FakeSkia({"Consolas"}), {"mono": ["Menlo"]})
     monkeypatch.setattr(renderer, "font_file_exact", lambda name: None)
     assert windows.face("mono") == "family:Consolas"
+
+
+# ── subtitles across a transition ────────────────────────────────────────────
+SAID = [("How", 1.00), ("does", 1.30), ("it", 1.60), ("travel?", 1.90),            # sentence 0
+        ("And", 6.00), ("they", 6.30), ("travel", 6.60), ("apart.", 6.90)]          # sentence 1, another take
+
+
+def _groups(plan: dict, words: list[tuple[str, float]], transition: str = "dissolve") -> list[str]:
+    from social_video_editor.domain.text_layout import subtitle_groups
+    from social_video_editor.domain.timeline import compute_timeline
+
+    cfg = {"output": {"fps": 30}, "transitions": {"duration": 0.2},
+           "subtitles": {"max_words": 3, "max_chars": 18}}
+    analyses = [{"words": [{"word": w, "start": t, "end": t + 0.25} for w, t in words]}]
+    tl = compute_timeline(plan, cfg)
+    return [w["word"] for g in subtitle_groups(analyses, tl, cfg) for w in g["words"]]
+
+
+def test_a_sentence_that_starts_under_a_dissolve_keeps_its_first_word():
+    # as build_plan writes it: each side of the 0.2 s dissolve gets 0.1 s more, sentences keep 0.08 s of air
+    plan = {"shots": [{"source": 0, "start": 0.82, "end": 2.37, "transition": "cut"},
+                      {"source": 0, "start": 5.82, "end": 7.37, "transition": "dissolve"}], "texts": []}
+    assert _groups(plan, SAID) == [w for w, _ in SAID]           # every word, in order, once
+    plan["shots"][1]["transition"] = "cut"
+    assert _groups(plan, SAID) == [w for w, _ in SAID]
+
+
+def test_one_take_crossfaded_into_itself_writes_each_word_once():
+    # a continuous take split in two shots that share 0.2 s of the recording (a dissolve inside one take)
+    words = [("one", 1.0), ("two", 1.4), ("three", 1.8), ("four", 2.05), ("five", 2.4), ("six", 2.8)]
+    plan = {"shots": [{"source": 0, "start": 0.9, "end": 2.2, "transition": "cut"},
+                      {"source": 0, "start": 2.0, "end": 3.2, "transition": "dissolve"}], "texts": []}
+    assert _groups(plan, words) == [w for w, _ in words]
