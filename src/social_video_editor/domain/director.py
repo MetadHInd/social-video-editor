@@ -427,6 +427,8 @@ def figure(words: list[tuple[str, float]], context: bool = False) -> dict | None
         if context and (ends := _range_end(said, plain, after)) is not None:
             skip = ends
             continue
+        if context and plain[i] in NOT_IN_ENGLISH and language_of(words) == "en":
+            continue                                        # "at once": not eleven
         raw = _clean(w)
         value = raw if after == i + 1 and raw.replace(".", "").replace(",", "").replace("%", "").isdigit() else _shown(number)
         unit = ""
@@ -464,6 +466,7 @@ LABEL_STOP = UNIT_STOP | set("son es eran fue is are was were vs versus contra f
                              "tardaba tardan takes took gasta gastan usa usan uses use pesa pesan cuesta cuestan costs cost "
                              "mide miden".split())
 LABEL_WORDS = 3
+NOT_IN_ENGLISH = {"once"}   # a Spanish number word that English uses otherwise ("at once")
 RANGE_JOINS = set("a al hasta to till until".split())
 VERB_SUBJECTS = set("tú yo nosotros you i we".split())     # "tú duermes", "you sleep": the bar is the verb
 PERIOD_HEADS = set("al por cada a per each every an".split())
@@ -532,6 +535,8 @@ def _figures(words: list[tuple[str, float]], context: bool = False, prev: dict |
             continue
         value, after = got
         skip = after
+        if context and plain[i] in NOT_IN_ENGLISH and language_of(words) == "en":
+            continue
         if context and not pct and (after >= len(words) or _clean(words[after][0]) not in ("%", "por ciento")):
             ends = _range_end(said_words, plain, after)
             if ends is not None:
@@ -1027,7 +1032,8 @@ def _clause_label(words: list[tuple[str, float]], f: dict) -> str | None:
     if ends and not words[ends[-1]][0].rstrip().endswith(":"):
         start = ends[-2] + 1 if len(ends) > 1 else 0
         pick = list(range(start, ends[-1] + 1))
-        while pick and plain[pick[0]] in LEADING | {"a", "en", "at", "in"}:
+        while pick and (plain[pick[0]] in LEADING or plain[pick[0]] in ("a", "en", "at", "in") and len(pick) > 1
+                        and plain[pick[1]] not in DETERMINERS):      # "a otras horas" → "Otras horas", not "In the…"
             pick = pick[1:]
         text = " ".join(_clean(w) for w, _ in _digit_words([words[k] for k in pick]) if _clean(w))
         return _capital(text) if text and len(text.split()) <= LABEL_MOST and len(text) <= LABEL_CHARS else None
@@ -1085,9 +1091,12 @@ def _two(words: list[tuple[str, float]]) -> tuple[str, str, dict, dict] | None:
 
 
 def chart_across(group: list[dict]) -> dict | None:
-    """Years with their figures said over two or three sentences in a row → a `line_chart` (with "at"), else None."""
-    words = [(str(w[0]), float(w[1])) for s in group for w in s.get("words") or []]
-    return line_chart_for(words) if len(group) > 1 else None
+    """Years with their figures said over two or three sentences in a row (the first and the last of them
+    each say a year) → a `line_chart` (with "at"), else None."""
+    said = [[(str(w[0]), float(w[1])) for w in s.get("words") or []] for s in group]
+    if len(group) < 2 or not all(any(suggest.time_rank(_clean(w)) for w, _ in x) for x in (said[0], said[-1])):
+        return None
+    return line_chart_for([w for x in said for w in x])
 
 
 def screen_for(words: list[tuple[str, float]], screens) -> dict | None:

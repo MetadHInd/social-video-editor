@@ -57,6 +57,15 @@ script:                  # explainer recipe: a script said to the camera (domain
   auto_min: 1.8          # shortest footage the director proposes (time for a card to come in and be read)
   support_spread: false  # true = the notes of words that fall under a full-frame cutaway come in earlier,
                          # spread over the part said on camera (more notes next to the presenter)
+  auto_line_chart: true  # the director (auto_broll) draws by itself: figures over 3+ years → a line chart,
+  auto_versus: true      # two named things with a figure each → versus, a command → code, a screenshot of the
+  auto_code: true        # project the sentence names (or a photo cue that is one) → screen, a flow between
+  auto_screen: true      # illustrated things → diagram
+  auto_diagram: true
+  figure_context: true   # a figure whose unit is left unsaid takes the one said before it (two sentences can make
+                         # one bars graphic); "from 7 to 9" is a time, not a figure
+  scene_fit: true        # no "open an app" scene for "open the shower": the thing opened must be one
+  verb_bars: false       # true = a bar with no noun to name it is named by its verb ("You sleep 8 h" → "Sleep")
 
 pip:                     # picture-in-picture: the presenter stays in a window over full-frame cutaways
   enabled: false         # (a cutaway's own "pip": true / false wins)
