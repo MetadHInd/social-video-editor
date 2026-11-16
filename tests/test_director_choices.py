@@ -191,7 +191,7 @@ def test_with_every_new_setting_off_the_plan_is_the_one_of_before():
     cfg = {"script": {"auto_broll": True, **director.OFF}, "language": "en"}
     cuts = director.propose(plan, cfg, OVERLAY)
     notes = support.propose({**plan, "cutaways": cuts}, "en", settings=cfg)
-    before = json.loads((Path(__file__).parent / "director_before_choices.json").read_text())
+    before = json.loads((Path(__file__).parent / "director_before_choices.json").read_text(encoding="utf-8"))
     assert json.loads(json.dumps(cuts + notes, sort_keys=True)) == before
 
 

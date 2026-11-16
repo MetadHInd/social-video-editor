@@ -111,7 +111,9 @@ def clips(tmp_path):
 
 def contents(cache: Path) -> dict:
     """Cache files by name (paths inside them made relative to the cache folder)."""
-    return {f.name: f.read_text().replace(str(cache), "<cache>") for f in sorted(cache.iterdir())}
+    escaped = json.dumps(str(cache))[1:-1]                    # inside JSON files (backslashes doubled on Windows)
+    return {f.name: f.read_text(encoding="utf-8").replace(escaped, "<cache>").replace(str(cache), "<cache>")
+            for f in sorted(cache.iterdir())}
 
 
 def test_parallel_gives_the_same_results_and_cache_files(tmp_path, clips):
@@ -120,7 +122,8 @@ def test_parallel_gives_the_same_results_and_cache_files(tmp_path, clips):
     parallel = make_project(tmp_path, "parallel", clips)
     svc = services(jobs=4)
     infos_n, an_n = analyze.prepare_sources(svc, parallel)
-    strip = lambda x: json.loads(json.dumps(x).replace(str(serial.cache), "<cache>").replace(str(parallel.cache), "<cache>"))
+    inside = lambda path: json.dumps(str(path))[1:-1]            # as it is written in JSON (backslashes doubled on Windows)
+    strip = lambda x: json.loads(json.dumps(x).replace(inside(serial.cache), "<cache>").replace(inside(parallel.cache), "<cache>"))
     assert strip(infos_1) == strip(infos_n) and strip(an_1) == strip(an_n)
     assert contents(serial.cache) == contents(parallel.cache)
     assert [a["id"] for a in an_n] == [i["id"] for i in infos_n]               # story order

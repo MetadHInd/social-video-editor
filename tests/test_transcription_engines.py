@@ -129,6 +129,7 @@ def test_mlx_ready(monkeypatch, tmp_path):
     (snap / "weights.npz").write_bytes(b"x")
     assert t.ready({"model": "small"}) is None
     monkeypatch.delenv("SVE_OFFLINE")
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)      # the CI runs with downloads off
     assert t.ready({"model": "medium"}) is None          # online: downloaded on first use
 
 

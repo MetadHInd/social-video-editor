@@ -254,7 +254,7 @@ def test_prepare_music_composes_for_the_plan(tmp_path):
     before = [(s["start"], s["end"]) for s in plan["shots"]]
     path = am.prepare_music(svc, project, plan, cfg, [{"duration": 100.0}], no_music=False)
     assert path is not None and path.exists() and path.parent.name == am.COMPOSE_DIR
-    proof = json.loads(path.with_name(path.stem + am.ORIGIN_SUFFIX).read_text())
+    proof = json.loads(path.with_name(path.stem + am.ORIGIN_SUFFIX).read_text(encoding="utf-8"))
     assert proof["seed"] == dc.seed_of(None, "demo") and "generó" in proof["statement"]   # project language: es
     assert proof["audio"]["sha256"] and proof["score_sha256"]
     kinds = [s["kind"] for s in proof["sections"]]
