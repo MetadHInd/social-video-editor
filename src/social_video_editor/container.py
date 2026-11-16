@@ -17,6 +17,7 @@ from .adapters.files.projects import YamlProjectRepository
 from .adapters.files.recipes import YamlRecipeRepository
 from .adapters.files.workspace import subdir
 from .adapters.librosa.audio_analyzer import LibrosaAudioAnalyzer
+from .adapters.mlx_whisper.transcriber import MlxWhisperTranscriber
 from .adapters.nli.classifier import NliClassifier
 from .adapters.ollama.reasoner import OllamaReasoner
 from .adapters.opencv.video_analyzer import OpenCvVideoAnalyzer
@@ -26,7 +27,7 @@ from .adapters.skia.renderer import SkiaGraphicRenderer
 from .adapters.synth.renderer import NumpySynthesizer
 from .adapters.upscale.lanczos import LanczosUpscaler
 from .adapters.upscale.realesrgan import RealEsrganUpscaler
-from .adapters.whisper.transcriber import WhisperTranscriber
+from .adapters.whisper.transcriber import EngineTranscriber, WhisperTranscriber
 from .adapters.ytdlp.downloader import YtDlpDownloader
 from .application.services import Services
 
@@ -39,7 +40,7 @@ def build_services() -> Services:
         encoder=encoder,
         video=OpenCvVideoAnalyzer(),
         audio=LibrosaAudioAnalyzer(),
-        transcriber=WhisperTranscriber(),
+        transcriber=EngineTranscriber(WhisperTranscriber(), [MlxWhisperTranscriber()]),   # transcription.engine
         text=PillowTextRenderer(),
         composer=PillowComposer(),
         sfx=FfmpegSoundEffects(lambda: subdir("sfx")),
