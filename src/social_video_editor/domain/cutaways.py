@@ -25,7 +25,8 @@ from .timeline import Timeline
 KINDS = ("graphic", "photo", "broll")
 PLACEMENT_KEYS = ("type", "at_sentence", "until_sentence", "seconds", "start", "end", "note", "pip", "item_times",
                   "from_word", "fallback")
-PIP_KINDS = ("graphic", "photo")   # full-frame cutaways the presenter's window can sit on
+PIP_KINDS = ("graphic", "photo")
+AROUND_PRESENTER = ("callouts", "bullets")   # overlays drawn around the presenter: never over a full-frame cutaway   # full-frame cutaways the presenter's window can sit on
 NO = {"0", "false", "no", "off", "n"}
 READ_SECONDS = 0.8          # a cutaway stays at least its entrance + this long (time to read it)
 DEFAULT_ENTRANCE = 1.0      # entrance assumed when it cannot be measured (no drawing library)
@@ -195,6 +196,8 @@ def resolve(plan: dict, timeline: Timeline, fps: int, entrance: Callable[[dict],
             if not layer and not fixed and 0 < limit - item.end < MIN_BETWEEN and k + 1 < len(row):
                 item.end = limit                                        # no flash of the presenter in between
             item.end = min(item.end, limit, total)
+            if layer and item.spec.get("template") in AROUND_PRESENTER:     # notes around the presenter end
+                item.end = min([item.end, *(s for s in full_starts if s > item.start + 1e-6)])   # when they are covered
             item.start, item.end = _frame(item.start, fps), _frame(item.end, fps)
             length = item.end - item.start
             if length < MIN_VISIBLE:
@@ -230,6 +233,35 @@ def covers(cutaways: list[Cutaway], t: float, margin: float = 0.05) -> bool:
     a cut of the main track at that moment is not seen as a jump (the picture before or after it is
     the cutaway)."""
     return any(not c.overlay and not c.pip and c.start - margin <= t <= c.end + margin for c in cutaways)
+
+
+def soften(files: list[dict], fade: float, fps: int, total: float | None = None) -> list[dict]:
+    """Fades for the full-frame pictures laid over the video (compose's cutaway list, changed in place).
+
+    Every clip that covers the whole frame (not "alpha", not a presenter's window) gets "fade_in" /
+    "fade_out" (seconds): it dissolves in over the presenter and back out. Two that follow each other
+    (the second starts where the first ends) never show the presenter between them: the first does not
+    fade out and stays underneath ("hold", seconds after its end) while the second dissolves in over it.
+    A fade is at most a third of its clip; none at the very start or end of the video. → files"""
+    if fade <= 0:
+        return files
+    half = 0.5 / fps
+    full = sorted((f for f in files if not f.get("alpha") and not f.get("pip")), key=lambda f: float(f["start"]))
+    for k, f in enumerate(full):
+        start, end = float(f["start"]), float(f["end"])
+        d = min(fade, (end - start) / 3)
+        before = full[k - 1] if k else None
+        after = full[k + 1] if k + 1 < len(full) else None
+        f["fade_in"] = round(d, 4) if start > half else 0.0
+        joined = after is not None and abs(float(after["start"]) - end) <= half
+        at_end = total is not None and end >= total - half
+        f["fade_out"] = 0.0 if joined or at_end else round(d, 4)
+        if joined:
+            nxt = float(after["end"]) - float(after["start"])
+            f["hold"] = round(min(fade, nxt / 3) + 1 / fps, 4)
+        if before is not None and abs(float(before["end"]) - start) <= half:
+            f["fade_in"] = round(d, 4)                   # over the picture before it, never over the presenter
+    return files
 
 
 def _seconds(cutaway: dict, key: str, index: int) -> float | None:

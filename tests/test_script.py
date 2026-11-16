@@ -8,7 +8,7 @@ from social_video_editor.adapters.files import legacy_es
 from social_video_editor.application import report
 from social_video_editor.domain import script_align as sa
 from social_video_editor.domain import pip
-from social_video_editor.domain.cutaways import output_time, resolve, sentence_spans, wants_pip
+from social_video_editor.domain.cutaways import output_time, resolve, sentence_spans, soften, wants_pip
 from social_video_editor.domain.explainer import build_plan, face_focus, frame_shots, refocus_faces, subtitle_analyses
 from social_video_editor.domain.graphics import TEMPLATES
 from social_video_editor.domain.models import PlanError
@@ -254,6 +254,34 @@ def test_plan_has_shots_sentences_and_cutaways():
     assert plan["cutaways"] == [{"type": "graphic", "template": "bars", "title": "Where messages travel",
                                  "data": "Under the sea:95, By satellite:5", "unit": "%", "at_sentence": 2, "until_sentence": 2}]
     assert plan["script"] == "script.md" and plan["texts"] == []
+
+
+def test_dissolves_between_sentences_add_half_of_it_on_each_side():
+    script = parse_script(SCRIPT, templates=set(TEMPLATES))
+    matches = sa.align([s.text for s in script.sentences], sa.transcript([{"words": RECORDING}]), {})
+    cut = build_plan(script, matches, {}, "script.md")["shots"]
+    soft = build_plan(script, matches, {"script": {"transition": "dissolve"}}, "script.md")["shots"]
+    assert [s["transition"] for s in soft] == ["cut", "dissolve", "dissolve"]      # the first shot has nothing before it
+    assert soft[0]["start"] == cut[0]["start"] and soft[-1]["end"] == cut[-1]["end"]
+    for a, b in zip(cut[1:], soft[1:]):                   # the crossfade is centered on the old cut: no word is dimmed
+        assert b["start"] == pytest.approx(a["start"] - 0.1)
+    for a, b in zip(cut[:-1], soft[:-1]):
+        assert b["end"] == pytest.approx(a["end"] + 0.1)
+
+
+def test_soften_fades_full_frame_cutaways_and_chains_the_ones_in_a_row():
+    files = [{"file": "a", "start": 1.0, "end": 3.0}, {"file": "b", "start": 3.0, "end": 4.5},
+             {"file": "note", "start": 3.2, "end": 4.0, "alpha": True}, {"file": "c", "start": 6.0, "end": 8.0},
+             {"file": "d", "start": 0.0, "end": 0.9}]
+    soften(files, 0.2, 30, total=8.0)
+    a, b, note, c, d = files
+    assert (a["fade_in"], a["fade_out"], a["hold"]) == (0.2, 0.0, pytest.approx(0.2333, abs=1e-3))   # b dissolves over it
+    assert (b["fade_in"], b["fade_out"]) == (0.2, 0.2) and "hold" not in b
+    assert "fade_in" not in note                                         # transparent notes keep their own entrance
+    assert (c["fade_in"], c["fade_out"]) == (0.2, 0.0)                   # it ends with the video
+    assert d["fade_in"] == 0.0 and d["fade_out"] == pytest.approx(0.2)   # the video starts on it
+    assert soften([{"file": "x", "start": 1.0, "end": 1.3}], 0.2, 30)[0]["fade_in"] == pytest.approx(0.1)   # ≤ ⅓ of it
+    assert "fade_in" not in soften([{"file": "x", "start": 1.0, "end": 3.0}], 0.0, 30)[0]
 
 
 def test_plan_marks_missing_sentences_and_fails_when_nothing_was_said():
@@ -665,9 +693,10 @@ def test_an_overlay_holds_six_notes_and_then_starts_over():
 def test_long_words_are_emphasis_and_an_empty_sentence_settles_for_a_shorter_one():
     notes = sentence_notes(_words("No están abiertas, están dormidas."), "es")
     assert [(n["label"], n["kind"], n["t"]) for n in notes] == [("Abiertas", "emphasis", 0.8), ("Dormidas", "emphasis", 1.6)]
-    assert sentence_notes(_words("Hay que traerlas rápido."), "es") == []                  # a verb with its pronoun; a short word
-    (note,) = sentence_notes(_words("Hay que traerlas rápido."), "es", key_word=True)
-    assert note["label"] == "Rápido"
+    assert sentence_notes(_words("Hay que traerlas luego."), "es") == []                   # a verb with its pronoun; a short word
+    (note,) = sentence_notes(_words("Hay que traerlas luego."), "es", key_word=True)
+    assert note["label"] == "Luego"
+    assert [n["label"] for n in sentence_notes(_words("Hay que traerlas rápido."), "es")] == ["Rápido"]   # six letters: a note
     assert sentence_notes(_words("Eso es todo por hoy."), "es", key_word=True) == []
     assert sentence_notes(_words("Really amazing."), "en", key_word=True) == []            # adverbs and -ing forms read badly alone
 
@@ -825,3 +854,50 @@ def test_check_does_not_take_a_reframing_cut_for_a_cut_of_the_sound(cfg):
     assert checker.cuts == [5.0, 9.0] and checker.sound_cuts() == [9.0]
     plan["shots"][1]["start"] = 6.0                     # edited by hand: the sound no longer goes straight on
     assert checker.sound_cuts() == [5.0, 9.0]
+
+
+def test_a_sentence_never_ends_inside_a_stretch_of_speech():
+    # the transcription split the first word ("Pre" + "paras") and heard "of loading screens" as "of loading sc reens":
+    # the words said right against the edges are kept, so no word is chopped in half
+    rec = [{"word": w, "start": a, "end": b, "prob": 1} for w, a, b in [
+        ("Pre", 1.20, 1.68), ("paras", 1.68, 1.88), ("la", 1.88, 2.12), ("cena", 2.12, 2.42), ("para", 2.42, 2.80),
+        ("los", 2.80, 3.06), ("invitados.", 3.06, 3.58),
+        ("Two", 4.40, 4.60), ("hours", 4.60, 4.90), ("of", 4.90, 5.30), ("loading", 5.30, 5.90),
+        ("sc", 5.90, 6.10), ("reens,", 6.10, 6.40),
+        ("Luego", 7.00, 7.40), ("descansas.", 7.40, 7.80)]]
+    first, second, third = sa.align(["Preparas la cena para los invitados.", "Two hours of loading screens.",
+                                      "Luego descansas."], sa.transcript([{"words": rec}]), {})
+    assert first["start"] < 1.20 and first["end"] == pytest.approx(3.58 + 0.12)
+    assert second["end"] == pytest.approx(6.40 + 0.12)                   # "sc reens" is not cut off
+    assert third["start"] == pytest.approx(7.00 - 0.08)                  # after a pause nothing is borrowed
+    # a word that belongs to another sentence is never taken
+    a, b = sa.align(["Tus amigos para cenar", "llegan ahora."],
+                    sa.transcript([{"words": [{"word": w, "start": t, "end": t + 0.3, "prob": 1} for w, t in
+                                              [("Tus", 0.0), ("amigos", 0.3), ("para", 0.6), ("cenar", 0.9),
+                                               ("llegan", 1.2), ("ahora.", 1.5)]]}]), {})
+    assert a["end"] <= b["start"] + 1e-9
+
+
+def test_notes_on_the_camera_part_of_a_sentence_that_ends_in_footage():
+    plan = _spoken("El procesador es como una cocina enorme donde trabajan muchos cocineros ocupados.", "Fin del video ahora.")
+    s0 = plan["sentences"][0]
+    cut_at = s0["words"][9][1]                                          # footage from "muchos"
+    plan["cutaways"] = [{"type": "broll", "query": "q", "at_sentence": 0, "from_word": [0, cut_at], "_auto": "director"}]
+    (group,) = [c for c in propose(plan, "es") if c["at_sentence"] == 0]
+    assert group["until_sentence"] == 0 and group["items"]
+    assert all(t < cut_at - 0.5 + 1e-6 for _, t in group["item_times"])   # only what is said before the footage
+    covered = {**plan, "cutaways": [{**plan["cutaways"][0], "from_word": None}]}
+    assert all(c["at_sentence"] != 0 for c in propose(covered, "es"))    # covered whole: nothing
+
+
+def test_notes_around_the_presenter_end_when_a_full_frame_cutaway_comes_in():
+    plan = _spoken("Uno dos tres cuatro cinco seis siete ocho nueve diez.", "Once doce trece catorce.")
+    s0, s1 = plan["sentences"]
+    plan["shots"] = [{"source": 0, "start": s0["start"], "end": s1["end"]}]
+    tl = compute_timeline(plan, {"output": {"fps": 30}, "transitions": {"duration": 0.2}})
+    plan["cutaways"] = [{"type": "graphic", "template": "callouts", "items": "A; B", "at_sentence": 0, "until_sentence": 1},
+                        {"type": "photo", "file": "x.jpg", "at_sentence": 1}]
+    placed, _ = resolve(plan, tl, 30)
+    notes = next(c for c in placed if c.overlay)
+    photo = next(c for c in placed if not c.overlay)
+    assert notes.end == pytest.approx(photo.start, abs=1 / 30) and notes.start == pytest.approx(s0["start"], abs=0.05)

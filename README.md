@@ -149,6 +149,7 @@ pip install -e .              # the engine and the `sve` command
 pip install -e ".[music]"     # + yt-dlp, for `sve music`
 pip install -e ".[vision]"    # + sentence-transformers: local CLIP product recognition (optional)
 pip install -e ".[graphics]"  # + skia-python: animated graphics (optional)
+pip install -e ".[decider]"   # + transformers/torch: the local decider's small classifier (optional)
 pip install -e ".[dev]"       # + pytest and ruff
 ```
 
@@ -204,7 +205,7 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
 | `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
 | `sve broll <project> [--dry-run] [--force]` | `tomas` (`--simular`, `--forzar`) | Fetches a clip for every `broll` cutaway of the plan from the allowed sources into `footage/`, records where it comes from (`footage/credits.json`) and adds the credit caption. `--dry-run` only lists the candidates. Keys: `PEXELS_API_KEY`, `PIXABAY_API_KEY` (environment variables). |
-| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review and summary. |
+| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review, the engine's own fixes (re-rendered, ≤ 3 renders) and the decisions left for you (`review.json`). |
 | `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music), the b-roll sources and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):
@@ -320,6 +321,23 @@ before. What uses it:
 "Available" follows `vision.enabled`: `auto` (default) = used when installed **and** already
 downloaded; `true` = may download it; `false` = never (except `sve products`). All keys:
 [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#vision).
+
+## Local decider (optional)
+
+The engine's language and picture judgments (which words become notes, a card's title, a bar's
+name, what a scene shows, which drawing fits a sentence, whether a stock clip shows what is said)
+are made by hand rules. With `decider.enabled: auto` (on in the `explainer` recipe) the questions the
+rules are **unsure of** are answered by **local** models, nothing paid per use:
+
+1. a small zero-shot classifier (`MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`, MIT,
+   ≈560 MB; `pip install -e ".[decider]"`) — wired in but not used by the measured routes today, then
+2. a local language model through [Ollama](https://ollama.com) (`qwen3.5:9b`, Apache-2.0; it can also look
+   at a frame): `brew install ollama && brew services start ollama && ollama pull qwen3.5:9b`.
+
+A model's answer replaces the rules' only when it is one of the options and at least as sure; when a model
+is missing, fails or is unsure, the rules' answer stands, so the video is never worse than without them.
+Answers are cached per project, one model is in memory at a time, and `sve doctor` says what is ready.
+Details: [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#local-decider-optional).
 
 ## Photo slideshows (landscape)
 

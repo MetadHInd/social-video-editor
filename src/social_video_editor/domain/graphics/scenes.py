@@ -10,7 +10,8 @@ target: a second illustration for send / store (where it goes)
 text: what is said, as a short poster above the scene (optional) · kicker · color
 
 `action_of(words)` reads the action from the verbs of a sentence (Spanish and English), so the
-director can propose one. Every scene: the subject large on a glow, the action played once (about a
+director can propose one; `actions_in` / `action_text` give its candidates and their descriptions for
+the decider (domain/decide.py). Every scene: the subject large on a glow, the action played once (about a
 second and a half), then a loop of ambient life (Zs that float, a packet that keeps travelling, a
 spinner, snowflakes, heat waves…), so a scene that stays longer is never still.
 """
@@ -51,17 +52,58 @@ def _plain(word: str) -> str:
     return "".join(c for c in w if not unicodedata.combining(c)).strip("¿?¡!.,;:«»\"'()…")
 
 
-def action_of(words) -> tuple[str, int] | None:
-    """(action, index of the word) a sentence asks for: the first verb (by its stem) that names one.
-    `words`: the sentence's words, as written."""
+ACTION_TEXTS = {     # action → what a scene shows, said for a model that picks one (Spanish, English)
+    "swipe": ("cerrar o quitar algo", "closing or removing something"),
+    "open": ("abrir o empezar algo", "opening or starting something"),
+    "sleep": ("algo que duerme o descansa", "something asleep or resting"),
+    "drain": ("gastar o agotar energía", "using up energy"),
+    "charge": ("cargar o ahorrar energía", "charging or saving energy"),
+    "send": ("enviar algo o viajar de un lugar a otro", "sending something or travelling from one place to another"),
+    "store": ("guardar algo en un lugar", "storing something somewhere"),
+    "freeze": ("algo que se congela o se traba", "something that freezes or gets stuck"),
+    "clean": ("limpiar o liberar espacio", "cleaning or freeing up space"),
+    "work": ("trabajar duro o procesar", "working hard or processing"),
+    "wait": ("esperar o tardar", "waiting or taking a long time"),
+    "faster": ("ir más rápido", "going faster"),
+    "slower": ("ir más lento", "going slower"),
+}
+NO_ACTION = ("ninguna de estas acciones", "none of these actions")
+ENDINGS_EN = ("", "s", "es", "ed", "d", "ing", "e")      # an English verb said plainly ("drain", "drains", "drained")
+INFINITIVE_ES = ("ar", "er", "ir", "arla", "arlo", "arlas", "arlos", "erla", "erlo", "erlas", "erlos", "irla", "irlo",
+                 "irlas", "irlos", "arse", "erse", "irse")
+
+
+def action_text(action: str, language: str = "es") -> str:
+    """A short description of an action ("none" too) in the video's language, for a model that picks one."""
+    pair = ACTION_TEXTS.get(action, NO_ACTION)
+    return pair[0] if language == "es" else pair[1]
+
+
+def actions_in(words) -> list[tuple[str, int, bool]]:
+    """Every (action, index of the word, said plainly) a sentence's verbs name, in the order said (one per
+    word: the first action whose stem it starts with). Said plainly: the word is the verb's infinitive
+    (Spanish, also with a pronoun: "guardarla") or an English form of the stem ("drains"), not just a word
+    that starts like it ("cuesta" starts like "cuest-", "abiertas" not at all)."""
     plain = [_plain(w) for w in words]
+    out = []
     for i, w in enumerate(plain):
         if len(w) < 3:
             continue
         for name, (_, _, stems) in ACTIONS.items():
-            if any(w.startswith(s) for s in stems if " " not in s):
-                return name, i
-    return None
+            stem = next((s for s in stems if " " not in s and w.startswith(s)), None)
+            if stem is not None:
+                rest = w[len(stem):]
+                clear = rest in ENDINGS_EN and len(w) > 3 or any(w.endswith(e) for e in INFINITIVE_ES) and len(rest) >= 2
+                out.append((name, i, clear))
+                break
+    return out
+
+
+def action_of(words) -> tuple[str, int] | None:
+    """(action, index of the word) a sentence asks for: the first verb (by its stem) that names one.
+    `words`: the sentence's words, as written."""
+    found = actions_in(words)
+    return (found[0][0], found[0][1]) if found else None
 
 
 def _icon(value, fallback: str | None) -> str | None:

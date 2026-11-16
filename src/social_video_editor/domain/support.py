@@ -11,6 +11,10 @@ said:
   4. a long word that reads well alone ("asleep", "dormidas") becomes a label too, where there is still
      room: the words that carry the sentence pop up as they are said. A sentence with nothing at all
      to show, after a quiet moment, settles for a shorter one.
+The rules know no grammar, so a verb can pass for a noun or a long word ("they wait", "close it"). Each
+candidate has a confidence (a figure or an illustration is sure; a noun that ends like a verb form, a
+long word or a key word is not): when a sentence has unsure candidates, one `label_words` question asks
+the decider (domain/decide.py) which of them make good notes. Without a decider the rules keep them all.
 Notes are grouped in one overlay per stretch (up to six notes, a few seconds) and each one appears
 when its word is said. Every proposal carries "_auto": "support" so it can be told apart, edited or
 removed in plan.json; `script.support: false` turns them off.
@@ -19,17 +23,20 @@ from __future__ import annotations
 
 import re
 
+from .decide import Decide, Option, Question, ask
 from .graphics.icons import ALONE, find_icon
 from .script import tokens
 
 MAX_ITEMS = 6               # notes in one overlay (the callouts template has six places)
-MAX_PER_SENTENCE = 3
-MIN_GAP = 0.8               # seconds between two notes
+MAX_PER_SENTENCE = 4
+MAX_EXTRA = 6               # other words of a sentence offered to the decider (to replace a verb with a noun)
+EXTRA_CONFIDENCE = 0.6      # the rules leave those out; a question is asked when a sentence offers some
+MIN_GAP = 0.6               # seconds between two notes
 GROUP_SECONDS = 7.0         # an overlay holds its notes at most this long before starting over
-QUIET_SECONDS = 1.5         # a sentence with nothing to show gets a key word when nothing appeared for this long
+QUIET_SECONDS = 1.0         # a sentence with nothing to show gets a key word when nothing appeared for this long
 ORDER = (("figure", "icon"), ("word",), ("emphasis",))   # who takes their place first; the rest fill the room left
 SHORT_KEY_WORD = 5          # letters of the word a sentence with nothing else to show may use
-KEY_WORD_LETTERS = 7        # shortest word that can stand alone as a note…
+KEY_WORD_LETTERS = 6        # shortest word that can stand alone as a note…
 NOUN_LETTERS = 4            # …unless it follows an article or a possessive (a noun)
 DETERMINERS = {"es": set("el la los las un una unos unas tu tus su sus mi mis este esta estos estas ese esa cada otro otra".split()),
                "en": set("the a an your my his her its our their this that these those each another".split())}
@@ -60,6 +67,21 @@ why will with would you your yours actually simply always never another because 
 without against during however although anything something everything nothing themselves yourself""".split()),
 }
 
+# how sure the rules are that a candidate makes a good note; under SURE the decider is asked about it
+CONFIDENCE = {"figure": 1.0, "icon": 0.95, "word": 0.85, "verb_like": 0.5, "emphasis": 0.5, "key_word": 0.4}
+SURE = 0.8
+# endings of verb forms (and verbs with a pronoun stuck to them): a "noun" ending so may be a verb ("las guardan")
+_VERB_LIKE = {"es": re.compile(r"(?:an|en|ar|er|ir|l[aeo]s?|te|se|me|nos)$")}
+# The question is which words are conjugated verbs (a precise, grammatical question a language model
+# answers well): every other word stays a note. Asking "which words make good notes" instead made the
+# model keep one word or none, and the presenter went without notes.
+PROMPT = {"es": "Marca TODAS las palabras de esta lista que en la frase funcionan como verbo conjugado (por ejemplo "
+                "«corres», «guardan», «gasta», «vaya», «usan», «dímelo»); puede haber varias. Un sustantivo, un "
+                "adjetivo, un participio usado como adjetivo, un infinitivo o un número no cuentan.",
+          "en": "Mark EVERY word of this list that works as a conjugated verb in the sentence (for example «closes», "
+                "«keeps», «spends», «uses»); there may be several. A noun, an adjective, a participle used as an "
+                "adjective, an infinitive or a number does not count."}
+
 
 def _clean(word: str) -> str:
     return word.strip(_EDGES + " ")
@@ -70,27 +92,39 @@ def _label(word: str) -> str:
     return w[:1].upper() + w[1:]
 
 
-def sentence_notes(words: list[list], language: str = "es", key_word: bool = False) -> list[dict]:
+def sentence_notes(words: list[list], language: str = "es", key_word: bool = False,
+                   decide: Decide | None = None) -> list[dict]:
     """Notes a sentence offers, in the order they are said: [{"label", "icon" | None, "t", "kind"}]
     (t = source seconds its word starts; kind = figure | icon | word (a noun) | emphasis (a long word)).
     words: [[written word, start, end]] (plan sentences' "words"). key_word: when it offers nothing,
-    its longest word of SHORT_KEY_WORD letters or more."""
+    its longest word of SHORT_KEY_WORD letters or more. decide: asked which unsure candidates to keep."""
+    return _notes(words, language, key_word, decide)[0]
+
+
+def _candidates(words: list[list], language: str, key_word: bool) -> list[dict]:
+    """Every note the rules offer, each with "conf" (CONFIDENCE) and "word" (as written)."""
     stop = STOPWORDS.get(language, STOPWORDS["en"])
     weak = _WEAK.get(language, _WEAK["en"])
+    verb_like = _VERB_LIKE.get(language)
     named = DETERMINERS.get(language, DETERMINERS["en"])
     pronouns, openers = PRONOUN_AFTER.get(language, PRONOUN_AFTER["en"])
     lower = [_clean(w).lower() for w, _s, _e in words]                    # as written (accents kept: "tú" is not "tu")
     plain = ["".join(tokens(w)) if w.isalpha() else "" for w in lower]
     out, used, unit = [], set(), -1
+
+    def note(i: int, label: str, icon: str | None, kind: str, conf: float) -> dict:
+        return {"label": label, "icon": icon, "t": float(words[i][1]), "kind": kind, "conf": conf,
+                "word": _clean(words[i][0])}
+
     for i, (word, start, _end) in enumerate(words):
         if i == unit:                                         # already shown as the unit of a figure
             continue
         figure = _FIGURE.match(word)
         if figure:
-            label = figure.group(1).strip()
+            label = figure.group(1).strip().rstrip(".,")
             if i + 1 < len(words) and lower[i + 1].isalpha() and len(lower[i + 1]) >= 2 and plain[i + 1] not in stop:
                 label, unit = f"{label} {_clean(words[i + 1][0])}", i + 1     # "2 minutes", "20 apps"
-            out.append({"label": label, "icon": None, "t": float(start), "kind": "figure"})
+            out.append(note(i, label, None, "figure", CONFIDENCE["figure"]))
             continue
         token = "".join(tokens(lower[i]))
         if len(token) < 3 or token in stop or token in ALONE:
@@ -99,25 +133,73 @@ def sentence_notes(words: list[list], language: str = "es", key_word: bool = Fal
         if icon:
             if icon not in used:
                 used.add(icon)
-                out.append({"label": _label(word), "icon": icon, "t": float(start), "kind": "icon"})
+                out.append(note(i, _label(word), icon, "icon", CONFIDENCE["icon"]))
             continue
         before = lower[i - 1] if i else ""
         noun = (before in named and len(token) >= NOUN_LETTERS and plain[i] and not weak.search(token)
                 and not (before in pronouns and i >= 2 and lower[i - 2] in openers))
         if noun and token not in used:
             used.add(token)
-            out.append({"label": _label(word), "icon": None, "t": float(start), "kind": "word"})
+            sure = CONFIDENCE["verb_like" if verb_like and verb_like.search(token) else "word"]
+            out.append(note(i, _label(word), None, "word", sure))
     taken = {n["t"] for n in out}
     good = [(len(t), i) for i, t in enumerate(plain) if t and t not in stop and not weak.search(t)
             and float(words[i][1]) not in taken and i != unit]
-    out += [{"label": _label(words[i][0]), "icon": None, "t": float(words[i][1]), "kind": "emphasis"}
-            for n, i in good if n >= KEY_WORD_LETTERS]
+    out += [note(i, _label(words[i][0]), None, "emphasis", CONFIDENCE["emphasis"]) for n, i in good if n >= KEY_WORD_LETTERS]
     if not out and key_word:
         short = [x for x in good if x[0] >= SHORT_KEY_WORD]
         if short:
             i = max(short)[1]                                 # the longest; the later one among equals
-            out.append({"label": _label(words[i][0]), "icon": None, "t": float(words[i][1]), "kind": "emphasis"})
+            out.append(note(i, _label(words[i][0]), None, "emphasis", CONFIDENCE["key_word"]))
     return sorted(out, key=lambda n: n["t"])
+
+
+def _extra_words(words: list[list], language: str, taken: set[float], shown: set[str]) -> list[dict]:
+    """Other words of the sentence that may name something (4+ letters, not a stopword, not already a
+    note): offered to the decider as well, so a verb it turns down can be replaced by a noun. The rules
+    never keep them (they are not in the rules' answer)."""
+    stop = STOPWORDS.get(language, STOPWORDS["en"])
+    weak = _WEAK.get(language, _WEAK["en"])
+    out = []
+    for i, (word, start, _end) in enumerate(words):
+        if _FIGURE.match(word) or (i and _FIGURE.match(words[i - 1][0])):    # a figure and its unit are a note already
+            continue
+        token = "".join(tokens(_clean(word).lower()))
+        label = _label(word)
+        if (len(token) < NOUN_LETTERS or token in stop or token in ALONE or weak.search(token)
+                or float(start) in taken or label.lower() in shown):
+            continue
+        shown.add(label.lower())
+        out.append({"label": label, "icon": find_icon(_clean(word).lower()), "t": float(start), "kind": "word",
+                    "conf": EXTRA_CONFIDENCE, "word": _clean(word)})
+    return out[:MAX_EXTRA]
+
+
+def _notes(words: list[list], language: str, key_word: bool, decide: Decide | None) -> tuple[list[dict], str | None]:
+    """(the notes of sentence_notes, the source of the answer when a model changed them, else None)."""
+    out = _candidates(words, language, key_word)
+    changed = None
+    sure_labels = {n["label"].lower() for n in out if n["conf"] >= SURE}
+    unsure = [n for n in out if n["conf"] < SURE and n["label"].lower() not in sure_labels]
+    extra = _extra_words(words, language, {n["t"] for n in out}, {n["label"].lower() for n in out})
+    if unsure or extra:
+        options: dict[str, str] = {}
+        for n in unsure + extra:
+            options.setdefault(n["label"], n["word"])
+        kept_by_rules = set(n["label"] for n in unsure)
+        default = tuple(label for label in options if label not in kept_by_rules)   # the rules leave the extras out
+        q = Question("label_words", "multi", PROMPT.get(language, PROMPT["en"]),
+                     tuple(Option(label, word) for label, word in options.items()),
+                     " ".join(str(w[0]) for w in words), default,
+                     min([n["conf"] for n in unsure] + ([EXTRA_CONFIDENCE] if extra else [])), language)
+        answer = ask(decide, q)
+        verbs = set(answer.values)                               # the words that are verbs: never a note
+        out = [n for n in out if n["conf"] >= SURE or (n["label"] not in verbs and n["label"].lower() not in sure_labels)]
+        out += [n for n in extra if n["label"] not in verbs]     # the other words: notes too
+        out.sort(key=lambda n: n["t"])
+        if answer.source != "rules" and verbs != set(q.default):
+            changed = answer.source
+    return [{k: n[k] for k in ("label", "icon", "t", "kind")} for n in out], changed
 
 
 def _pick(notes: list[dict], last: float | None) -> list[dict]:
@@ -138,14 +220,24 @@ def _pick(notes: list[dict], last: float | None) -> list[dict]:
     return sorted(chosen, key=lambda n: n["t"])
 
 
-def propose(plan: dict, language: str = "es") -> list[dict]:
+def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> list[dict]:
     """Cutaway entries (`callouts` overlays) for the sentences said on camera with nothing else on
-    screen. The plan is not changed. Sentences under any cutaway of the plan are left alone."""
+    screen. The plan is not changed. Sentences under a cutaway of the plan are left alone; a sentence
+    whose cutaway starts at one of its words (from_word) keeps notes on its part said on camera."""
     taken: set[int] = set()
+    cover_from: dict[int, tuple[int, float]] = {}          # sentence → (source, second) a cutaway covers it from
     for c in plan.get("cutaways") or []:
-        if c.get("at_sentence") is not None:
-            a = int(c["at_sentence"])
-            taken.update(range(a, int(c.get("until_sentence", a)) + 1))
+        if c.get("at_sentence") is None or c.get("_auto") == "support":
+            continue
+        a = int(c["at_sentence"])
+        u = int(c.get("until_sentence", a))
+        if c.get("from_word"):
+            src, t = int(c["from_word"][0]), float(c["from_word"][1])
+            if a not in cover_from or t < cover_from[a][1]:
+                cover_from[a] = (src, t)
+            taken.update(range(a + 1, u + 1))
+        else:
+            taken.update(range(a, u + 1))
     out: list[dict] = []
     group: dict | None = None
     recent: set[str] = set()               # labels of the previous overlay: not repeated right away
@@ -157,7 +249,8 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
         if group and group["items"]:
             out.append({"type": "graphic", "template": "callouts", "items": group["items"],
                         "icons": [n or "-" for n in group["icons"]], "item_times": group["times"],
-                        "at_sentence": group["first"], "until_sentence": group["last"], "_auto": "support"})
+                        "at_sentence": group["first"], "until_sentence": group["last"], "_auto": "support",
+                        **({"_decided": group["decided"]} if group.get("decided") else {})})
             recent = {x.lower() for x in group["items"]}
         group = None
 
@@ -172,17 +265,21 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
             if isinstance(s, dict) and s.get("start") is not None and s.get("end") is not None:
                 clock += float(s["end"]) - float(s["start"])
             continue
-        length = float(s["end"]) - float(s["start"])
         n = int(s["n"])
-        alone_after = k + 1 < len(sentences) and on_camera(sentences[k + 1])     # the next sentence is on camera too
+        cut = cover_from.get(n)
+        until = cut[1] if cut and cut[0] == s["source"] else float(s["end"])   # a cutaway covers the rest from there
+        length = until - float(s["start"])
+        alone_after = cut is None and k + 1 < len(sentences) and on_camera(sentences[k + 1])   # the next one starts on camera
         if group and (clock - group["since"] > GROUP_SECONDS or len(group["items"]) >= MAX_ITEMS):
             flush()
         same = last_note is not None and last_note[0] == s["source"]
         quiet = not same or float(s["start"]) - last_note[1] > QUIET_SECONDS
         shown = {x.lower() for x in group["items"]} if group else set()
-        offered = [note for note in sentence_notes(s["words"], language, key_word=quiet and length >= 1.2)
+        notes, decided = _notes(s["words"], language, quiet and length >= 1.2, decide)
+        offered = [note for note in notes
                    if clock + (note["t"] - float(s["start"])) >= OPENING_SECONDS
-                   and (alone_after or float(s["end"]) - note["t"] >= LAST_SECONDS)
+                   and note["t"] < until
+                   and (alone_after or until - note["t"] >= LAST_SECONDS)
                    and note["label"].lower() not in recent and note["label"].lower() not in shown]
         for note in _pick(offered, last_note[1] if same else None):
             if group and len(group["items"]) >= MAX_ITEMS:
@@ -193,8 +290,14 @@ def propose(plan: dict, language: str = "es") -> list[dict]:
             group["icons"].append(note["icon"])
             group["times"].append([s["source"], round(note["t"], 3)])
             last_note = (s["source"], note["t"])
+            if decided:
+                group["decided"] = decided
         if group:
             group["last"] = n
-        clock += length
+            if decided:
+                group["decided"] = decided         # its notes changed because of a model's answer
+        clock += float(s["end"]) - float(s["start"])
+        if cut is not None:                    # the picture changes inside this sentence: the notes end with it
+            flush()
     flush()
     return out

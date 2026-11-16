@@ -34,6 +34,7 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `<id>_analisis.json` | `<id>_analysis.json` |
 | `<id>_palabras.json` | `<id>_words.json` |
 | `musica_<id>.json` | `music_<id>.json` |
+| `decisiones_<id>.json` | `decisions_<id>.json` |
 
 ### Environment variables
 
@@ -131,6 +132,8 @@ Recipes (`recipes/*.yaml`, legacy `recetas/*.yaml`) and the `settings` of a proj
 | `pausas` | `pauses` |
 | `graficos` | `graphics` |
 | `tomas_externas` | `broll` |
+| `revision` | `review` |
+| `decisor` | `decider` |
 
 Removed (dropped on load) in `config`: `cierre`
 
@@ -181,6 +184,8 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `apertura` | `opening` |
 | `camara_max` | `max_camera` |
 | `toma_min` | `auto_min` |
+| `transicion` | `transition` |
+| `fundido_tomas` | `cutaway_fade` |
 
 ### Values of `config.script.take`
 
@@ -261,6 +266,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `circulo` | `circle` |
 | `difuminar` | `blur` |
 | `cortina` | `curtain` |
+| `disolvencia` | `dissolve` |
 
 ### Keys of `config.selection`
 
@@ -317,6 +323,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `tinte` | `tint` |
 | `referencia` | `reference` |
 | `fuerza_referencia` | `reference_strength` |
+| `por_fuente` | `per_source` |
 
 ### Keys of `config.framing`
 
@@ -365,6 +372,8 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `usar_original` | `use_original` |
 | `ruido` | `denoise` |
+| `voz_limpia` | `clean_voice` |
+| `mezcla_limpieza` | `clean_mix` |
 | `paso_alto` | `highpass` |
 | `eq_voz` | `voice_eq` |
 | `compresor` | `compressor` |
@@ -505,6 +514,28 @@ Values of `config.texts.styles.<name>.animation`: same as `config.subtitles.anim
 | `tema` | `theme` |
 
 The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPHICS.md](GRAPHICS.md).
+
+### Keys of `config.decider` (local models for what the rules are unsure of)
+
+| Spanish | English |
+|---|---|
+| `activado` | `enabled` |
+| `umbral` | `threshold` |
+| `modelo_nli` | `nli_model` |
+| `modelo_llm` | `llm_model` |
+| `llm` | `llm` |
+| `llm_min` | `llm_min` |
+| `espera_max` | `timeout` |
+| `dispositivo` | `device` |
+
+### Keys of `config.review` (the engine's own review in `sve make` / `sve hacer`)
+
+| Spanish | English |
+|---|---|
+| `vueltas` | `rounds` |
+| `lectura_cps` | `read_cps` |
+| `grafico_max` | `graphic_max` |
+| `holgura_camara` | `camera_slack` |
 
 ### Keys of `config.broll` (third-party footage fetched by `sve broll` / `sve tomas`)
 

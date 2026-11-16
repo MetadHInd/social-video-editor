@@ -91,6 +91,12 @@ class FfmpegEncoder:
         finally:
             tmp.unlink(missing_ok=True)             # only left behind when FFmpeg failed
 
+    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80) -> Path:
+        """The source's whole audio track with the background noise taken out (adapters/ffmpeg/voice.py)."""
+        from . import voice
+
+        return voice.clean_voice(info, out, voice.rnnoise_model(), mix, highpass)
+
     def extract_wav(self, info: dict, out: Path) -> Path:
         run(["ffmpeg", "-i", info["path"], "-map", f"0:{info['audio_index']}", "-ac", "1", "-ar", "16000",
              "-c:a", "pcm_s16le", out])
@@ -118,7 +124,9 @@ class FfmpegEncoder:
             vf.append(f"tpad=stop_mode=clone:stop_duration={fz:.3f}")
         vf.append(f"fps={fps},format=yuv420p,setsar=1")
         vf = ",".join(x for x in vf if x)
-        af = filters.shot_audio_chain(cfg, shot, has_voice, shot["dur"])
+        clean = info.get("clean_audio")                 # the voice already cleaned, whole (audio.clean_voice)
+        cfg_audio = cfg if not clean else {**cfg, "audio": {**cfg["audio"], "highpass": 0, "denoise": 0}}
+        af = filters.shot_audio_chain(cfg_audio, shot, has_voice, shot["dur"])
         tmp = _tmp_for(out)
         threads = segment_decoder_threads(ffmpeg_version(), os.environ.get(DECODER_THREADS_ENV))
         threads_args = ["-threads", threads] if threads else []
@@ -128,7 +136,10 @@ class FfmpegEncoder:
             dec, enc = (hw, hw) if draft else (final_decoder(hw), None)
             cmd = ["ffmpeg", *device_args(dec), *decode_args(dec), *threads_args,
                    "-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}", "-i", info["path"]]
-            if info["has_audio"]:
+            if clean:
+                cmd += ["-ss", f"{shot['start']:.3f}", "-t", f"{shot['end'] - shot['start']:.3f}", "-i", str(clean)]
+                audio_map = "1:a"
+            elif info["has_audio"]:
                 audio_map = f"0:{info['audio_index']}"
             else:
                 cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]

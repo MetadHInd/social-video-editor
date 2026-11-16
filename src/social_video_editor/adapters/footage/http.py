@@ -3,6 +3,7 @@ with a message that never contains the request URL: an API key may travel in it.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,6 +15,7 @@ from ..files.atomic import publish, temp_name
 
 USER_AGENT = f"social-video-editor/{__version__} (https://github.com/MetadHInd/social-video-editor)"
 CHUNK = 1 << 16
+TOTAL_SECONDS = 180          # a whole download never takes longer than this
 STATUS = {401: "the API key was not accepted", 403: "access refused (check the API key)",
           429: "too many requests for now (rate limit); try again later"}
 
@@ -40,16 +42,21 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None, 
             raise FootageError("the server's answer was not JSON") from None
 
 
-def fetch(url: str, dest: Path, headers: dict | None = None, max_bytes: int | None = None, timeout: float = 60) -> Path:
+def fetch(url: str, dest: Path, headers: dict | None = None, max_bytes: int | None = None, timeout: float = 60,
+          total: float = TOTAL_SECONDS) -> Path:
     """Downloads `url` to `dest` (written under a temporary name, published when complete). A file
-    bigger than max_bytes is abandoned."""
+    bigger than max_bytes is abandoned, and so is a download still going after `total` seconds
+    (`timeout` only bounds each read: a server that trickles would otherwise hold it for ages)."""
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = temp_name(dest)
     try:
+        deadline = time.monotonic() + total
         with _open(url, headers, timeout) as response, tmp.open("wb") as out:
             size = 0
             while True:
+                if time.monotonic() > deadline:
+                    raise FootageError(f"the download took longer than {total:g} s")
                 block = response.read(CHUNK)
                 if not block:
                     break

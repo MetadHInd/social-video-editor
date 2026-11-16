@@ -14,9 +14,12 @@ from .graphics.spec import split_list
 from .models import PlanError
 from .script import CAMERA, GRAPHIC, Script
 from .script_align import join_shots, settings
+from .transitions import transition_duration
 from .timeline import Timeline
 
 SCRIPT_DEFAULTS = {"file": "script.md", "punch_in": 1.08,
+                   "transition": "cut",      # how two camera shots are joined (dissolve = a short crossfade)
+                   "cutaway_fade": 0.0,      # seconds a full-frame cutaway takes to fade in / out (0 = hard cut)
                    "close_up": 0.0,          # a third, closer framing in the rotation (1.15; 0 = wide / punch-in only)
                    "reframe_every": 0.0,     # seconds: a longer shot is split between sentences and reframed (0 = off)
                    "drift": 0.0,             # slow zoom each camera shot makes while it plays (0.03 = 3 %; 0 = off)
@@ -39,12 +42,18 @@ def build_plan(script: Script, matches: list[dict | None], cfg: dict, script_nam
     """Shots, sentences and cutaways from the script and where each sentence was found (script_align.align)."""
     p = script_settings(cfg)
     texts = [s.text for s in script.sentences]
+    transition = str(p.get("transition") or "cut")
+    half = transition_duration(transition, cfg) / 2      # each side of a crossfade gets this much more
     shots = []
     for shot in join_shots(matches, float(p["join_gap"]), float(p.get("reframe_every") or 0)):
         said = " ".join(texts[k] for k in shot["sentences"])
-        shots.append({"source": shot["source"], "start": shot["start"], "end": shot["end"], "speed": 1,
-                      "role": "story", "transition": "cut", "effects": [], "sentences": shot["sentences"],
-                      **({"continues": True} if shot.get("continues") else {}),
+        start = shot["start"]
+        if shots and half > 0:                 # the crossfade is centered on the cut: no word gets quieter
+            shots[-1]["end"] = round(shots[-1]["end"] + half, 3)
+            start = round(max(start - half, 0.0), 3)
+        shots.append({"source": shot["source"], "start": start, "end": shot["end"], "speed": 1,
+                      "role": "story", "transition": transition if shots else "cut", "effects": [],
+                      "sentences": shot["sentences"], **({"continues": True} if shot.get("continues") else {}),
                       "note": said if len(said) <= NOTE_CHARS else said[:NOTE_CHARS - 1] + "…"})
     if not shots:
         raise PlanError("None of the script's sentences was found in the recording. Check that the script is what "
@@ -178,7 +187,8 @@ def frame_shots(plan: dict, timeline: Timeline, cutaways: list[Cutaway], cfg: di
         source = window[0]
         if previous != source:
             step = 0
-        elif not s.get("pause_cut") and len(sizes) > 1 and not covers(cutaways, clip.out_start):
+        elif (not s.get("pause_cut") and len(sizes) > 1
+              and not covers(cutaways, clip.out_start + clip.overlap / 2, 0.05 + clip.overlap / 2)):
             step = (step + 1) % len(sizes)
             counts["punch_ins"] += sizes[step] > 1
         previous = source

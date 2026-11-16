@@ -166,3 +166,65 @@ def test_a_figure_is_shown_not_searched():
     (number,) = [c for c in cuts if c["at_sentence"] == 1]
     assert number["type"] == "graphic" and number["template"] == "number" and (number["value"], number["unit"]) == ("20", "apps")
     assert "query" not in number and number["_auto"] == "director"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Si esperas un poco cada día son 70 segundos por semana, al año 1 hora mirando un reloj de arena.",
+     {"template": "bars", "data": "Por semana:70, Al año:3600", "unit": "s"}),      # hours put in seconds
+    ("Si esperas un poco cada día son 70 segundos por semana, al año 1 hora de espera.",
+     {"template": "bars", "data": "Por semana:70, Al año:3600", "unit": "s"}),      # its own clause names it
+    ("De 15 % antes a 40 % hoy.", {"template": "bars", "data": "Antes:15, Hoy:40", "unit": "%"}),
+    ("Antes tardaba 3 segundos y ahora 1 segundo.", {"template": "bars", "data": "Antes:3, Ahora:1", "unit": "s"}),
+    ("Un iPhone tiene 8 GB y un Android 12 GB.", {"template": "bars", "data": "iPhone:8, Android:12", "unit": "GB"}),
+    ("The old phone took 4 seconds, the new one 2 seconds.",
+     {"template": "bars", "data": "Old phone:4, New one:2", "unit": "s"}),
+    ("Si esperas un poco cada día son 70 segundos por semana.", None),               # one figure: a number, not bars
+    ("Abre 5 apps y luego otras 10 apps.", None),                                     # one after another, not compared
+    ("Según la OMS, dormir bien mejora la memoria.",
+     {"template": "headline", "text": "Dormir bien mejora la memoria", "outlet": "la OMS"}),
+    ("Reuters publicó que los teléfonos nuevos duran más.",
+     {"template": "headline", "text": "Los teléfonos nuevos duran más", "outlet": "Reuters"}),
+    ("According to Reuters, new phones last longer this year.",
+     {"template": "headline", "text": "New phones last longer this year", "outlet": "Reuters"}),
+    ("Según tú, ¿vale la pena?", None),                                              # a source has a name
+])
+def test_data_said_aloud_is_drawn_as_data(text, expected):
+    found = director.said_data(words_of(text))
+    assert (found and {k: v for k, v in found.items() if k != "at"}) == expected
+
+
+def test_a_comparison_is_shown_as_bars_when_it_is_said():
+    text = "Antes tardaba 3 segundos en abrir y ahora tarda 1 segundo nada más."
+    plan = plan_for(f"Close your apps to save the battery and make the phone faster, but you make it work harder.\n{text}\n"
+                    "Do you close them?\n",
+                    said(0.3, "Close your apps to save the battery and make the phone faster, but you make it work harder.", 0.4,
+                         text, 0.3, "Do you close them?"))
+    cuts = director.propose(plan, cfg(), OVERLAY)
+    (bars,) = [c for c in cuts if c["at_sentence"] == 1]
+    assert bars["type"] == "graphic" and bars["template"] == "bars" and bars["data"] == "Antes:3, Ahora:1"
+    assert "query" not in bars and bars["_auto"] == "director" and "at" not in bars
+    s1 = plan["sentences"][1]
+    assert bars["from_word"][1] >= s1["start"] + 0.3 - 1e-6                    # the face is seen when the sentence starts
+
+
+def test_with_no_word_in_reach_the_footage_covers_the_sentence_from_its_start():
+    plan = plan_for("Apps sleep in memory, they wait on a table for you all day and night.\nLo vimos un minuto.\n"
+                    "Do you close them?\n",
+                    said(0.3, "Apps sleep in memory, they wait on a table for you all day and night.", 0.3,
+                         "Lo", 0.6, "vimos un minuto.", 0.3, "Do you close them?"))
+    s1 = plan["sentences"][1]                                   # 1.9 s, its second word too late for 1.8 s of footage
+    cuts = [c for c in director.propose(plan, cfg(opening=5.5), OVERLAY) if c["at_sentence"] == 1]
+    assert cuts and cuts[0]["from_word"][1] == s1["start"]
+
+
+def test_data_comes_in_before_its_figure_when_the_face_has_had_its_time():
+    text = "Si esperas un poco cada día son 70 segundos por semana, al año 1 hora de espera."
+    plan = plan_for(f"Apps sleep in memory, they wait on a table for you all day and night.\n{text}\nDo you close them?\n",
+                    said(0.3, "Apps sleep in memory, they wait on a table for you all day and night.", 0.3, text, 0.3,
+                         "Do you close them?"))
+    s0, s1 = plan["sentences"][0], plan["sentences"][1]
+    (bars,) = [c for c in director.propose(plan, cfg(opening=5.5, max_camera=4), OVERLAY) if c["at_sentence"] == 1]
+    figure_at = next(t for w, t, _ in s1["words"] if w == "70")
+    at = bars["from_word"][1]
+    assert at < figure_at and (s0["end"] - s0["start"]) + (at - s1["start"]) <= 5.5 + 0.4     # within the limit
+    assert at in [t for _, t, _ in s1["words"]]                                              # at a word

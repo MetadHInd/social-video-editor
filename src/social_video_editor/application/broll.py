@@ -7,6 +7,11 @@ is available — picks the clip and the piece of it that show the query best, an
 its `file` and `clip_start`. Every file is written down in footage/credits.json (source, page,
 author, license, hash, date, query) and a caption with the credit is added to the plan the first
 time each author or brand is on screen. `--dry-run` only lists what would be fetched.
+
+A clip that passed only just (relevance or interest within BORDER of `broll.min_match` /
+`broll.min_interest`) is kept by the rules, unsure; when the decider's language model is available
+(application/decide.py), it looks at one frame of the chosen piece — after the vision model is unloaded
+— and a "no" drops the clip: the cue gets the illustrated card that a cue without a clip gets.
 """
 from __future__ import annotations
 
@@ -15,13 +20,16 @@ from pathlib import Path
 
 import numpy as np
 
+from ..domain import decide as dd
 from ..domain import director, footage
 from ..domain import products as dp
 from ..domain.cutaways import FREE_SECONDS, kind_of
 from ..domain.footage import FootageError
 from ..domain.models import Project, UserError
 from ..domain.timeline import compute_timeline
+from ..log import log
 from .cutaways import footage_records, place_cutaways
+from .decide import run_decided
 from .products import vision_available
 from .services import Services
 
@@ -30,6 +38,7 @@ SEARCH_TTL = 24 * 3600                      # stock libraries ask for search ans
 PREVIEWS = "footage_preview"                # in the project cache: small copies of long videos, deleted after use
 SHOWN = 3                                   # candidates listed per cue by --dry-run
 PAD = 0.5                                   # seconds kept around the piece of a long video
+CARD_CONTENT = ("text", "items", "value", "data")   # what makes a drawn card show something
 AUTO_DIRECTOR = "director"                  # "_auto" of the b-roll the director proposed (domain/director.py)
 LOOK_FPS = 1.0                              # frames per second the vision model looks at in a downloaded clip
 MOTION_FRAMES = (0.15, 0.4, 0.65, 0.9)      # where in the chosen piece its motion is measured
@@ -39,6 +48,10 @@ TEXT_FPS = 4.0                              # frames per second searched for pri
 CROP_FRAMES = (0.2, 0.5, 0.8)               # where in the chosen piece the crops are compared
 TEXT_SHARE = 0.25                           # a clip whose best piece shows text in more of its frames is not used
 EXTRA_TRIES = 2                             # more downloads per source when candidates are turned down for text
+REJECTED = "footage_rejected.json"     # in the project cache: [source, id] of clips the language model turned down
+DROP_SURE = 0.85                        # a clip is turned down only when the model is this sure it is bad
+BORDER = 0.03                               # a clip this close to broll.min_match / min_interest passed only just
+FRAMES = "footage_frames"                   # in the project cache: the frame the language model looks at
 
 
 def allowed_brands(svc: Services, cfg: dict) -> list[dict]:
@@ -190,7 +203,7 @@ def _describe(c: dict) -> str:
             f"{size} · {float(c.get('duration') or 0):.0f} s · {c.get('page') or ''}")
 
 
-def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: bool = False) -> dict:
+def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: bool = False, _retry: bool = False) -> dict:
     """Fetches a clip for every broll cutaway that has none (all of them with force) → what happened:
     {"cues": [{"n", "query", "status", "file", "source", "author", "license", "seconds", "score", "notes",
     "candidates"}], "fetched", "missing", "dry_run"}. status: fetched | kept (already has its file) |
@@ -219,8 +232,11 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
     unready: dict[str, str] = {}
     changed = False
+    doubts: list[dict] = []                 # clips that passed only just: the decider may look at them
 
     said_in = {x.get("n"): str(x.get("text") or "") for x in plan.get("sentences") or [] if isinstance(x, dict)}
+    rejected_path = project.cache / REJECTED
+    turned_down = {tuple(x) for x in svc.projects.read_json(rejected_path) or [] if isinstance(x, list) and len(x) == 2}
     taken = set()                           # clips the video already shows: never the same one in two places
     for _, c in cues:
         rec = records.get(str(c.get("file") or ""))
@@ -269,7 +285,8 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
                 entry["notes"].append(f"{name}: {failed}")
                 continue
             ranked, rejected = footage.rank(found, W, H, need, s, brand)
-            ranked = [x for x in ranked if (x.get("source"), str(x.get("id"))) not in taken]   # never the same clip twice
+            ranked = [x for x in ranked if (x.get("source"), str(x.get("id"))) not in taken     # never the same clip twice
+                      and (x.get("source"), str(x.get("id"))) not in turned_down]                 # nor one turned down
             if not ranked:
                 why = f" ({rejected[0][1]})" if rejected else ""
                 entry["notes"].append(f"{name}: nothing usable among {len(found)} results{why}")
@@ -281,9 +298,10 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
             got = _take(svc, project, src, ranked, query, need, s, looker, entry, said)
             if got is None:
                 continue
-            cand, path, start, score, piece, focus, fit = got
+            cand, path, start, score, piece, focus, fit, interest = got
             file = f"{footage.FOLDER}/{path.name}"
             old = str(c.get("file") or "")
+            before, old_rec = dict(c), records.get(old)
             c["file"], c["clip_start"] = file, round(start, 3)
             for k in ("focus_x", "focus_y", "fit"):
                 c.pop(k, None)
@@ -302,6 +320,12 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
             entry.update(status="fetched", file=file, source=name, author=cand.get("author"),
                          license=cand.get("license"), seconds=round(need, 2),
                          score=None if score is None else round(float(score), 3))
+            near = borderline(score, interest, s)
+            if near is not None:
+                doubts.append({"n": i, "entry": entry, "before": before, "old": old, "old_rec": old_rec, "file": file,
+                               "at": round(start + need / 2, 2), "said": said or query, "clip": f"{name} {cand.get('id')}",
+                               "key": (cand.get("source"), str(cand.get("id"))),
+                               "match": near[0], "interest": near[1]})
             changed = True
             break
         if entry["status"] == "missing" and not entry["notes"]:
@@ -309,18 +333,36 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
     if not dry_run:                         # no clip passed: an illustrated card with what is said, instead
         said = {int(x["n"]): x for x in plan.get("sentences") or [] if isinstance(x, dict) and x.get("words")}
         main = director.topic(list(said.values()))
+        cards: dict[int, dict] = {}
+        fallback = bool(s.get("fallback_card", True))
+        if doubts or (fallback and any(e["status"] == "missing" for e in out["cues"])):
+            frames: dict[int, Path | None] = {}
+            drop, by, cards = run_decided(svc, project, lambda decide: _settle(
+                svc, project, plan, out["cues"], doubts, frames, said, main, fallback, language, decide))
+            for d in doubts:
+                if d["n"] in drop:
+                    _drop(svc, project, plan, records, d, by[d["n"]])
+                elif d["n"] in by:
+                    plan["cutaways"][d["n"]]["_decided"] = by[d["n"]]
+            if drop and not _retry:         # a clip turned down: the next candidate is tried before any drawing
+                turned_down |= {d["key"] for d in doubts if d["n"] in drop}
+                svc.projects.write_json(rejected_path, sorted(list(k) for k in turned_down))
+                svc.projects.write_json(cache_path, cache)
+                svc.projects.write_json(project.dir / footage.FOLDER / footage.RECORD, [records[k] for k in sorted(records)])
+                svc.projects.save_plan(project, plan)
+                log(f"B-roll: {len(drop)} clip(s) turned down; trying the next candidates")
+                return fetch_broll(svc, project, dry_run, False, _retry=True)
         for e in out["cues"]:
             c = plan["cutaways"][e["n"]]
             if e["status"] != "missing" or not s.get("fallback_card", True):
                 continue
-            card = {k: v for k, v in (c.get("fallback") or {}).items() if v}
-            if not card and c.get("at_sentence") is not None and int(c["at_sentence"]) in said:
-                card = director.card(said[int(c["at_sentence"])], main=main)
-            keep = {k: c[k] for k in ("at_sentence", "until_sentence", "from_word", "seconds", "note") if k in c}
-            if card.get("template") and card.get("text"):
+            card = cards.get(e["n"]) or {}
+            keep = {k: c[k] for k in ("at_sentence", "until_sentence", "from_word", "seconds", "note", "_decided") if k in c}
+            shown = next((str(card[k]) for k in CARD_CONTENT if card.get(k)), "")
+            if card.get("template") and shown:          # a title, a scene, a list, a figure, bars… anything with content
                 plan["cutaways"][e["n"]] = {"type": "graphic", **card, **keep, "_auto": c.get("_auto") or "card"}
                 e["status"] = "card"
-                e["notes"].append(f"no clip passed: an illustrated card instead ({card['template']} “{card['text']}”)")
+                e["notes"].append(f"no clip passed: an illustrated card instead ({card['template']} “{shown}”)")
             elif c.get("_auto") == AUTO_DIRECTOR:
                 plan["cutaways"][e["n"]] = None
                 e["status"] = "dropped"
@@ -450,8 +492,98 @@ def _take(svc: Services, project: Project, src, ranked: list[dict], query: str, 
                                   "frames (checked in full quality); not used (broll.text)")
             svc.projects.remove(final)
             continue
-        chosen = (cand, final, start - piece[0], seen["score"], piece, seen["focus"], seen.get("fit"))
+        chosen = (cand, final, start - piece[0], seen["score"], piece, seen["focus"], seen.get("fit"), seen.get("interest"))
     return chosen
+
+
+def borderline(score, interest, s: dict) -> tuple[float, float] | None:
+    """(distance of the relevance to broll.min_match, of the interest to broll.min_interest) of a clip
+    that passed only just — one of them under BORDER —; None for a clip that passed clearly (or was
+    not judged: no vision model)."""
+    if score is None:
+        return None
+    match = float(score) - float(s["min_match"])
+    alive = float("inf") if interest is None else float(interest) - float(s["min_interest"])
+    return (match, alive) if min(match, alive) < BORDER else None
+
+
+def sureness(distance: float) -> float:
+    """How sure the rules are that a clip this far over a minimum is fine: 0.5 on it, 0.99 at BORDER."""
+    return round(min(max(0.5 + distance / (2 * BORDER), 0.5), 0.99), 4)
+
+
+def clip_questions(d: dict, image: str, language: str) -> tuple[dd.Question, dd.Question]:
+    """(does the frame show what is said?, does it show something happening, clearly?) of a clip that
+    passed only just; the rules' answer is yes to both (the clip is kept)."""
+    es = language == "es"
+    shows = (f"¿Esta imagen tiene relación con lo que dice la frase, aunque no sea exacta? Frase: «{d['said']}»" if es
+             else f"Is this picture related to what the sentence says, even loosely? Sentence: “{d['said']}”")
+    lively = ("¿La imagen se ve clara, es decir, no está oscura, borrosa ni vacía?" if es else
+              "Does the picture look clear, that is, not dark, blurry or empty?")
+    opts = dd.yes_no(language)
+    return (dd.Question("clip_shows", "yesno", shows, opts, "", ("yes",), sureness(d["match"]), language, image=image),
+            dd.Question("clip_lively", "yesno", lively, opts, "", ("yes",), sureness(d["interest"]), language, image=image))
+
+
+def _frame(svc: Services, project: Project, d: dict) -> Path | None:
+    """One frame of the chosen piece of a stored clip, in the project cache (None when it cannot be read)."""
+    out = svc.cache.file(project.cache, f"{FRAMES}/{Path(d['file']).stem}.jpg")
+    try:
+        return svc.encoder.cover(project.dir / d["file"], d["at"], out)
+    except (RuntimeError, OSError, ValueError) as e:
+        log(f"B-roll: no frame of {d['file']} to look at ({e}); the clip is kept")
+        return None
+
+
+def _settle(svc: Services, project: Project, plan: dict, cues: list[dict], doubts: list[dict], frames: dict,
+            said: dict, main: str, fallback: bool, language: str, decide: dd.Decide):
+    """One pass of the decider (application/decide.py) → ({cue: the source that said "no"} of the clips
+    dropped, {cue: source} of the clips a model judged, {cue: card} of the cues left without a clip).
+    Only the language model looks at a picture: with the rules alone (or without it) every clip is kept
+    and no frame is taken."""
+    drop: dict[int, str] = {}
+    by: dict[int, str] = {}
+    if decide is not dd.rules_only and getattr(decide, "llm", True):
+        for d in doubts:
+            if d["n"] not in frames:            # taken once per run (the same file may hold another piece now)
+                frames[d["n"]] = _frame(svc, project, d)
+            if frames[d["n"]] is None:
+                continue
+            answers = [dd.ask(decide, q) for q in clip_questions(d, str(frames[d["n"]]), language)]
+            judged = [a for a in answers if a.source != "rules"]
+            no = [a for a in answers if a.value == "no" and a.confidence >= DROP_SURE]   # only a clearly bad clip goes
+            if no:
+                drop[d["n"]] = no[0].source
+            if judged:
+                by[d["n"]] = (no or judged)[0].source
+    cards: dict[int, dict] = {}
+    if fallback:
+        before = {d["n"]: d["before"] for d in doubts}
+        for e in cues:
+            if e["status"] != "missing" and e["n"] not in drop:
+                continue
+            c = before[e["n"]] if e["n"] in drop else plan["cutaways"][e["n"]]
+            card = {k: v for k, v in (c.get("fallback") or {}).items() if v}
+            if not card and c.get("at_sentence") is not None and int(c["at_sentence"]) in said:
+                card = director.card(said[int(c["at_sentence"])], main=main, decide=decide)
+            cards[e["n"]] = card
+    return drop, by, cards
+
+
+def _drop(svc: Services, project: Project, plan: dict, records: dict, d: dict, source: str) -> None:
+    """A clip the language model turned down: deleted, and the cue as it was before (without a clip)."""
+    svc.projects.remove(project.dir / d["file"])
+    records.pop(d["file"], None)
+    if d["old"] and d["old_rec"] is not None:
+        records[d["old"]] = d["old_rec"]
+    plan["cutaways"][d["n"]] = {**d["before"], "_decided": source}
+    e = d["entry"]
+    for k in ("source", "author", "license", "seconds", "score"):
+        e.pop(k, None)
+    e.update(status="missing", file=d["before"].get("file"))
+    why = f"{d['clip']}: passed only just, and the language model says its frame does not show it well; not used"
+    e["notes"].append(why)
+    log(f"B-roll [{d['n']}] “{e['query']}”: {d['file']} dropped ({why})")
 
 
 def _text_in_piece(svc: Services, clip: Path, focus, fit, looker: "_Looker") -> float:

@@ -109,6 +109,25 @@ class ClipVisualDetector:
             return DOWNLOAD_HINT if not download else f"the CLIP models could not be loaded ({e})"
         return None
 
+    def release(self) -> None:
+        """Frees the models (another model is about to use the memory); they are loaded again when
+        needed. Text embeddings already computed are kept (they are small). torch is never imported here."""
+        import gc
+        import sys
+
+        self._models.clear()
+        gc.collect()
+        torch = sys.modules.get("torch")
+        if torch is None:
+            return
+        for name in ("mps", "cuda"):
+            backend = getattr(torch, name, None)
+            try:
+                if backend is not None and (name != "cuda" or backend.is_available()):
+                    backend.empty_cache()
+            except Exception:  # noqa: BLE001 - freeing memory is best effort
+                pass
+
     def _encode(self, model_name: str, items: list, settings: dict) -> np.ndarray:
         model = self._model(model_name, settings, download=False)
         out = model.encode(items, batch_size=int(settings.get("batch_size", 32)), convert_to_numpy=True,

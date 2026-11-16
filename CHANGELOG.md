@@ -6,7 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
+  (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
+  one frame of the presenter showed through).
+- A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
+  that the transcription split or misheard are kept, so no word is cut in half.
+
 ### Added
+- **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
+  and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
+  answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),
+  then a language model through Ollama (`qwen3.5:9b`, Apache-2.0, which also sees a frame of borderline b-roll).
+  A model only replaces an answer with a valid, surer one; answers are cached per project, one model is in
+  memory at a time, and with no models the plan is byte-identical. Covers notes (verbs are not notes), card
+  titles, bar labels, scene actions, card illustrations, the drawing chosen, shortened cards and borderline
+  clips. Entries a model chose carry `_decided`. `sve doctor` reports both models. Routes measured on 215
+  labeled real questions: the language model answers notes, titles, shortened cards and borderline clips;
+  the rest stays with the rules (they were right more often). A failed answer never empties a choice, a
+  several-answer question has a "none" option, and a shorter version never drops a negation. Notes: the model
+  marks which words are conjugated verbs (every other word stays a note, so the presenter keeps as many notes);
+  b-roll: only a clip the model is sure is bad is turned down, and the next candidate is fetched instead of a card.
+- **Clean voice** (`audio.clean_voice`, on in `explainer` and `talk`): the background noise of each recording is
+  taken out once, over the whole recording, with RNNoise (FFmpeg `arnndn`; a ≈300 KB speech model downloaded
+  once to the user cache, FFT denoiser without it or with `SVE_OFFLINE=1`); every shot reads its piece of the
+  clean track, so there are no seams at the cuts. Measured on a real selfie recording: noise −14.6 dB, voice −1.5 dB.
+- **More notes around the presenter**: up to four per sentence, 0.6 s apart, six-letter key words, notes on the
+  camera part of a sentence that ends in footage, and proposed again after `sve make` changes the cutaways;
+  `callouts` / `bullets` end when a full-frame cutaway comes in.
+- **`sve make` reviews and fixes itself** (`domain/review.py`, `review:` section). Before rendering, the plan is
+  placed on the video and checked for cutaways too short to be read, text too long to read in time
+  (`review.read_cps`; words the voice says count less), full-frame graphics held too long
+  (`review.graphic_max`), the presenter alone too long and sentences missing from the recording; the
+  engine applies a fixed remedy (start a word earlier, shorten an engine card, end a graphic earlier,
+  ask the director for footage, remove what it proposed) and fetches footage again. After the render,
+  what `sve check` finds on screen (a clip that stops moving) is fixed and rendered again, at most
+  `review.rounds` renders. What it could not settle is a short list of **decisions** with options,
+  printed, written to `<project>/review.json` and shown by `sve report`. `check.json` now lists the text
+  boxes outside the safe zone. Spanish: `revision: {vueltas, lectura_cps, grafico_max, holgura_camara}`.
+- **The director draws data said aloud**: figures compared in a sentence become `bars` (times put in one
+  unit, bars named by "before / today" or the words next to them) and a quoted source ("according to X")
+  becomes a `headline`, shown when it is said instead of searched for.
+- **Soft joins in the explainer.** Camera shots are joined with a 0.2 s `dissolve` (new transition;
+  `script.transition`), centered on the cut so no word is dimmed; full-frame graphics and clips fade in and out
+  (`script.cutaway_fade`), and two in a row dissolve one over the other.
+- **Natural look for the explainer** and `color.per_source`: one color correction measured over the whole
+  recording, so the light does not jump at the cuts.
 - **Third-party footage with a record: `sve broll`** (alias `tomas`; `--dry-run`, `--force`). Every
   `[broll query="…"]` cue / `broll` cutaway gets a clip from the sources of `broll.sources`: Pexels and
   Pixabay (free API keys in `PEXELS_API_KEY` / `PIXABAY_API_KEY`), Wikimedia Commons (only CC0, public
@@ -110,6 +155,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `color.reference`: copy the color look of a reference video (brightness, black/white points,
   saturation, color cast), with `color.reference_strength`.
 - Color look: `color.fade` (lifted blacks, softer whites) and `color.tint` (green ↔ magenta).
+
+### Fixed
+- One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
+  laid on the frame grid and hold their last frame to the end of their window.
 
 ## [0.5.1] - 2026-11-04
 

@@ -14,7 +14,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from ..domain import automix
+from ..domain import automix, review
 from ..domain import pip as pip_window
 from ..domain.cutaways import resolve as resolve_cutaways
 from ..domain.models import Project, UserError
@@ -52,7 +52,14 @@ def build_report(svc: Services, project: Project) -> dict:
         "versions": versions,
         "products": _products(svc, project),
         "check": _check(svc, project, latest),
+        "review": _review(svc, project),
     }
+
+
+def _review(svc: Services, project: Project) -> dict | None:
+    """<project>/review.json: what the last `sve make` fixed by itself and the decisions it left."""
+    data = svc.projects.read_json(project.dir / review.REVIEW_FILE)
+    return data if isinstance(data, dict) else None
 
 
 def _sources(svc: Services, project: Project) -> list[dict]:
@@ -481,6 +488,11 @@ def report_lines(r: dict) -> list[str]:
                 out.append(f"  {kind[:-1]}: {_message(msg)}")
             if len(ck[kind]) > MAX_MESSAGES:
                 out.append(f"  … +{len(ck[kind]) - MAX_MESSAGES} more {kind}")
+    rv = r.get("review")
+    if rv:
+        out.append(f"MAKE {rv.get('version') or '?'}: {len(rv.get('fixed') or [])} fixed by the engine · "
+                   f"{rv.get('renders', 1)} render(s)")
+        out += review.decision_lines(rv.get("pending") or []) or ["  no decisions left"]
     return out
 
 
