@@ -196,6 +196,14 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `cortos_max` | `shorts_max` |
 | `corto_min` | `short_min` |
 | `corto_max` | `short_max` |
+| `lineas_auto` | `auto_line_chart` |
+| `versus_auto` | `auto_versus` |
+| `codigo_auto` | `auto_code` |
+| `capturas_auto` | `auto_screen` |
+| `diagramas_auto` | `auto_diagram` |
+| `cifras_en_contexto` | `figure_context` |
+| `escenas_ajustadas` | `scene_fit` |
+| `barras_con_verbos` | `verb_bars` |
 
 ### Values of `config.script.take`
 
@@ -419,6 +427,17 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `bajo_voz_db` | `under_voice_db` |
 | `bajo_pausa_db` | `under_pause_db` |
 | `entrada_mas_db` | `intro_db` |
+| `componer` | `compose` |
+
+### Keys of `config.music.compose`
+
+| Spanish | English |
+|---|---|
+| `estilo` | `preset` |
+| `semilla` | `seed` |
+| `silencios` | `silences` |
+| `acentos` | `accents` |
+| `volumen_lufs` | `lufs` |
 
 ### Values of `config.music.file`
 
@@ -426,6 +445,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `ninguna` | `none` |
 | `no` | `none` |
+| `componer` | `compose` |
 
 ### Values of `config.music.align`
 

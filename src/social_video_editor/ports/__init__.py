@@ -415,3 +415,20 @@ class FootageSource(Protocol):
         """Downloads a candidate next to `dest` (the extension is the file's own) → its path.
         piece: only those seconds (start, end) of a long video. preview: a small copy to look
         through (sources of short clips ignore both and download the clip)."""
+
+
+class MusicSynthesizer(Protocol):
+    """Turns a composed score (domain/compose.py) into audio: every sound synthesized, no samples."""
+
+    def render(self, score: dict, out: Path, settings: dict | None = None) -> dict:
+        """The score → a stereo 24-bit file at `out` (.flac or .wav) → {"file", "sha256" (of the
+        24-bit samples), "lufs", "peak_db", "duration", "sample_rate", "channels", "bits"}.
+        settings: {"lufs", "ceiling_db", "voice_dip_db", "mix" (LU of each role from the drums),
+        "pad": {"cutoff"}, "sample_rate"}."""
+
+    def pack_presets(self, pack: str) -> dict:
+        """The `music:` block of a pack's pack.yaml ({"preset": default name, "presets": {name: {…}}});
+        {} without one."""
+
+    def encode(self, src: Path, out: Path) -> Path:
+        """A compressed copy for listening (.m4a / .mp3 / .ogg, chosen by the extension)."""

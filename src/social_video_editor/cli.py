@@ -11,6 +11,8 @@
   sve report  <project> [--json] [--full]  (one-screen project report, what to do first; reads only files on disk)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
+  sve music --compose [--preset P] [--seconds N] [--seed S] [--out FILE] [--pack NAME] [--project P]
+                                           (an original track composed by the engine + its proof of origin)
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
   sve products <project>                   (products recognized by the vision model → cache/products.json)
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
@@ -106,10 +108,51 @@ def cmd_recipes(svc, a):
 
 
 def cmd_music(svc, a):
+    from .domain.models import UserError
+
+    if a.compose:
+        cmd_compose(svc, a)
+        return
+    if not a.query:
+        raise UserError('Say what to download (sve music "artist song"), or compose a track: sve music --compose')
     path, am = download_music(svc, a.query)
     print(f"Downloaded: {path.name} — {am['duration']:.0f} s, {am['tempo']} BPM, drop at {am['drop']:.1f} s")
     print("\n".join(tempo_lines(am)))
     print(f"To use it: in project.yaml → settings → music → file: \"{path.parent.name}/{path.name}\"")
+
+
+def cmd_compose(svc, a):
+    """sve music --compose: a standalone track, or (--project) the one composed for a project's plan."""
+    from .application import music as am
+    from .domain import compose as dc
+
+    if a.project:
+        from .domain.timeline import compute_timeline
+
+        project = _project(svc, a.project)
+        cfg = project.cfg
+        if a.pack:
+            cfg = {**cfg, "graphics": {**(cfg.get("graphics") or {}), "pack": a.pack}}
+        cfg = {**cfg, "music": {**cfg["music"], "compose": {**dc.settings(cfg["music"]),
+                                **{k: v for k, v in (("seed", a.seed), ("bpm", a.bpm)) if v is not None}}}}
+        plan = load_plan(svc, project)
+        path, score, _ = am.compose_for_video(svc, project, plan, cfg, compute_timeline(plan, cfg), a.preset)
+        if a.out and Path(a.out).suffix.lower() not in (".flac", ".wav"):
+            print(f"Listening copy: {svc.synth.encode(path, Path(a.out))}")
+        print("\n".join(dc.section_lines(score)))
+        print(f"Track: {path}\nProof of origin: {path.with_name(path.stem + am.ORIGIN_SUFFIX)}")
+        return
+    cfg = svc.recipes.load("base")
+    if a.pack:
+        cfg = {**cfg, "graphics": {**(cfg.get("graphics") or {}), "pack": a.pack}}
+    name, preset = am.preset_for(svc, cfg, a.preset)
+    seconds = float(a.seconds or 60)
+    out = Path(a.out) if a.out else svc.projects.music_dir() / "composed" / f"{name}_{a.seed or 'auto'}_{seconds:g}s.flac"
+    path, proof = am.compose_track(svc, out, seconds, name, a.seed, a.bpm, cfg)
+    print("\n".join(dc.section_lines(proof["score"])))
+    print(f"Track: {path} — {proof['audio']['lufs']} LUFS, peak {proof['audio']['peak_db']} dBFS")
+    print(f"Proof of origin: {path.with_name(path.stem + am.ORIGIN_SUFFIX)}")
+    print(f'To use the engine\'s music in a video: settings → music → file: compose (compose: {{preset: {name}}})')
 
 
 def cmd_check(svc, a):
@@ -235,8 +278,17 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--full", "--completo", action="store_true", help="every line of every section (not collapsed)")
     s.set_defaults(f=cmd_report)
     sub.add_parser("recipes", aliases=["recetas"], help="list recipes").set_defaults(f=cmd_recipes)
-    s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")
-    s.add_argument("query")
+    s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp, or compose an original one")
+    s.add_argument("query", nargs="?")
+    s.add_argument("--compose", "--componer", action="store_true",
+                   help="compose an original instrumental track (no samples; a proof of origin next to it)")
+    s.add_argument("--preset", "--estilo", help="style: upbeat, calm, tense, warm, trap (or a pack's)")
+    s.add_argument("--seconds", "--segundos", type=float, help="length of a standalone track (default 60)")
+    s.add_argument("--seed", "--semilla", type=int, help="same seed + preset + length = the same track")
+    s.add_argument("--bpm", type=float, help="tempo (default: the preset's)")
+    s.add_argument("--out", "--salida", help="file to write (.flac, .wav, .m4a, .mp3; default music/composed/)")
+    s.add_argument("--pack", "--paquete", help="use this pack's music presets (packs/<name>/pack.yaml music:)")
+    s.add_argument("--project", "--proyecto", help="compose for this project's plan (its sentences and graphics)")
     s.set_defaults(f=cmd_music)
     s = sub.add_parser("check", aliases=["verificar"], help="automatic review of a render (check.json + listen/)")
     s.add_argument("project")
