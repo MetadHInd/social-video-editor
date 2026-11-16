@@ -1,0 +1,276 @@
+[
+ {
+  "_auto": "director",
+  "at_sentence": 0,
+  "from_word": [
+   0,
+   1.75
+  ],
+  "label": "The page takes",
+  "note": "«takes»",
+  "sub": "to load",
+  "template": "number",
+  "type": "graphic",
+  "unit": "seconds",
+  "until_sentence": 0,
+  "value": "12"
+ },
+ {
+  "_auto": "director",
+  "at_sentence": 2,
+  "fallback": {
+   "icon": "phone",
+   "template": "title",
+   "text": "2018 and 75 million in 2024"
+  },
+  "from_word": [
+   0,
+   8.15
+  ],
+  "note": "«2015»",
+  "query": "person scrolling a phone",
+  "query_lang": "en",
+  "query_local": "",
+  "said": "Sales went from 12 million in 2015 to 30 million in 2018 and 75 million in 2024.",
+  "type": "broll",
+  "until_sentence": 2
+ },
+ {
+  "_auto": "director",
+  "at_sentence": 3,
+  "data": "iPhone lasts:20, On the Pixel:18",
+  "from_word": [
+   0,
+   13.82
+  ],
+  "note": "«versus»",
+  "template": "bars",
+  "type": "graphic",
+  "unit": "h",
+  "until_sentence": 3
+ },
+ {
+  "_auto": "director",
+  "at_sentence": 4,
+  "fallback": {
+   "action": "wait",
+   "subject": "app",
+   "template": "scene",
+   "text": "The terminal and wait a little"
+  },
+  "from_word": [
+   0,
+   19.1
+  ],
+  "note": "«terminal»",
+  "query": "phone screen close up",
+  "query_lang": "en",
+  "query_local": "terminal little",
+  "said": "Then type `brew install ffmpeg` in the terminal and wait a little.",
+  "type": "broll",
+  "until_sentence": 4
+ },
+ {
+  "_auto": "director",
+  "at_sentence": 5,
+  "fallback": {
+   "icon": "cloud",
+   "template": "title",
+   "text": "Router and then to the cloud"
+  },
+  "from_word": [
+   0,
+   24.05
+  ],
+  "note": "«and»",
+  "query": "wifi router lights",
+  "query_lang": "en",
+  "query_local": "phone photo router",
+  "said": "Your phone sends the photo to the router and then to the cloud.",
+  "type": "broll",
+  "until_sentence": 5
+ },
+ {
+  "_auto": "director",
+  "at_sentence": 6,
+  "from_word": [
+   0,
+   28.65
+  ],
+  "label": "From",
+  "note": "«opens»",
+  "sub": "ten at night everybody",
+  "template": "number",
+  "type": "graphic",
+  "unit": "to",
+  "until_sentence": 6,
+  "value": "8"
+ },
+ {
+  "_auto": "director",
+  "at_sentence": 8,
+  "fallback": {
+   "action": "swipe",
+   "subject": "app",
+   "target": "phone",
+   "template": "scene",
+   "text": "Keep the battery for later"
+  },
+  "from_word": [
+   0,
+   35.75
+  ],
+  "note": "«apps»",
+  "query": "smartphone apps on screen",
+  "query_lang": "en",
+  "query_local": "apps battery",
+  "said": "So close the apps you do not use and keep the battery for later.",
+  "type": "broll",
+  "until_sentence": 8
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 2,
+  "icons": [
+   "-"
+  ],
+  "item_times": [
+   [
+    0,
+    7.1
+   ]
+  ],
+  "items": [
+   "12 million"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 2
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 3,
+  "icons": [
+   "phone"
+  ],
+  "item_times": [
+   [
+    0,
+    12.75
+   ]
+  ],
+  "items": [
+   "IPhone"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 3
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 4,
+  "icons": [
+   "-"
+  ],
+  "item_times": [
+   [
+    0,
+    17.7
+   ]
+  ],
+  "items": [
+   "Install"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 4
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 5,
+  "icons": [
+   "phone",
+   "photo"
+  ],
+  "item_times": [
+   [
+    0,
+    21.6
+   ],
+   [
+    0,
+    22.65
+   ]
+  ],
+  "items": [
+   "Phone",
+   "Photo"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 5
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 6,
+  "icons": [
+   "moon"
+  ],
+  "item_times": [
+   [
+    0,
+    27.95
+   ]
+  ],
+  "items": [
+   "Night"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 6
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 7,
+  "icons": [
+   "clock",
+   "phone"
+  ],
+  "item_times": [
+   [
+    0,
+    31.85
+   ],
+   [
+    0,
+    33.95
+   ]
+  ],
+  "items": [
+   "Hours",
+   "Phone"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 8
+ },
+ {
+  "_auto": "support",
+  "at_sentence": 9,
+  "icons": [
+   "-"
+  ],
+  "item_times": [
+   [
+    0,
+    40.7
+   ]
+  ],
+  "items": [
+   "Close"
+  ],
+  "template": "callouts",
+  "type": "graphic",
+  "until_sentence": 9
+ }
+]

@@ -38,7 +38,7 @@ VERSUS = ("vs", "vs.", "versus", "contra", "against", "frente")             # "f
 VERSUS_TWO = (("comparado", "con"), ("comparada", "con"), ("compared", "to"), ("compared", "with"))
 NAME_STOP = set("el la los las un una unos unas y o de del que es son tiene tienen dura duran pesa pesan cuesta cuestan "
                 "gasta gastan con en por para mientras pero a al the a an and or of is are has have lasts weighs costs "
-                "uses with in for while but to".split())
+                "uses with in for while but to on at from by".split())
 COMMAND_ARGS = set("install uninstall run build init clone status push pull update upgrade add commit start test "
                    "list ls doctor serve deploy".split())
 CODE_STOP = set("en y para que o in and to on or that then luego después despues".split())
@@ -116,12 +116,15 @@ def line_chart_spec(points, title: str | None = None, unit: str | None = None, p
 def line_chart_from_words(words: Words, min_points: int = 3) -> dict | None:
     """A sentence that gives a figure for each of several years ("12 millones en 2015, 30 en 2018 y 75
     en 2024") → a line_chart spec at the first figure; None otherwise. Each year takes the nearest
-    figure in its clause that no other year took."""
+    figure in its clause that no other year took, on the side the first figure is said ("12 millones
+    en 2015, 30 millones en 2018…": before its year; "en 2015, 12…": after it); a comma right after the
+    year ("En 2024, 75") does not end its clause."""
     clean = [_clean(w) for w, _ in words]
     years = [i for i, w in enumerate(clean) if _YEAR.match(w)]
     if len(years) < min_points:
         return None
     figures = {i: _value(w) for i, (w, _) in enumerate(words) if _value(w) is not None}
+    ahead = bool(figures) and min(figures) < years[0]       # the figures are said before their years
     used, points, first = set(), [], None
     for y in years:
         best = None
@@ -129,9 +132,10 @@ def line_chart_from_words(words: Words, min_points: int = 3) -> dict | None:
             if i in used:
                 continue
             lo, hi = min(i, y), max(i, y)
-            if any(words[k][0].rstrip().endswith((",", ";", ".", ":")) for k in range(lo, hi)):
+            if any(words[k][0].rstrip().endswith((";", ".") if k == y else (",", ";", ".", ":")) for k in range(lo, hi)):
                 continue                                    # not across a clause
-            if best is None or abs(i - y) < abs(best - y) or (abs(i - y) == abs(best - y) and i < y):
+            side, best_side = (i < y) == ahead, best is not None and (best < y) == ahead
+            if best is None or side > best_side or (side == best_side and abs(i - y) < abs(best - y)):
                 best = i
         if best is None:
             return None
@@ -218,7 +222,9 @@ def versus_from_words(words: Words) -> dict | None:
     if not left_figs or len(left_figs) != len(right_figs):
         return None
     left = _name(clean, 0, left_figs[0]) or _name(clean, 0, mark, reverse=True)
-    right = _name(clean, mark + width, right_figs[0]) or _name(clean, right_figs[-1] + 1, len(clean))
+    unit_r = right_figs[-1] + 1 if right_figs[-1] + 1 < len(clean) and left_figs[-1] + 1 < len(clean) \
+        and clean[right_figs[-1] + 1].lower() == clean[left_figs[-1] + 1].lower() else right_figs[-1]
+    right = _name(clean, mark + width, right_figs[0]) or _name(clean, unit_r + 1, len(clean))   # not its unit
     rows = []
     for a, b in zip(left_figs, right_figs):
         unit = clean[a + 1] if a + 1 < len(clean) and clean[a + 1].lower() not in UNIT_SKIP | NAME_STOP else ""
