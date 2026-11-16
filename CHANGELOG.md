@@ -22,6 +22,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
 
 ### Added
+- **Music the engine composes** (`music.file: compose`, Spanish `componer`): an original instrumental track
+  for each video, synthesized with numpy (no samples, loops or downloads) from a style preset (`upbeat`,
+  `calm`, `tense`, `warm`, `trap`, or a pack's own under `music:` in `pack.yaml`), a seed (default: from the
+  project name) and the video's timing. It follows the explainer's arc: a hit on frame 0, cut dead at the
+  conflict, the chorus on the first word of the question, cut dead at the twist, an emotive lower outro with
+  a 1 s fade — from the script's `#` headings (scene, conflict, question, twist, solution…, English or
+  Spanish) or, without them, from the first question, the full-screen graphics and the cuts. Its beat grid
+  is exact (cuts follow `music.cuts_on_beat` / `align` as with any track; every shot gets the beats for
+  `beat_pulse`). Cached in `cache/compose/` by preset + seed + sections (a new timing makes a new track),
+  with a proof of origin next to it (`.origin.json`: engine version, preset, seed, tempo, key, sections,
+  SHA-256 of the 24-bit samples and of the score, a statement in the project's language). Settings:
+  `music.compose: {preset, seed, bpm, silences, accents, lufs}`. Default unchanged (`none` / `null`).
+- `sve music --compose [--preset P] [--seconds N] [--seed S] [--bpm B] [--out FILE] [--pack NAME]
+  [--project P]`: a standalone track (the arc in whole bars) or the one for a project's plan, with its proof
+  of origin; `.m4a` / `.mp3` outputs keep the lossless `.flac` the proof describes.
 - **Shorts from the same project** (stage 7): `[short name]` … `[/short]` (Spanish `[corto nombre]` … `[/corto]`)
   in an explainer script; `sve render <project> --short name` / `--shorts` (`--corto`, `--cortos`) renders each as
   a vertical video of its own (its sentences, the cutaways inside, framing, subtitles and sound; a variant folder
