@@ -101,11 +101,18 @@ class Scene(ABC):
     def draw(self, cv: Canvas, t: float) -> None:
         """Draws the graphic at `t` seconds (the backdrop is already there)."""
 
+    def scenery(self, cv: Canvas, t: float) -> None:
+        """The place behind a full-frame graphic: the theme's stage (kit.scenery). A template — a pack's
+        one too — may draw a place of its own here instead (a room, a street)."""
+        from . import kit
+
+        kit.scenery(cv, self.st, t, seed=sum(map(ord, self.name)))
+
     def paint(self, cv: Canvas, t: float) -> None:
         from . import kit
 
         if not self.overlay:
-            kit.scenery(cv, self.st, t, seed=sum(map(ord, self.name)))
+            self.scenery(cv, t)
         self.draw(cv, t)
         if self.spec.get("caption"):               # what is being said while the graphic is on screen
             kit.caption(cv, self.st, str(self.spec["caption"]), t)
@@ -136,6 +143,7 @@ class Scene(ABC):
 
 TEMPLATES: dict[str, type[Scene]] = {}
 ELEMENTS: dict[str, Callable] = {}
+DRESSERS: list[Callable] = []
 
 
 def template(name: str):
@@ -153,6 +161,24 @@ def element(name: str):
         ELEMENTS[name] = fn
         return fn
     return register
+
+
+def dresser(fn: Callable) -> Callable:
+    """Registers `fn(spec, words, language) -> dict | None`: a pack's way to complete a graphic the engine
+    chose for a sentence with what the whole sentence says (e.g. the place and mood of a scene). It returns
+    the spec with its keys added, or None to leave it as it is."""
+    DRESSERS.append(fn)
+    return fn
+
+
+def dress(spec: dict, words: list[str], language: str = "es") -> dict:
+    """The spec of a graphic chosen for a sentence (`words`: its words as said), completed by the dressers
+    a pack registered (none: the spec unchanged, the same object)."""
+    for fn in DRESSERS:
+        out = fn(dict(spec), list(words), language)
+        if out:
+            spec = out
+    return spec
 
 
 def make_scene(spec: dict, stage: Stage) -> Scene:

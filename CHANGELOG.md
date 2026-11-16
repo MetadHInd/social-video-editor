@@ -324,6 +324,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   composed track against the composer's own beat grid.
 - `adapters/system/fonts.font_file_exact`: the exact font lookup (no fallback) is public; the graphics
   renderer uses it.
+- Hooks for packs that draw places: a template's `scenery()` may draw a place instead of the theme's stage; a
+  pack's `backdrop` element is drawn as the picture of a voice memo; `dresser` / `dress()` let a pack complete
+  the graphic chosen for a sentence from the whole sentence; `SceneAction.arrange()` / `play()` put a scene's
+  action in any box. Without a pack nothing changes.
 
 ### Fixed
 - `lower_third` in a landscape frame sat on the subtitles (0.72–0.82·H against subtitles from 0.77·H): it now
