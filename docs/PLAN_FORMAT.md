@@ -1126,7 +1126,12 @@ inside a run of music, and an entry after a silence lands exactly on it (`sve ch
 that grid). Pack presets: `music: {preset: name, presets: {name: {base: trap, bpm: …, key: …, mode: …,
 progressions: …}}}`. The render writes `summary.music_composed` (file, origin, preset, seed, bpm, key,
 sections) and copies the proof to `vN/music_origin.json` (`summary.music_origin`); `sve report` shows the
-preset, tempo, key and sections on its MUSIC line.
+preset, tempo, key and sections on its MUSIC line. `sve check` judges cuts off the beat only when the edit puts
+them there (`music.cuts_on_beat`, `align: exact`, a shot with `beats`: an explainer cuts on the voice, so the
+metric is kept in `check.json` without a warning), and a silence of the mix inside one of the track's own
+silences is by design up to `check.composed_silence_max_sec` (1.5 s; longer, the gap is in the voice). A
+loudness jump at a cut where the voice stem shows speech starting or stopping after a pause the music fills is
+not a jump of the edit (`cut_jumps_speech` in `check.json`).
 
 ## Playlists, AutoMix and long videos
 

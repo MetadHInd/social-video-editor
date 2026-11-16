@@ -266,6 +266,7 @@ check:                   # sve check <project>: automatic review of a render (th
   loudness_tolerance_lu: 1.0     # integrated loudness within ± this of audio.loudness (else error)
   silence_db: -50                # quieter than this (dBFS) …
   silence_sec: 0.5               # … for longer than this = silence
+  composed_silence_max_sec: 1.5  # music.file: compose — a silence inside the track's own silences is by design up to this
   cut_jump_lu: 8                 # loudness jump across a cut
   sfx_max_vs_mix_lu: -6          # sound effects at most mix − 6 LU
   music_max_vs_original_lu: 0    # audio.asmr: the music no louder than the original sound

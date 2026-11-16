@@ -245,7 +245,7 @@ CONFIG = Ctx(
                               "destello": "flash"}),
         "collage": Ctx(keys={"columnas": "columns"}),
         "check": Ctx(keys={"tolerancia_volumen_lu": "loudness_tolerance_lu", "silencio_db": "silence_db",
-                           "silencio_seg": "silence_sec", "salto_corte_lu": "cut_jump_lu",
+                           "silencio_seg": "silence_sec", "silencio_compuesto_max_seg": "composed_silence_max_sec", "salto_corte_lu": "cut_jump_lu",
                            "sfx_max_vs_mezcla_lu": "sfx_max_vs_mix_lu",
                            "musica_max_vs_original_lu": "music_max_vs_original_lu",
                            "musica_min_bajo_voz_lu": "music_min_under_voice_lu",
