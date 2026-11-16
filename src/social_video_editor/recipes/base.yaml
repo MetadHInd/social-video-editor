@@ -190,6 +190,16 @@ music:
   under_voice_db: 10
   under_pause_db: 4         # …this much under it in pauses (≥ 0.6 s)…
   intro_db: 4               # …and this much louder than in pauses before the first word
+  # file: compose → the engine composes an original track for this video (no samples; a proof of
+  # origin is written next to it in cache/compose/). It follows the video: hit on frame 0, cut dead at
+  # the conflict, the chorus on the question, an emotive outro for the solution (docs/PLAN_FORMAT.md).
+  compose:
+    preset: null            # upbeat | calm | tense | warm | trap, or a pack's (graphics.pack → pack.yaml music:)
+    seed: null              # null = from the project name (the same video always gets the same track)
+    bpm: null               # null = the preset's tempo
+    silences: true          # cut dead at the conflict and the twist (false = the music never stops)
+    accents: true           # a soft cymbal + low thump when a full-screen graphic comes in
+    lufs: -16.0             # loudness of the composed file (the mix then sets it against the voice)
 
 sfx:
   enabled: true
