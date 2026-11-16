@@ -38,6 +38,7 @@ from .graphics import suggest
 from .graphics.icons import ALONE, ICONS, describe_icon, find_icon, match_icon
 from .graphics.scene import dress
 from .graphics.scenes import ACTIONS, TARGETED, action_of, action_text, actions_in
+from .numbers import ALONE_NUMBERS, SCALES, SPELLED, _EDGE, _digits, spelled  # noqa: F401  (the figure parser lives there)
 from .script import tokens
 
 DEFAULTS = {"auto_broll": False, "max_camera": 4.0, "opening": 2.5, "auto_min": 1.8,
@@ -293,95 +294,6 @@ NUMBER_WORDS = {
     "mil": 1000, "zero": 0, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
     "ten": 10, "twenty": 20, "thirty": 30, "fifty": 50, "hundred": 100, "thousand": 1000,
 }                           # "un" / "one" and "cero" ("de cero") are left out: they are rarely figures
-# every number word, for figures said in words ("ciento sesenta y uno", "fifty-four", "17 mil", "two million")
-_UNITS_ES = "uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciseis diecisiete " \
-            "dieciocho diecinueve veinte veintiuno veintidos veintitres veinticuatro veinticinco veintiseis veintisiete " \
-            "veintiocho veintinueve".split()
-_UNITS_EN = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen " \
-            "seventeen eighteen nineteen".split()
-SPELLED = {**{w: n for n, w in enumerate(_UNITS_ES, 1)}, **{w: n for n, w in enumerate(_UNITS_EN, 1)},
-           "un": 1, "una": 1, "veintiun": 21, "veintiuna": 21, "cero": 0, "zero": 0,
-           **{w: 10 * n for n, w in enumerate("treinta cuarenta cincuenta sesenta setenta ochenta noventa".split(), 3)},
-           **{w: 10 * n for n, w in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split(), 2)},
-           "cien": 100, "ciento": 100, "quinientos": 500, "quinientas": 500, "setecientos": 700, "setecientas": 700,
-           "novecientos": 900, "novecientas": 900,
-           **{f"{w}cientos": 100 * n for n, w in ((2, "dos"), (3, "tres"), (4, "cuatro"), (6, "seis"), (8, "ocho"))},
-           **{f"{w}cientas": 100 * n for n, w in ((2, "dos"), (3, "tres"), (4, "cuatro"), (6, "seis"), (8, "ocho"))}}
-SCALES = {"mil": 1000, "thousand": 1000, "millon": 10 ** 6, "millones": 10 ** 6, "million": 10 ** 6,
-          "millions": 10 ** 6, "billion": 10 ** 9}
-ALONE_NUMBERS = {"un", "una", "uno", "one", "cero", "zero"}     # a figure only with a unit ("un segundo"), not alone
-_EDGE = (",", ";", ":", ".", "?", "!")
-
-
-def _digits(raw: str) -> float | None:
-    """A number written with digits ("17", "1.000", "2,5", "40 %"), else None."""
-    body = raw.rstrip("%").strip()
-    if not body or not body.replace(".", "").replace(",", "").isdigit():
-        return None
-    if "," in body and "." not in body and len(body.split(",")[-1]) != 3:
-        body = body.replace(",", ".")                       # "2,5" is two and a half; "17,000" is seventeen thousand
-    elif "." in body and "," not in body and len(body.split(".")[-1]) != 3:
-        pass                                                # "1.5"
-    else:
-        body = body.replace(".", "").replace(",", "")
-    try:
-        return float(body)
-    except ValueError:
-        return None
-
-
-def spelled(words: list[str], i: int) -> tuple[float, int] | None:
-    """The number said from word i on, in digits or in words, and the index after it:
-    "ciento sesenta y uno" → 161, "fifty-four" → 54, "17 mil" → 17000, "two million" → 2000000.
-    A word that ends a clause ("10,") ends the number."""
-    total, group, last, end, said = 0.0, 0.0, None, i, False
-    k = i
-    while k < len(words):
-        raw = _clean(words[k])
-        parts = tokens(raw)
-        joint = len(parts) == 1 and parts[0] in ("y", "and")
-        if joint:                                           # "sesenta y uno", "one hundred and five"
-            nxt = tokens(_clean(words[k + 1])) if k + 1 < len(words) else []
-            if not said or words[k - 1].rstrip().endswith(_EDGE) or not nxt or nxt[0] not in SPELLED \
-                    or last is None or SPELLED[nxt[0]] >= last or (last < 20 and last != 100):
-                break
-            k += 1
-            continue
-        if k == i and _digits(raw) is not None and "%" not in raw[:-1]:
-            group, last, said = _digits(raw) or 0.0, None, True
-            end = k + 1
-        elif parts and all(p in SPELLED or p in SCALES or p == "hundred" for p in parts):
-            ok = True
-            for p in parts:
-                if p in SCALES:
-                    if not said and not group and SCALES[p] > 1000:      # "millones" alone is not a figure
-                        ok = False
-                        break
-                    total += (group or 1) * SCALES[p]
-                    group, last = 0.0, None
-                elif p == "hundred":
-                    if group >= 100 or (said and not group):
-                        ok = False
-                        break
-                    group, last = (group or 1) * 100, 100
-                else:
-                    n = SPELLED[p]
-                    if last is not None and n >= last or (said and last is None and group):
-                        ok = False
-                        break
-                    group, last = group + n, n
-                said = True
-            if not ok:
-                break
-            end = k + 1
-        else:
-            break
-        if words[k].rstrip().endswith(_EDGE):
-            break
-        k += 1
-    if not said or end == i:
-        return None
-    return total + group, end
 
 
 def _number(words: list[str], plain: list[str], i: int) -> tuple[float, int] | None:
