@@ -31,7 +31,7 @@ def make_plan(svc: Services, project: Project, force: bool = False) -> Path | No
     elif project.cfg.get("talk"):                             # meetings / classes: all the speech, long pauses shortened
         plan = talk_plan(infos, analyses, project.cfg)
     elif project.cfg.get("explainer"):                        # a script said to the camera + its cues as cutaways
-        plan = script_plan(svc, project, analyses)
+        plan = script_plan(svc, project, analyses, infos)    # infos: a source without a picture is a voice memo
     else:
         plan = product_plan_or_none(svc, project, infos, analyses, project.cfg)     # unboxing + vision model
     if not plan:

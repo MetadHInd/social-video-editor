@@ -37,6 +37,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `sve music --compose [--preset P] [--seconds N] [--seed S] [--bpm B] [--out FILE] [--pack NAME]
   [--project P]`: a standalone track (the arc in whole bars) or the one for a project's plan, with its proof
   of origin; `.m4a` / `.mp3` outputs keep the lossless `.flac` the proof describes.
+- **The director chooses the newer graphics by itself** (`explainer`, no cue needed; each one a setting, all on):
+  figures tied to three or more years, said in digits or in words, in one sentence or over up to three →
+  `line_chart` (`script.auto_line_chart`); two things with a proper name and a figure each ("the iPhone lasts
+  20 hours and the Pixel 18", or `vs` / `frente a`), rows gathered over two sentences about the same two →
+  `versus` (`script.auto_versus`); a command between backticks or a shell command with its arguments → `code`
+  (`script.auto_code`); a screenshot of the project the sentence names (`captura_ajustes_wifi.png`) → `screen`,
+  and a `photo` cue whose file is a screenshot (by its name or a phone screen's shape) is shown as one
+  (`script.auto_screen`); a flow between illustrated things ("your phone sends the photo to the router and then
+  to the cloud", branches and loops too) → `diagram`, preferred to a scene (`script.auto_diagram`). They are
+  drawn, never searched for, keep the variety rule and carry `"_auto": "director"`; `sve plan` logs what the
+  director chose by kind. With all of them off the plan is exactly the one of before (pinned by a test).
+- **Figures read in context** (`script.figure_context`, on): a figure whose unit is left unsaid takes the one
+  said before it, so "in the morning it takes twelve seconds. / In the evening, four." is one `bars` graphic over
+  both sentences (each bar named by its clause, figures in digits); "from 7 to 9 at night" is a time, not a figure;
+  "at once" is not eleven. `script.scene_fit` (on): "open the shower" is not drawn as an app opening.
+  `script.verb_bars` (off: it lowers the labelled bar checks 100 → 97.8 %): a bar with no noun is named by its
+  verb ("You sleep eight hours and spend five on the phone" → Sleep / On the phone).
+- **A voice memo is covered whole**: with no picture (the plan's `pictureless`, written from the media infos) the
+  director has no camera time at all — every sentence, the closing ones too, gets a graphic, card or footage from
+  its start, a sentence too short to stand alone goes on under its neighbour — and the notes over the backdrop
+  keep only what reads alone (figures and illustrations).
 - **Shorts from the same project** (stage 7): `[short name]` … `[/short]` (Spanish `[corto nombre]` … `[/corto]`)
   in an explainer script; `sve render <project> --short name` / `--shorts` (`--corto`, `--cortos`) renders each as
   a vertical video of its own (its sentences, the cutaways inside, framing, subtitles and sound; a variant folder

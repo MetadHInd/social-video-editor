@@ -196,6 +196,14 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `cortos_max` | `shorts_max` |
 | `corto_min` | `short_min` |
 | `corto_max` | `short_max` |
+| `lineas_auto` | `auto_line_chart` |
+| `versus_auto` | `auto_versus` |
+| `codigo_auto` | `auto_code` |
+| `capturas_auto` | `auto_screen` |
+| `diagramas_auto` | `auto_diagram` |
+| `cifras_en_contexto` | `figure_context` |
+| `escenas_ajustadas` | `scene_fit` |
+| `barras_con_verbos` | `verb_bars` |
 
 ### Values of `config.script.take`
 
