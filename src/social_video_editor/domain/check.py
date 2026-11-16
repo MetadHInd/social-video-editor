@@ -349,6 +349,24 @@ def burst_rate(burst) -> float:
     return (n - 1) / (b - a) if n > 2 and b > a else 0.0
 
 
+def composed_beats(composed: dict | None, total: float | None = None) -> list[float]:
+    """The beat grid of a track the engine composed (cfg music._composed / summary music_composed):
+    every music section (not a silence) has its beats every 60/bpm s from its start, as the composer
+    wrote them (domain/compose.py), the grid starting again after each silence."""
+    if not composed or not composed.get("bpm"):
+        return []
+    T = 60.0 / float(composed["bpm"])
+    out: list[float] = []
+    for kind, start, end in composed.get("sections") or []:
+        if kind == "silence":
+            continue
+        t = float(start)
+        while t < float(end) - 1e-3 and (total is None or t <= total + 1):
+            out.append(round(t, 4))
+            t += T
+    return sorted(set(out))
+
+
 def beat_deviation(cuts: list[float], beats: list[float], half_beats: bool = False) -> list[float]:
     """Distance of every cut to the nearest beat (or half beat)."""
     if not beats:

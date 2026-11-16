@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from ..domain import automix, review
+from ..domain import compose as dc
 from ..domain import products as dp
 from ..domain import shorts as dshorts
 from ..domain import pip as pip_window
@@ -278,6 +279,12 @@ def _music(svc: Services, project: Project, cfg: dict, latest: dict | None) -> d
            "settings": {k: m[k] for k in MUSIC_SETTINGS if m.get(k) is not None}}
     if m.get("playlist") and m.get("file") not in (False, "none"):
         out["playlist"] = _playlist(svc, project, m)
+        return out
+    if dc.is_compose(m):                    # music.file: compose — the engine writes the track at render time
+        made = ((latest or {}).get("summary") or {}).get("music_composed") or {}
+        out["composed"] = {"preset": made.get("preset") or (m.get("compose") or {}).get("preset") or "default",
+                           "bpm": made.get("bpm"), "key": made.get("key"),
+                           "sections": [str(x[0]) for x in made.get("sections") or []]}
         return out
     try:
         path = svc.projects.find_music(m, project.dir)
@@ -632,6 +639,15 @@ def report_lines(r: dict, full: bool = False) -> list[str]:
                        if pl["minutes"] is not None else "length unknown (not analyzed)")
             out.append(f"MUSIC playlist of {pl['songs']} songs · {minutes} · "
                        f"AutoMix {'on' if pl['automix'] else 'off'}")
+    elif m.get("composed"):
+        c = m["composed"]
+        line = f"MUSIC compose ({c['preset']})"
+        if c.get("bpm"):
+            line += f" · {_num(c['bpm'], 'g')} BPM" + (f" · {c['key']}" if c.get("key") else "")
+            line += (" · " + " → ".join(c["sections"])) if c["sections"] else ""
+        else:
+            line += " · composed at the next render"
+        out.append(_message(line))
     elif m.get("error"):
         out.append(f"MUSIC {_message(m['error'])}")
     elif not m["file"] and not m.get("rendered_file"):

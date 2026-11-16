@@ -54,3 +54,31 @@ def test_report_says_how_products_are_named(workspace, capsys):
     main(["report", d.name])
     out = capsys.readouterr().out
     assert "named by clip · ⚠ 4 low confidence: names unsure" in out
+
+
+def test_composed_music_in_the_report_and_its_beats_in_the_check(workspace, capsys):
+    import json
+
+    import yaml
+
+    import report_projects as rp
+    from social_video_editor.cli import main
+    from social_video_editor.domain import check as ck
+
+    d = rp.talk(workspace)
+    data = yaml.safe_load((d / "project.yaml").read_text(encoding="utf-8"))
+    data["settings"] = {"music": {"file": "compose", "compose": {"preset": "calm"}}}
+    (d / "project.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    main(["report", d.name])
+    out = capsys.readouterr().out
+    assert "MUSIC compose (calm) · composed at the next render" in out and "not found" not in out
+    summary_file = d / "v1SinMusica" / "summary.json"
+    summary = json.loads(summary_file.read_text(encoding="utf-8"))
+    summary["music_composed"] = {"preset": "calm", "bpm": 120, "key": "C major",
+                                 "sections": [["intro", 0, 4], ["silence", 4, 5], ["chorus", 5, 7]]}
+    summary_file.write_text(json.dumps(summary), encoding="utf-8")
+    main(["report", d.name])
+    assert "MUSIC compose (calm) · 120 BPM · C major · intro → silence → chorus" in capsys.readouterr().out
+    beats = ck.composed_beats(summary["music_composed"])
+    assert beats == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 5.0, 5.5, 6.0, 6.5]     # the grid starts again after a silence
+    assert ck.composed_beats(None) == [] and ck.composed_beats(summary["music_composed"], total=1.0) == [0.0, 0.5, 1.0, 1.5, 2.0]

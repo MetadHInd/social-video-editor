@@ -352,6 +352,10 @@ class Checker:
             self._beat_deviation([b for b in tl["beats"] if 0 <= b <= total + 1],
                                  round(float(np.median(tempos)), 2) if tempos else None)
             return
+        composed = (self.cfg.get("music") or {}).get("_composed") or self.summary.get("music_composed")
+        if composed:                                                # music.file: compose — the composer's own grid
+            self._beat_deviation(ck.composed_beats(composed, total), composed.get("bpm"))
+            return
         try:
             path = self.svc.projects.find_music(self.cfg["music"], folder)
         except UserError:
