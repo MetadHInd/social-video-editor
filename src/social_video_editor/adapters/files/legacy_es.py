@@ -106,7 +106,7 @@ HOOK_STRATEGIES = {"inicio": "start"}                # unchanged: teaser
 FRAMING_MODES = {"recortar": "crop", "desenfoque": "blur"}   # unchanged: auto
 FOOTAGE_KINDS = {"oficial": "official", "banco": "stock"}     # b-roll: a brand's own channel / a free library
 MUSIC_ALIGN = {"exacto": "exact"}
-MUSIC_FILE = {"ninguna": "none", "no": "none"}       # music.file: none = no music
+MUSIC_FILE = {"ninguna": "none", "no": "none", "componer": "compose"}   # none = no music; compose = the engine's
 SFX_NAMES = {"tecla": "keystroke", "obturador": "shutter"}   # unchanged: whoosh, pop, flash
 RECIPE_NAMES = {"resena": "review", "antes_despues": "before_after"}
 # unchanged: base, unboxing, tutorial, vlog, storytime
@@ -225,8 +225,11 @@ CONFIG = Ctx(
                            "drop_en_seg": "drop_at", "alinear": "align", "_entrada": "_start",
                            "bpm": "bpm", "factor_tempo": "tempo_factor", "lista": "playlist",
                            "relativa_a_voz": "relative_to_voice", "bajo_voz_db": "under_voice_db",
-                           "bajo_pausa_db": "under_pause_db", "entrada_mas_db": "intro_db"},
-                     values={"file": MUSIC_FILE, "align": MUSIC_ALIGN}),
+                           "bajo_pausa_db": "under_pause_db", "entrada_mas_db": "intro_db",
+                           "componer": "compose"},
+                     values={"file": MUSIC_FILE, "align": MUSIC_ALIGN},
+                     children={"compose": Ctx(keys={"estilo": "preset", "semilla": "seed", "silencios": "silences",
+                                                    "acentos": "accents", "volumen_lufs": "lufs"})}),
         "sfx": Ctx(keys={"activado": "enabled", "volumen_db": "volume_db", "pop_en_textos": "pop_on_texts",
                          "tecleo": "typing", "tecleo_db": "typing_db", "tecleo_max_por_seg": "typing_max_per_sec",
                          "whoosh_en_transiciones": "whoosh_on_transitions"}),

@@ -24,6 +24,7 @@ from .adapters.opencv.video_analyzer import OpenCvVideoAnalyzer
 from .adapters.pillow.composer import PillowComposer
 from .adapters.pillow.text_layer import PillowTextRenderer
 from .adapters.skia.renderer import SkiaGraphicRenderer
+from .adapters.synth.renderer import NumpySynthesizer
 from .adapters.upscale.lanczos import LanczosUpscaler
 from .adapters.upscale.realesrgan import RealEsrganUpscaler
 from .adapters.whisper.transcriber import EngineTranscriber, WhisperTranscriber
@@ -56,4 +57,5 @@ def build_services() -> Services:
         footage={s.name: s for s in (OfficialChannelSource(), PexelsSource(), PixabaySource(), WikimediaSource())},
         classifier=NliClassifier(),      # lazy: transformers only loaded when the decider asks it
         reasoner=OllamaReasoner(),       # plain HTTP to a local Ollama server (nothing loaded here)
+        synth=NumpySynthesizer(),        # lazy: numpy / scipy / soundfile only loaded when it composes
     )

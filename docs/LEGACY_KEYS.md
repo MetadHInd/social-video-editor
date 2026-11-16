@@ -427,6 +427,17 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `bajo_voz_db` | `under_voice_db` |
 | `bajo_pausa_db` | `under_pause_db` |
 | `entrada_mas_db` | `intro_db` |
+| `componer` | `compose` |
+
+### Keys of `config.music.compose`
+
+| Spanish | English |
+|---|---|
+| `estilo` | `preset` |
+| `semilla` | `seed` |
+| `silencios` | `silences` |
+| `acentos` | `accents` |
+| `volumen_lufs` | `lufs` |
 
 ### Values of `config.music.file`
 
@@ -434,6 +445,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `ninguna` | `none` |
 | `no` | `none` |
+| `componer` | `compose` |
 
 ### Values of `config.music.align`
 
