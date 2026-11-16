@@ -38,7 +38,7 @@ SEARCH_TTL = 24 * 3600                      # stock libraries ask for search ans
 PREVIEWS = "footage_preview"                # in the project cache: small copies of long videos, deleted after use
 SHOWN = 3                                   # candidates listed per cue by --dry-run
 PAD = 0.5                                   # seconds kept around the piece of a long video
-CARD_CONTENT = ("text", "items", "value", "data")   # what makes a drawn card show something
+CARD_CONTENT = ("text", "items", "value", "data", "nodes", "rows", "lines", "image")   # what makes a drawn card show something
 AUTO_DIRECTOR = "director"                  # "_auto" of the b-roll the director proposed (domain/director.py)
 LOOK_FPS = 1.0                              # frames per second the vision model looks at in a downloaded clip
 MOTION_FRAMES = (0.15, 0.4, 0.65, 0.9)      # where in the chosen piece its motion is measured
@@ -575,7 +575,8 @@ def _settle(svc: Services, project: Project, plan: dict, cues: list[dict], doubt
             c = before[e["n"]] if e["n"] in drop else plan["cutaways"][e["n"]]
             card = {k: v for k, v in (c.get("fallback") or {}).items() if v}
             if not card and c.get("at_sentence") is not None and int(c["at_sentence"]) in said:
-                card = director.card(said[int(c["at_sentence"])], main=main, decide=decide)
+                card = director.card(said[int(c["at_sentence"])], main=main, decide=decide,
+                                     opts=director.settings(project.cfg))
             cards[e["n"]] = card
     return drop, by, cards
 

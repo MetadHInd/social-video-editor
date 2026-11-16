@@ -74,7 +74,7 @@ SHORTEN_CONFIDENCE = 0.6    # how sure the rules are that cutting the last words
 SHORTEN_PROMPT = {"es": "¿Cuál de estos textos más cortos se entiende mejor y dice lo mismo?",
                   "en": "Which of these shorter texts reads best and still says the same thing?"}
 _CLAUSE = re.compile(r"[,;:]\s+")
-CARD_CONTENT = ("text", "items", "value", "data")   # what makes a drawing show something (application/broll.py)
+CARD_CONTENT = ("text", "items", "value", "data", "nodes", "rows", "lines", "image")   # a drawing shows something (application/broll.py)
 FOOTAGE = "footage/"        # fetched clips live there (domain/footage.FOLDER): another one can be fetched
 CARD_KEEP = ("at_sentence", "until_sentence", "from_word", "seconds", "note", "_decided")   # a drawing keeps where it was
 FACE_SLACK = 0.1            # share of the face's height that may be cut before it counts
@@ -257,19 +257,24 @@ def sooner(plan: dict, layout: Layout, c: Cutaway, missing: float) -> list | Non
 
 
 def camera_stretches(plan: dict, layout: Layout, cfg: dict, decide: Decide | None = None) -> list[Issue]:
-    """Stretches where the presenter is alone (no full-frame cutaway) for longer than the director allows."""
+    """Stretches where the presenter is alone (no full-frame cutaway) for longer than the director allows.
+    A sentence of a source without picture (a voice memo, `pictureless`) allows no camera time at all,
+    the closing one included."""
     d = director.settings(cfg)
     if not d["auto_broll"] or not layout.spans:
         return []
     slack = float(settings(cfg)["camera_slack"])
+    blind = director.pictureless_sources(plan)
+    unseen = {int(x["n"]) for x in plan.get("sentences") or [] if isinstance(x, dict) and x.get("source") in blind}
     covers = sorted((c.start, c.end) for c in layout.placed if not c.overlay and not c.pip)
-    last = layout.spans[max(layout.spans)]
+    closing = max(layout.spans)
+    last = layout.spans[closing]
     out, t = [], 0.0
     for a, b in covers + [(layout.total, layout.total)]:
-        end = min(a, last[0]) if b >= layout.total - 1e-6 else a   # the closing sentence stays on camera
-        allowed = float(d["opening"] if t < 0.05 else d["max_camera"]) + slack
+        end = min(a, last[0]) if b >= layout.total - 1e-6 and closing not in unseen else a   # the closing sentence stays on camera
+        inside = [n for n, (s0, s1) in layout.spans.items() if s0 < end - 0.05 and s1 > t + 0.05]
+        allowed = (0.0 if any(n in unseen for n in inside) else float(d["opening"] if t < 0.05 else d["max_camera"])) + slack
         if end - t > allowed:
-            inside = [n for n, (s0, s1) in layout.spans.items() if s0 < end - 0.05 and s1 > t + 0.05]
             fresh = [c for c in director.propose(plan, cfg, overlay_templates(), decide=decide) if c.get("at_sentence") in inside]
             out.append(Issue("camera_too_long", f"the presenter is alone on camera {end - t:.1f} s from {t:.1f} s "
                              f"(most {allowed - slack:g} s)", t, None, {"add": fresh} if fresh else None,
@@ -312,7 +317,7 @@ def drawing(plan: dict, c: dict, cfg: dict | None = None, decide: Decide | None 
         return None
     at = float(c["from_word"][1]) if c.get("from_word") else None
     card = director.card(sentence, at, main=director.topic(found), last=str(c.get("template") or "") or None,
-                         decide=decide, language=(cfg or {}).get("language"))
+                         decide=decide, language=(cfg or {}).get("language"), opts=director.settings(cfg or {}))
     return card if card.get("template") not in was and any(card.get(k) for k in CARD_CONTENT) else None
 
 

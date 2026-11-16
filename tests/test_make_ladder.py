@@ -226,3 +226,20 @@ def test_make_reviews_a_talk_too(workspace, monkeypatch, capsys):
     assert "text_outside_safe_zone: text 0 «Welcome» y=" in out
     assert len([p for p in d.glob("v*") if p.is_dir()]) == 1
     assert json.loads((d / "review.json").read_text(encoding="utf-8"))["renders"] == 2
+
+
+def test_a_voice_memo_allows_no_camera_time_not_even_at_the_close():
+    from social_video_editor.domain.cutaways import sentence_spans
+    from social_video_editor.domain.timeline import compute_timeline
+    from test_director import cfg
+
+    plan = plan_for()
+    plan["cutaways"] = []
+    tl = compute_timeline(plan, {"output": {"fps": 30}, "transitions": {"duration": 0.2}})
+    lay = review.Layout([], {}, sentence_spans(plan, tl), tl.total)
+    seen = review.camera_stretches(plan, lay, cfg(max_camera=60.0, opening=60.0))
+    assert seen == []                                                   # a camera: long limits are kept
+    plan["pictureless"] = [0]
+    (x,) = review.camera_stretches(plan, lay, cfg(max_camera=60.0, opening=60.0))
+    assert x.code == "camera_too_long" and "most 0 s" in x.message
+    assert x.message.split("alone on camera ")[1].startswith(f"{tl.total:.1f} s")    # the closing sentence counts too
