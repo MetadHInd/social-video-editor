@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from ..domain import decide as dd
-from ..domain import director, footage
+from ..domain import director, footage, review
 from ..domain import products as dp
 from ..domain.cutaways import FREE_SECONDS, kind_of
 from ..domain.footage import FootageError
@@ -165,10 +165,11 @@ class _Looker:
         return (spans[best][0], spans[best][1]), shown
 
 
-def _lengths(svc: Services, cfg: dict, plan: dict, W: int, H: int) -> dict[int, float]:
-    """{cutaway index: seconds it is on screen}; {} for a plan that cannot be placed yet."""
+def _lengths(svc: Services, cfg: dict, plan: dict, W: int, H: int, base: Path | None = None) -> dict[int, float]:
+    """{cutaway index: seconds it is on screen}; {} for a plan that cannot be placed yet. base: the
+    project folder (a graphic's files are relative to it, as in the render)."""
     try:
-        placed, _ = place_cutaways(svc, cfg, plan, compute_timeline(plan, cfg), W, H)
+        placed, _ = place_cutaways(svc, cfg, plan, compute_timeline(plan, cfg), W, H, base=base)
     except (UserError, KeyError, TypeError, ValueError):
         return {}
     return {c.index: c.end - c.start for c in placed}
@@ -222,7 +223,8 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
     W, H = int(cfg["output"]["width"]), int(cfg["output"]["height"])
     orientation = "portrait" if H > W else "landscape" if W > H else "square"
     language = str(cfg.get("language", "es"))
-    lengths = _lengths(svc, cfg, plan, W, H)
+    lengths = _lengths(svc, cfg, plan, W, H, project.dir)
+    keep_match = float(review.settings(cfg)["clip_match"]) > 0       # sve make judges the clips' match (review.clip_match)
     records = footage_records(svc, project)
     cache_path = project.cache / SEARCH_CACHE
     cache = svc.projects.read_json(cache_path)
@@ -253,6 +255,8 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
             entry["status"] = "no_query"
             entry["notes"].append("no query to search with (query=\"…\"), and its file is missing")
             continue
+        refused = {(records[f].get("source"), _clip_id(f, records[f]))           # turned down for this cue (sve make)
+                   for f in c.get("_rejected") or [] if f in records}
         brand = footage.find_brand(c.get("brand") or query, listed)
         if c.get("brand") and brand is None:
             entry["notes"].append(f"brand '{c['brand']}' is not in the list of official channels (broll.brands)")
@@ -286,7 +290,8 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
                 continue
             ranked, rejected = footage.rank(found, W, H, need, s, brand)
             ranked = [x for x in ranked if (x.get("source"), str(x.get("id"))) not in taken     # never the same clip twice
-                      and (x.get("source"), str(x.get("id"))) not in turned_down]                 # nor one turned down
+                      and (x.get("source"), str(x.get("id"))) not in turned_down                  # nor one turned down
+                      and (x.get("source"), str(x.get("id"))) not in refused]
             if not ranked:
                 why = f" ({rejected[0][1]})" if rejected else ""
                 entry["notes"].append(f"{name}: nothing usable among {len(found)} results{why}")
@@ -303,8 +308,10 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
             old = str(c.get("file") or "")
             before, old_rec = dict(c), records.get(old)
             c["file"], c["clip_start"] = file, round(start, 3)
-            for k in ("focus_x", "focus_y", "fit"):
+            for k in ("focus_x", "focus_y", "fit", "_match"):
                 c.pop(k, None)
+            if keep_match and score is not None:
+                c["_match"] = round(float(score), 3)        # private: what the review compares with review.clip_match
             if focus:                                       # where the clip is cropped to fill the frame
                 c["focus_x"], c["focus_y"] = focus
             if fit:                                         # the subject is wider than a crop: shown whole, large
@@ -352,6 +359,9 @@ def fetch_broll(svc: Services, project: Project, dry_run: bool = False, force: b
                 svc.projects.save_plan(project, plan)
                 log(f"B-roll: {len(drop)} clip(s) turned down; trying the next candidates")
                 return fetch_broll(svc, project, dry_run, False, _retry=True)
+            if drop:                        # turned down again: never downloaded for this project again either
+                turned_down |= {d["key"] for d in doubts if d["n"] in drop}
+                svc.projects.write_json(rejected_path, sorted(list(k) for k in turned_down))
         for e in out["cues"]:
             c = plan["cutaways"][e["n"]]
             if e["status"] != "missing" or not s.get("fallback_card", True):

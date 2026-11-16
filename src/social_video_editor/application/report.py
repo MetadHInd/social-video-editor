@@ -125,6 +125,11 @@ def todo(r: dict) -> list[dict]:
     if pr and pr["low_confidence"]:
         add(f"{pr['low_confidence']} products of low confidence (marked ?)",
             "look: sve thumbs <project> --source S --start A --end B")
+    adjusted = (r.get("review") or {}).get("settings") or {}
+    if adjusted:
+        said = ", ".join(f"{k}.{x}: {y!r}" for k, vals in adjusted.items() if isinstance(vals, dict) for x, y in vals.items())
+        add(f"sve make renders with settings it adjusted ({said}; review.json)",
+            "copy them into project.yaml settings so sve render uses them too")
     fo = r.get("footage")
     if fo and fo["unused"]:
         add(f"{fo['unused']} clips in footage/ no plan uses ({megabytes(fo['bytes'])})",

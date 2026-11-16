@@ -38,7 +38,8 @@ def view_lines(svc: Services, project: Project) -> list[str]:
             lines.append(shot_line(tl[shot.index]))
     for tx in absolute_texts(plan, tl):
         lines.append(f"   text [{mmss(tx['start'])}–{mmss(tx['end'])}] ({tx.get('style', 'simple')}) {tx['text']}")
-    placed, warnings = place_cutaways(svc, cfg, plan, tl, int(cfg["output"]["width"]), int(cfg["output"]["height"]))
+    placed, warnings = place_cutaways(svc, cfg, plan, tl, int(cfg["output"]["width"]), int(cfg["output"]["height"]),
+                                      base=project.dir)
     for c in placed:
         lines.append(f"   cutaway [{mmss(c.start)}–{mmss(c.end)}] {c.kind} {c.label}"
                      + (" (over the picture)" if c.overlay else ""))
