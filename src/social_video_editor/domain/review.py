@@ -81,6 +81,7 @@ FACE_SLACK = 0.1            # share of the face's height that may be cut before 
 FACE_WIDTH = 0.75           # a face is about this wide for its height
 SAFE_MARGIN = 0.01          # a text moved inside the safe zone goes this much further in
 _EDGE = re.compile(r"(top|bottom) ([\d.]+)·H [<>] ([\d.]+)")
+LEGACY = ("drop", "set", "add")     # remedies of before the ladder: their first one is marked by the key alone
 MUSIC_MARGIN = 1.0          # dB lowered beyond what was missing
 
 
@@ -675,7 +676,7 @@ def _tags(key: str, k: int, fix: dict) -> set[str]:
     """What marks a remedy as tried: the finding's key for its first remedy (as before the ladder), and
     key|remedy for every remedy (another clip: per clip turned down)."""
     tags = {f"{key}|{_step_name(fix)}"}
-    if k == 0 and "another_clip" not in fix:
+    if k == 0 and _step_name(fix) in LEGACY:
         tags.add(key)
     return tags
 

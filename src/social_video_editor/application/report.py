@@ -464,11 +464,11 @@ def _script_lines(sc: dict | None, limit: int = MAX_SENTENCES) -> list[str]:
         out.append("  " + _message(f"⚠ sentence {s['n']} not found in the recording: {s['text']}"))
     if len(sc["missing"]) > missing:
         out.append(_more(len(sc["missing"]) - missing, "sentences not found"))
-    if sc["repeated"] and limit < FULL:
-        out.append(f"  {len(sc['repeated'])} sentences said more than once: the last good take is used (--full)")
-    elif sc["repeated"]:
-        out += _pack([f"sentence {s['n']}: {s['takes']} takes, used the one at {mmss(s['start'])}"
-                      for s in sc["repeated"]])
+    if sc["repeated"]:
+        tokens = [f"sentence {s['n']}: {s['takes']} takes, used the one at {mmss(s['start'])}" for s in sc["repeated"]]
+        lines = _pack(tokens)
+        out += lines if len(lines) == 1 or limit >= FULL else \
+            [f"  {len(sc['repeated'])} sentences said more than once: the last good take is used (--full)"]
     for s in sc["weak"][:limit]:
         out.append("  " + _message(f"? sentence {s['n']} matched {float(s['score']):.0%}: {s['text']}"))
     if len(sc["weak"]) > limit:
