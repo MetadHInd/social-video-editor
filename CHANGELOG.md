@@ -268,6 +268,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   is installed.
 - The decider's language model receives pictures larger than 960 pixels scaled down (a full-HD b-roll frame
   took ≈16 s a question).
+- Hooks for packs that draw places: a template's `scenery()` may draw a place instead of the theme's stage; a
+  pack's `backdrop` element is drawn as the picture of a voice memo; `dresser` / `dress()` let a pack complete
+  the graphic chosen for a sentence from the whole sentence; `SceneAction.arrange()` / `play()` put a scene's
+  action in any box. Without a pack nothing changes.
 
 ### Fixed
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now

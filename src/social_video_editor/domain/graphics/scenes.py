@@ -278,17 +278,28 @@ class SceneAction(Scene):
         else:
             self.text_c = (x0 + room_w / 2, st.center[1])
             area = (x0 + room_w + z(60), y0, x1, y1)
-        self.area = area
+        self.arrange(area)
+        self.block = (st.safe_w, st.safe_h * 0.9)        # it fills the safe zone by construction
+        self.settle = ENTER + ACT + 0.25
+
+    def arrange(self, area: tuple[float, float, float, float], tall: bool | None = None) -> None:
+        """Places the action inside `area` (x0, y0, x1, y1): its middle, its size and, for an action between
+        two things, where each one stands — one above the other when `tall` (default: a vertical frame),
+        else side by side. A template that draws the action somewhere else (a pack's place) calls it again."""
+        tall = self.st.vertical if tall is None else tall
+        self.tall, self.area = tall, area
         aw, ah = area[2] - area[0], area[3] - area[1]
         self.cx, self.cy = (area[0] + area[2]) / 2, (area[1] + area[3]) / 2
         two = self.action in TWO
         self.S = min(aw, ah * 0.86) * (0.78 if two else 1.12)     # an illustration fills about half to 0.9 of its box
         if two:                                    # one above the other (vertical) or side by side (landscape)
-            d = (ah if st.vertical else aw) * 0.25
-            self.a = (self.cx - aw * 0.12, self.cy - d) if st.vertical else (self.cx - d, self.cy - ah * 0.05)
-            self.b = (self.cx + aw * 0.12, self.cy + d) if st.vertical else (self.cx + d, self.cy + ah * 0.05)
-        self.block = (st.safe_w, st.safe_h * 0.9)        # it fills the safe zone by construction
-        self.settle = ENTER + ACT + 0.25
+            d = (ah if tall else aw) * 0.25
+            self.a = (self.cx - aw * 0.12, self.cy - d) if tall else (self.cx - d, self.cy - ah * 0.05)
+            self.b = (self.cx + aw * 0.12, self.cy + d) if tall else (self.cx + d, self.cy + ah * 0.05)
+
+    def play(self, cv: Canvas, t: float) -> None:
+        """The action alone at instant t, where arrange() put it (no glow, poster or sparkles)."""
+        getattr(self, "_" + self.action)(cv, t)
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _p(self, t: float) -> float:
@@ -314,7 +325,7 @@ class SceneAction(Scene):
         kit.glow(cv, st, self.cx, self.cy, self.S * 0.75, self._color(self.subject), t)
         with saved(cv):
             cv.scale(pop, pop, self.cx, self.cy)
-            getattr(self, "_" + self.action)(cv, t)
+            self.play(cv, t)
         if self.rows:
             since = t - 0.2
             kit.poster(cv, st, self.rows, *self.text_c, self.size, self.ink_name,
@@ -450,10 +461,10 @@ class SceneAction(Scene):
         (ax, ay), (bx, by) = self.a, self.b
         self._hero(cv, self.subject, ax, ay, S, t)
         self._hero(cv, self.target, bx, by, S, t, active=motion.shake(t - ENTER - ACT))
-        side = 1 if self.st.vertical else -1
-        mid = ((ax + bx) / 2 + side * S * 0.55, (ay + by) / 2 - (0 if self.st.vertical else S * 0.45))
-        return smooth_points([(ax + S * 0.3 * (1 if bx > ax else -1) * (0 if self.st.vertical else 1), ay + S * 0.35 * (1 if self.st.vertical else 0)),
-                              mid, (bx, by - S * 0.55 if self.st.vertical else by)], tension=0.6)
+        side = 1 if self.tall else -1
+        mid = ((ax + bx) / 2 + side * S * 0.55, (ay + by) / 2 - (0 if self.tall else S * 0.45))
+        return smooth_points([(ax + S * 0.3 * (1 if bx > ax else -1) * (0 if self.tall else 1), ay + S * 0.35 * (1 if self.tall else 0)),
+                              mid, (bx, by - S * 0.55 if self.tall else by)], tension=0.6)
 
     def _send(self, cv: Canvas, t: float) -> None:
         """A packet travels from one to the other, again and again."""
@@ -708,11 +719,11 @@ class SceneAction(Scene):
         st, S = self.st, self.S
         c = st.theme["colors"]
         (ax, ay), (bx, by) = self.a, self.b
-        ax, bx = (ax - S * 0.05, bx + S * 0.05) if not st.vertical else (ax - S * 0.04, bx + S * 0.04)
+        ax, bx = (ax - S * 0.05, bx + S * 0.05) if not self.tall else (ax - S * 0.04, bx + S * 0.04)
         self._hero(cv, self.subject, ax, ay, S * 0.78, t)
         self._hero(cv, self.target, bx, by, S * 0.78, t, active=motion.shake(t - ENTER - ACT))
         d = 1 if bx > ax else -1                                       # it hangs between them like a cable
-        if st.vertical:
+        if self.tall:
             start, end = (ax + d * S * 0.06, ay + S * 0.36), (bx - d * S * 0.33, by + S * 0.08)
         else:
             start, end = (ax + d * S * 0.2, ay + S * 0.25), (bx - d * S * 0.33, by + S * 0.08)
