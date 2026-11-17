@@ -35,6 +35,7 @@ DEFAULTS = {
     "nli_model": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
     "llm": "auto",          # auto = when a local server has the model · false = never
     "llm_model": "qwen3.5:9b",
+    "llm_start": True,      # the local server is started when it is not running, and stopped when the run ends
     "llm_min": 0.5,         # a language-model answer less sure than this keeps the previous answer
     "timeout": 60,          # seconds per language-model request
     "device": "cpu",        # the small classifier: cpu | mps | cuda

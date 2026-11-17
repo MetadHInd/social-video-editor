@@ -574,6 +574,7 @@ The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPH
 | `llm_min` | `llm_min` |
 | `espera_max` | `timeout` |
 | `dispositivo` | `device` |
+| `arrancar_llm` | `llm_start` |
 
 ### Keys of `config.review` (the engine's own review in `sve make` / `sve hacer`)
 

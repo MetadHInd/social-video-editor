@@ -389,6 +389,8 @@ decider:                 # closed questions the hand rules are unsure of, answer
   nli_model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7   # MIT · pip install 'social-video-editor[decider]'
   llm: auto              # auto = when a local Ollama server has llm_model · false = never
   llm_model: qwen3.5:9b  # Apache-2.0 · brew install ollama && ollama pull qwen3.5:9b
+  llm_start: true        # the Ollama server is not running → the engine starts it (`ollama serve`) and stops it when
+                         # the run ends; a server that was already running is left as it was · false = never start it
   llm_min: 0.5           # a language-model answer less sure than this keeps the previous answer
   timeout: 60            # seconds per language-model request
   device: cpu            # the small classifier: cpu | mps | cuda

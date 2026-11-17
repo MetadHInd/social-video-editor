@@ -374,7 +374,10 @@ rules are **unsure of** are answered by **local** models, nothing paid per use:
 1. a small zero-shot classifier (`MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`, MIT,
    ≈560 MB; `pip install -e ".[decider]"`) — wired in but not used by the measured routes today, then
 2. a local language model through [Ollama](https://ollama.com) (`qwen3.5:9b`, Apache-2.0; it can also look
-   at a frame): `brew install ollama && brew services start ollama && ollama pull qwen3.5:9b`.
+   at a frame): `brew install ollama && brew services start ollama && ollama pull qwen3.5:9b`. After the
+   pull the server does not have to be kept running (`brew services stop ollama`): the engine starts it
+   when a step needs it and stops it when the command ends (`decider.llm_start`); a server that was
+   already running is left as it was.
 
 A model's answer replaces the rules' only when it is one of the options and at least as sure; when a model
 is missing, fails or is unsure, the rules' answer stands, so the video is never worse than without them.

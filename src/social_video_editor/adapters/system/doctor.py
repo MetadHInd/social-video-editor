@@ -133,8 +133,8 @@ def face_check() -> Check:
 
 def decider_checks(classifier=None, reasoner=None, settings: dict | None = None) -> list[Check]:
     """The decider's local models (decider.*): the small zero-shot classifier (installed, downloaded) and
-    the language model server (running, model pulled). Nothing is downloaded or loaded; the server is
-    only asked for its list of models (a local request; none with SVE_OFFLINE)."""
+    the language model server (running, model pulled). Nothing is downloaded, loaded or started; the
+    server is only asked for its list of models (a local request; none with SVE_OFFLINE)."""
     s = decider_settings(settings)
     use = "decider.enabled: auto or true" if str(s["enabled"]).lower() in ("false", "none", "0", "no") else None
     out: list[Check] = []
@@ -142,8 +142,12 @@ def decider_checks(classifier=None, reasoner=None, settings: dict | None = None)
                               ("decider: language model", reasoner, s["llm_model"])):
         if part is None:
             continue
-        why = part.ready(s)
-        if why:
+        why = part.ready({**s, "llm_start": False})      # a check never starts the server
+        can_start = getattr(part, "can_start", None)
+        if why and "not running" in why and callable(can_start) and can_start(s):
+            out.append(("ok", name, f"{model}: Ollama is not running — the engine starts it when a video needs it "
+                                    "and stops it afterwards (decider.llm_start)"))
+        elif why:
             out.append(("optional", name, f"{why} — closed questions the rules are unsure of"))
         else:
             out.append(("ok", name, f"{model}" + (f" (used with {use})" if use else "")))

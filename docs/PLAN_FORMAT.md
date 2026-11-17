@@ -877,11 +877,15 @@ kept in `cache/decisions_<id>.json` (asked again when the models or `ROUTES_VERS
 | `decider.nli_model` | `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` | The small classifier (`pip install 'social-video-editor[decider]'`). |
 | `decider.llm` | `auto` | `auto` = when a local Ollama server has `llm_model` · `false` = never. |
 | `decider.llm_model` | `qwen3.5:9b` | The local language model (`ollama pull qwen3.5:9b`). |
+| `decider.llm_start` | `true` | The Ollama server is not running → the engine starts it (`ollama serve`) when a step needs the language model and stops it when the command ends, after unloading the model. A server that was already running is left as it was; one on another machine (`OLLAMA_HOST`) is never started; one the engine started is left running when another program has a model loaded on it. `false` = never start it (rules only when it is not running). |
 | `decider.llm_min` | 0.5 | A language-model answer less sure than this keeps the previous one. |
 | `decider.timeout` | 60 | Seconds per language-model request. |
 | `decider.device` | `cpu` | Device of the small classifier (`cpu`, `mps`, `cuda`). |
 
 `OLLAMA_HOST` (default `127.0.0.1:11434`) points to another server; `SVE_OFFLINE=1` uses neither model.
+Ollama does not have to be kept running: with it installed and the model pulled, the engine starts the
+server for the commands that need it and stops it afterwards (`decider.llm_start`), so nothing stays in
+the background between videos. `sve doctor` never starts it.
 
 ## Third-party footage (`sve broll`)
 

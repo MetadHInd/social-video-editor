@@ -13,6 +13,13 @@ licensed footage, cleans the voice, composes the music, reviews its own render a
 Everything new is behind a setting; the old recipes render exactly as before.
 
 ### Added
+- **The Ollama server on demand** (`decider.llm_start`, Spanish `arrancar_llm`, on by default): when the
+  decider needs the local language model and no server is running on this machine, the engine starts
+  `ollama serve` itself and stops it when the command ends, after unloading the model — nothing has to be
+  kept running between videos. A server that was already running is never stopped, a server on another
+  machine (`OLLAMA_HOST`) is never started, a server the engine started is left running when another
+  program has a model loaded on it, and a start that fails is said once and the rules answer. `sve doctor`
+  never starts it and says when it would be started. `false` keeps the previous behaviour.
 - **Music the engine composes** (`music.file: compose`, Spanish `componer`): an original instrumental track
   for each video, synthesized with numpy (no samples, loops or downloads) from a style preset (`upbeat`,
   `calm`, `tense`, `warm`, `trap`, or a pack's own under `music:` in `pack.yaml`), a seed (default: from the
