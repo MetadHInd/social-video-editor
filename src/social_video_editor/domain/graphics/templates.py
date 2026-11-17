@@ -666,10 +666,17 @@ class ListScene(Scene):
 
 
 # ── lower third ──────────────────────────────────────────────────────────────
+# In a landscape frame the subtitles of the explainer recipe start at 0.77·H (measured: one line at its
+# widest, popped in); the safe zone's bottom (0.82·H) would put the box right on them. Vertical and square
+# frames keep the bottom of the safe zone (their subtitles sit in the band under it).
+LOWER_THIRD_LANDSCAPE_BOTTOM = 0.74
+
+
 @template("lower_third")
 class LowerThird(Scene):
     """A small caption box over the video, in the bottom-left corner of the safe zone so it covers as
     little of the picture as possible: who is talking, what is on screen, or where a clip comes from.
+    In a landscape frame it ends at LOWER_THIRD_LANDSCAPE_BOTTOM, clear of the subtitles.
 
     text · kicker (small line above: "Video", "On the channel"…) · color
     """
@@ -694,7 +701,8 @@ class LowerThird(Scene):
         head = self.k_size + z(10) if self.kicker else 0
         self.w, self.h = inner_w + 2 * pad_x + self.strip, pad_y * 2 + head + len(self.rows) * self.lh - z(8)
         self.x = st.safe[0]
-        self.y = st.safe[3] - self.h                         # bottom-left corner of the safe zone
+        bottom = st.safe[3] if st.H >= st.W else min(st.safe[3], LOWER_THIRD_LANDSCAPE_BOTTOM * st.H)
+        self.y = bottom - self.h                             # bottom-left corner of the safe zone
         self.pad_x, self.pad_y, self.head = pad_x, pad_y, head
         self.settle = 0.2 + motion.PRINT_SECONDS + 0.2
         self.exit_at = max(self.dur - 0.2, self.settle)
@@ -728,6 +736,16 @@ class LowerThird(Scene):
 
 
 # ── diagram ──────────────────────────────────────────────────────────────────
+def _bezier(p0, c1, c2, p3, n: int = 24) -> list:
+    """A cubic curve sampled as points."""
+    out = []
+    for k in range(n + 1):
+        s = k / n
+        a, b, c, d = (1 - s) ** 3, 3 * (1 - s) ** 2 * s, 3 * (1 - s) * s ** 2, s ** 3
+        out.append((a * p0[0] + b * c1[0] + c * c2[0] + d * p3[0], a * p0[1] + b * c1[1] + c * c2[1] + d * p3[1]))
+    return out
+
+
 @template("diagram")
 class Diagram(Scene):
     """How something works: 2-5 things and the arrows between them, played one step at a time while a
@@ -736,7 +754,13 @@ class Diagram(Scene):
 
     nodes="Phone, Router, Internet" (add ":ink" to color one: "Router:blue") ·
     icons="phone, router, globe" (to choose the illustrations; "-" = a plain card) ·
-    edges="Phone>Router:asks; Router>Internet" (in the order they happen; ":label" is optional) · title
+    edges="Phone>Router:asks; Router>Internet" (in the order they happen; ":label" is optional) · title ·
+    layout (chain or flow; default: flow when a thing has two arrows out to things after it)
+
+    A chain is a row (landscape) or a zigzag (vertical). A flow (up to 6 things) is laid out in steps:
+    each thing one step after the things that point to it, so a branch opens into two (columns left to
+    right in landscape, rows top to bottom in vertical); an arrow back to an earlier step is a loop
+    drawn around the outside.
     """
 
     default_dur = 5.0
@@ -748,8 +772,8 @@ class Diagram(Scene):
             name, _, color = item.partition(":")
             names.append(name.strip())
             given.append(color.strip() or None)
-        if not 2 <= len(names) <= 5:
-            raise PlanError(f"Graphic 'diagram' takes 2 to 5 nodes, not {len(names)}")
+        if not 2 <= len(names) <= 6:
+            raise PlanError(f"Graphic 'diagram' takes 2 to 5 nodes (6 when it branches), not {len(names)}")
         self.names = names
         n = len(names)
         asked = split_list(sp.get("icons"))
@@ -774,7 +798,13 @@ class Diagram(Scene):
         label_w = max([st.measure(lb, "label", self.edge_size) + self.edge_size for _, _, lb in parsed] + [0.0])
         self.bulge = z(104 if st.vertical else 84)
         cell_w = max(self.s, tag_w)
-        if st.vertical:                                    # a zigzag down the frame: left, right, left…
+        self.flow = self._is_flow(parsed, sp.get("layout"))
+        if not self.flow and n > 5:
+            raise PlanError(f"Graphic 'diagram' takes 2 to 5 nodes (6 when it branches), not {n}")
+        if self.flow:
+            self.tag_w = tag_w
+            top = self._flow_layout(parsed, title_h, cell_w, label_w)
+        elif st.vertical:                                  # a zigzag down the frame: left, right, left…
             pitch = self.cell_h * 0.6 + z(30)
             height = title_h + self.cell_h + (n - 1) * pitch
             self.block = (2 * cell_w + max(z(70), label_w * 0.6), height)
@@ -797,9 +827,9 @@ class Diagram(Scene):
             top = (y0 + y1) / 2 - height / 2
             self.centers = [(left + cell_w / 2 + i * (cell_w + gap), top + title_h + self.s / 2) for i in range(n)]
         self.title_y = top + self.title_size * 0.9
-        self.edges = [self._route(i, j, label) for i, j, label in parsed]
+        self.edges = [(self._flow_route if self.flow else self._route)(i, j, label) for i, j, label in parsed]
         self.steps = None                                  # vertical: the steps counted off in the corner the zigzag leaves empty
-        if st.vertical and parsed and all(i != n - 1 for i, _, _ in parsed):
+        if st.vertical and not self.flow and parsed and all(i != n - 1 for i, _, _ in parsed):
             lx, ly = self.centers[-1]
             ox = self.centers[-2][0]
             room = min(abs(lx - ox) - cell_w / 2 - z(40), 2 * min(ox - x0, x1 - ox))
@@ -825,6 +855,144 @@ class Diagram(Scene):
             raise PlanError(f"Graphic 'diagram': edge '{text}' must be \"A>B\" with two different nodes "
                             f"({', '.join(self.names)})")
         return self.names.index(a), self.names.index(b), label.strip()
+
+    # ── flow: branches and loops ─────────────────────────────────────────────
+    def _is_flow(self, parsed: list[tuple[int, int, str]], asked) -> bool:
+        """A flow when asked, or (by default) when a thing has arrows out to two things after it."""
+        mode = str(asked or "").strip().lower()
+        if mode and mode not in ("chain", "flow"):
+            raise PlanError(f"Graphic 'diagram': layout '{asked}' is not chain or flow")
+        if mode:
+            return mode == "flow"
+        ahead: dict[int, set[int]] = {}
+        for i, j, _ in parsed:
+            if j > i:
+                ahead.setdefault(i, set()).add(j)
+        return any(len(v) > 1 for v in ahead.values())
+
+    def _flow_steps(self, parsed: list[tuple[int, int, str]]) -> tuple[list[int], set[tuple[int, int]]]:
+        """(the step of each thing, the arrows that loop back): a walk from the first thing marks the
+        arrows that return to a thing still being walked as loops; every other arrow moves one step on."""
+        n = len(self.names)
+        out: dict[int, list[int]] = {i: [] for i in range(n)}
+        for i, j, _ in parsed:
+            out[i].append(j)
+        state, back = [0] * n, set()
+
+        def walk(u: int) -> None:
+            state[u] = 1
+            for v in out[u]:
+                if state[v] == 1:
+                    back.add((u, v))
+                elif state[v] == 0:
+                    walk(v)
+            state[u] = 2
+
+        for u in range(n):
+            if state[u] == 0:
+                walk(u)
+        step = [0] * n
+        for _ in range(n):
+            for i, j, _ in parsed:
+                if (i, j) not in back and step[j] < step[i] + 1:
+                    step[j] = step[i] + 1
+        return step, back
+
+    def _flow_layout(self, parsed, title_h: float, cell_w: float, label_w: float) -> float:
+        """Places the things of a flow; → the top of the graphic."""
+        st, z = self.st, self.z
+        x0, y0, x1, y1 = st.safe
+        step, self.back = self._flow_steps(parsed)
+        layers: list[list[int]] = [[] for _ in range(max(step) + 1)]
+        order: dict[int, float] = {}
+        for i in sorted(range(len(self.names)), key=lambda i: (step[i], i)):
+            before = [order[a] for a, b, _ in parsed if b == i and (a, b) not in self.back and a in order]
+            layers[step[i]].append(i)
+            order[i] = sum(before) / len(before) if before else len(layers[step[i]])
+        looped = {i for edge in self.back for i in edge}
+        for layer in layers:                               # each thing near the things that point to it; the ends of a
+            layer.sort(key=lambda i: (i in looped, order[i], i))    # loop last (bottom / right), where the loop runs
+            for k, i in enumerate(layer):
+                order[i] = k - (len(layer) - 1) / 2
+        L, m = len(layers), max(len(layer) for layer in layers)
+        loops = bool(self.back)
+        self.centers = [(0.0, 0.0)] * len(self.names)
+        if st.vertical:                                    # steps are rows, top to bottom
+            if L >= 4:                                     # many steps: smaller illustrations
+                self.s = z(200 if L == 4 else 165)
+                self.cell_h = self.s + z(12) + self.tag_h
+                cell_w = max(self.s, self.tag_w)
+            side = z(110) if loops else 0
+            vgap = z(56) + (self.edge_size * 1.5 if any(lb for *_, lb in parsed) else 0)
+            height = title_h + L * self.cell_h + (L - 1) * vgap
+            self.block = (m * cell_w + (m - 1) * z(40) + 2 * side, height)
+            vgap += min(max(st.safe_h * self.fill - height, 0) / max(L - 1, 1), z(260))
+            height = title_h + L * self.cell_h + (L - 1) * vgap
+            top = (y0 + y1) / 2 - height / 2
+            span = st.safe_w - 2 * side - cell_w
+            for r, layer in enumerate(layers):
+                y = top + title_h + self.s / 2 + r * (self.cell_h + vgap)
+                for k, i in enumerate(layer):
+                    x = (x0 + x1) / 2 if len(layer) == 1 else x0 + side + cell_w / 2 + span * k / (len(layer) - 1)
+                    self.centers[i] = (x, y)
+            self.loop_x = x1 - z(14)
+        else:                                              # steps are columns, left to right
+            if m > 1:                                      # things stacked in a column: smaller illustrations
+                self.s = z(180)
+                self.cell_h = self.s + z(12) + self.tag_h
+                cell_w = max(self.s, self.tag_w)
+            min_gap = max(z(150), label_w + z(60))
+            row_gap = z(60)
+            below = self.bulge + z(60) + self.edge_size * 1.6 if loops else 0
+            width = L * cell_w + (L - 1) * min_gap
+            height = title_h + m * self.cell_h + (m - 1) * row_gap + below
+            self.block = (width, height)
+            gap = min(max((st.safe_w - L * cell_w) / max(L - 1, 1), min_gap), z(460))
+            row_gap += min(max(st.safe_h * self.fill - height, 0) / max(m - 1, 1), z(80)) if m > 1 else 0
+            height = title_h + m * self.cell_h + (m - 1) * row_gap + below
+            total_w = L * cell_w + (L - 1) * gap
+            left = (x0 + x1) / 2 - total_w / 2
+            top = (y0 + y1) / 2 - height / 2
+            mid = top + title_h + (m * self.cell_h + (m - 1) * row_gap) / 2 - self.cell_h / 2 + self.s / 2
+            for col, layer in enumerate(layers):
+                for i in layer:
+                    self.centers[i] = (left + cell_w / 2 + col * (cell_w + gap), mid + order[i] * (self.cell_h + row_gap))
+            self.loop_y = top + title_h + m * self.cell_h + (m - 1) * row_gap + self.bulge
+        return top
+
+    def _flow_route(self, i: int, j: int, label: str) -> dict:
+        """An arrow of a flow: an S-curve to the next step; a loop around the outside back to an
+        earlier one (under the things in landscape, down the right side in vertical)."""
+        st, z = self.st, self.z
+        (ax, ay), (bx, by) = self.centers[i], self.centers[j]
+        g, under, half = z(16), z(46), self.s / 2
+        if (i, j) in self.back:
+            k = sorted(self.back).index((i, j))
+            if st.vertical:
+                x = self.loop_x - k * z(40)
+                start, end = (ax + half + g, ay), (bx + half + g, by)
+                pts = smooth_points([start, (x, ay + (by - ay) * 0.08), (x, by - (by - ay) * 0.08), end], tension=0.6)
+                label_at = (x - self.edge_size * 0.4, (ay + by) / 2)
+            else:
+                y = self.loop_y + k * z(40)
+                start, end = (ax, ay - half + self.cell_h + under), (bx, by - half + self.cell_h + under)
+                pts = smooth_points([start, (ax + (bx - ax) * 0.1, y), (bx - (bx - ax) * 0.1, y), end], tension=0.6)
+                label_at = ((ax + bx) / 2, y + z(30))
+            return {"to": j, "pts": pts, "label": label, "label_at": label_at, "anchor": "center"}
+        if st.vertical:
+            start, end = (ax, ay - half + self.cell_h + under), (bx, by - half - g)
+            mid = (start[1] + end[1]) / 2
+            pts = _bezier(start, (ax, mid), (bx, mid), end)
+        else:
+            start, end = (ax + half + g, ay), (bx - half - g, by)
+            mid = (start[0] + end[0]) / 2
+            pts = _bezier(start, (mid, ay), (mid, by), end)
+        label_at, anchor = point_at(pts, 0.5)[0], "center"
+        if not st.vertical and abs(ay - by) < 1:            # a straight arrow: its label sits above it…
+            label_at = (label_at[0], ay - z(44))
+        elif st.vertical and abs(ax - bx) < 1:              # …or beside it
+            label_at, anchor = (label_at[0] + z(26), label_at[1]), "left"
+        return {"to": j, "pts": pts, "label": label, "label_at": label_at, "anchor": anchor}
 
     def _route(self, i: int, j: int, label: str) -> dict:
         """The line of an arrow from thing i to thing j: straight to the next one; around the side

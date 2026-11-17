@@ -117,7 +117,7 @@ with a flash and a shutter sound:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram` or `lower_third` (or one a pack adds). |
+| `template` | required | `title`, `bars`, `number`, `product_card`, `headline`, `list`, `diagram`, `line_chart`, `versus`, `code`, `screen`, `scene` or `lower_third` (or one a pack adds). A file a graphic names (`image` of `screen` / `product_card`) is relative to the project folder, like a photo's. |
 | *the template's keys* | — | What it shows: every template and its keys are in [GRAPHICS.md](GRAPHICS.md). |
 | `dur` | the template's (2.2–5 s) | Seconds on screen. |
 | `caption` | — | What is being said, drawn in the narration box under the graphic. |
@@ -239,10 +239,12 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `selection.coverage` | 8 | Split the footage in N parts and take the best of each (0 = off). |
 | `analysis.samples_per_sec` | 4 | Image samples per second. |
 | `analysis.scene_threshold` | 27 | PySceneDetect content threshold. |
+| `analysis.jobs` | `auto` | Sources prepared and analyzed at once: `auto` (= `render.jobs` / `$SVE_JOBS`) or 1–16 (1 = one after another). The wavs are extracted first and Whisper transcribes them one source at a time while proxies and picture analysis run. |
 | `transcription.model` | `small` | faster-whisper model (`tiny` … `large-v3`). |
 | `transcription.language` | `null` | `null` = follow `language`. |
 | `transcription.context` | `""` | Prompt with names/brands that help Whisper. |
 | `transcription.min_probability` | 0.35 | Words below this probability are dropped (voice activity detection is always on). |
+| `transcription.engine` | `faster-whisper` | Who runs Whisper: `faster-whisper` (CPU), `mlx` (Apple GPU, the `[apple]` extra; opt-in: measured not faster enough and less accurate on real speech) or `auto` (mlx when installed on Apple Silicon). A failing engine falls back to faster-whisper. The analysis records `transcription: {engine, model, device}` (`sve report` names it on the SOURCES line); cached transcripts are never redone because the engine changed, and with `auto` a source analyzed again keeps the engine it had. |
 
 ### `color`, `framing`
 
@@ -291,16 +293,21 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `audio.denoise` | 10 | Noise reduction in dB (0 = off), shot by shot. |
 | `audio.clean_voice` | `false` (`true` in `explainer` and `talk`) | The background noise of each recording (a fan, the room, the street) taken out **once, over the whole recording** with RNNoise (FFmpeg `arnndn`, a ≈300 KB speech model downloaded once to the user cache; `SVE_OFFLINE=1` never downloads, and FFmpeg's FFT denoiser is used instead). Every shot takes its piece of that clean track, so the noise reduction never restarts at a cut; `denoise` is then skipped. |
 | `audio.clean_mix` | 1.0 | How much of the cleaned voice is used (0.8 keeps a little of the room). |
+| `audio.breaths` | `false` (`true` in `explainer`) | With `clean_voice`: the pauses between sentences (breaths, mouth noise) 12 dB lower, in the same whole-recording pass. A pause is what is neither speech (frames less than 20 dB under the local speech level) nor inside a transcribed word; words keep 0.06 s before and 0.1 s after them untouched, gaps under 0.12 s are left alone and the fades (0.04 s) stay inside the pause. A dict overrides some of `{depth_db: 12, fade: 0.04, before_word: 0.06, after_word: 0.1, min_pause: 0.12, below_ref: 20}`. The counts go next to the cleaned wav and into `summary.json` (`breaths`). |
+| `audio.voice_leveler` | `false` | With `clean_voice`: a slow leveler over the whole recording, so quiet sentences come up (no cut restarts it). |
 | `audio.highpass` | 80 | High-pass filter (Hz). |
 | `audio.voice_eq` | true | Voice presence EQ + de-esser on shots with speech. |
 | `audio.compressor` | true | Gentle compression. |
 | `audio.gain_without_voice_db` | 3 | Extra gain on shots without speech (ASMR sounds). |
 | `audio.asmr` | false | Without speech: brighter EQ + strong compression so every crackle is heard. |
 | `audio.loudness` / `true_peak` | −14 / −1.0 | Mastering target (integrated LUFS / dBTP). |
-| `music.file` | `null` | Track path (relative to the project or the workspace); `null` = first track in `music.folder` (default `music/`); `none` = no music. |
+| `music.file` | `null` | Track path (relative to the project or the workspace); `null` = first track in `music.folder` (default `music/`); `none` = no music; `compose` = the engine composes an original track for the video ([Composed music](#composed-music)). |
+| `music.compose` | see `base.yaml` | With `file: compose`: `preset` (`upbeat`, `calm`, `tense`, `warm`, `trap`, or a pack's `music.presets`), `seed` (default from the project name), `bpm`, `silences` (cut dead at the conflict and the twist), `accents` (cymbal + thump when a full-screen graphic comes in), `lufs`. |
 | `music.folder` | — | Workspace-relative folder to take the first track from. |
 | `music.volume_with_voice_db` / `volume_without_voice_db` | −20 / −11 | Music level. |
 | `music.ducking` / `ducking_asmr` / `ducking_ratio` | true / false / 4 | Lower the music under the voice (and optionally under the video's own sounds). |
+| `music.relative_to_voice` | `false` (`true` in `explainer`) | The music level is measured against the voice of the joined video (its loudness and where it speaks, from the rendered segments) and written once as a bed that follows it; replaces `volume_*` and `ducking` when there is voice (a voice quieter than −60 LUFS keeps the fixed mix). Down slightly before each word, back up in real pauses (≥ 0.6 s). What was measured goes to `vN/music_levels.json` and `summary.json` (`music_levels`). |
+| `music.under_voice_db` / `under_pause_db` / `intro_db` | 10 / 4 / 4 | With `relative_to_voice`: the music this many dB (LUFS) under the voice while it speaks, this many under it in pauses, and this much louder than in pauses before the first word. |
 | `music.start_at` | 0.0 | Second of the song to start from, or `auto`: the song's drop lands at the end of the first shot (or at `drop_at`). |
 | `music.drop_at` | — | Video second where the song's drop should land (with `start_at: auto`). |
 | `music.align` | — | `exact` = every cut exactly on a beat (automatic when a shot has `beats`). |
@@ -318,8 +325,9 @@ changes). A value written as `{es: …, en: …}` is resolved by `language`. Def
 | `subtitles.auto` | true | Word-by-word subtitles from the transcription when there is speech. |
 | `subtitles.max_words` / `max_chars` | 3 / 18 | Words and characters per subtitle. |
 | `subtitles.uppercase`, `font`, `size`, `color`, `highlight`, `stroke`, `stroke_color`, `shadow` | true, Inter-Black, 82, white, `#FFE14D`, 9, black, true | Look (active word in `highlight`). |
-| `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). |
+| `subtitles.y` | 0.64 | Vertical center (0 = top, 1 = bottom). In a landscape frame a subtitle is raised, if needed, so it ends above the bottom of the safe zone (`check.landscape_safe_bottom`, 0.90). |
 | `subtitles.animation` | `pop` | `pop` or `none`. |
+| `subtitles.style` | `pillow` | `caption`: every subtitle is drawn in the graphics' narration box (`kit.caption`: the pack's paper box and font), the word being said marked with an ink band that grows under it. Same words, timing and splitting as the default subtitles; the box is centered at `subtitles.y`, as wide as their lines may be and kept inside the safe zone `sve check` measures; drawn as one transparent graphic over the video (`cache/segments/subs_*.mov`). Needs the graphics extra (otherwise the default subtitles are drawn). Spanish `estilo: caja`. |
 | `texts.styles.<name>` | see `base.yaml` | `size`, `font`, `color`, `background` (`#RRGGBBAA`), `x`, `y`, `max_width`, `uppercase`, `radius`, `outline`, `animation`, `speed`, `desc_font`, `desc_size`, `desc_color`; without a `background` the text is outlined with `stroke` px (default size/10) in `stroke_color` (default black). Sizes are for a 1080-px-wide output and scale with it. |
 
 ### `export`, `polaroid`, `collage`
@@ -361,6 +369,9 @@ Used by `sve products`, by `search.text`, by `sve plan` when `product_plan` is o
 | `vision.vocabulary` | null | null = packaged list of ~80 small products (es/en); or your own list of names. |
 | `vision.product_plan` | false (`unboxing`: true) | `sve plan` makes one shot per detected product (card with its name + `n/N` counter, collage at the end). |
 | `vision.product_search` | false | Opt-in: `search` with `criterion: product` uses the vision model (changes the windows of existing plans). `search.text` uses it regardless. |
+| `vision.naming` | `clip` | How each product gets its name: `clip` = the vocabulary label closest to the whole segment (as before); `frames` = the label closest to its `name_frames` best frames, the packaged vocabulary embedded with the image model's own text encoder; `decider` = as `frames`, then the decider's local language model looks at the best frame (`cache/product_frames/`) and picks among CLIP's `name_candidates` best names. Asking for it is enough (it works with `decider.enabled: false`); without the language model the CLIP names stand. Measured on a labeled unboxing (16 products): exact names 3 → 8 → 10. Recommended for `unboxing` / `haul` when Ollama is installed. `sve report` says the mode and how many names are unsure. |
+| `vision.name_frames` | 3 | `frames` / `decider`: the frames with the highest product score that name a product. |
+| `vision.name_candidates` | 5 | `decider`: CLIP's best names offered to the language model. |
 
 ### Export profiles (`sve render --profile`)
 
@@ -387,7 +398,7 @@ Language section) with:
 | `plan_used.json` | The plan as rendered (resolved search windows, beat-aligned times, `_beats`). |
 | `config_used.json` | The fully merged configuration. |
 | `stems/original.wav`, `stems/music.wav`, `stems/sfx.wav` | Pre-master audio stems (written in the same FFmpeg pass as the video). Only for renders up to 600 s that contain original sound (a shot playing a source clip) unless `export.stems: true` (`false`: never). |
-| `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts), and for plans with cutaways `cutaways` [{`n`, `type`, `what`, `start`, `end`, `overlay`, `sentences`, `pip` (it had the presenter's window), `auto` (who proposed it), and for a clip `file`, `third_party`, `recorded`, `source`, `kind`}], `cutaway_warnings` and `credits` (`credits.txt`, when third-party footage is shown). `sve check` reads `stems`, `text_boxes` and `typing`. |
+| `summary.json` | `video`, `duration_sec`, `shots`, `resolution`, `music` {`file`, `start_sec`} (`null` without music), `audio` {`before_lufs`, `after_lufs`, `true_peak_dbtp` (what the mastering measured), `gain_db` (gain applied before the true-peak limiter, capped at `audio.master_max_gain_db`), `converged` (`true` when the final file is within 0.5 LU of the target and under the true-peak ceiling), `warning` (only when it is not, or the audio could not be measured), `master_gain_db` (gain the mastering applied: brings the pre-master stems to the final level)}, `auto_subtitles`, `texts`, `sound_effects`, `render_time_sec`, `shot_details` [{`n`, `type`, `source`, `from`, `to`, `in_video`, `cut_sec`, `role`, `transition`}], `stems` {`original`, `music`, `sfx`: path relative to the version folder, e.g. `stems/music.wav`; only the stems that were written}, `text_boxes` [{`kind`, `text`, `x`, `y`, `w`, `h`, `start`, `end`}] (where every text box / subtitle was drawn, in pixels and seconds), `typing` [[`start`, `end`, `count`]] (typewriter keystroke bursts), and for plans with cutaways `cutaways` [{`n`, `type`, `what`, `start`, `end`, `overlay`, `sentences`, `pip` (it had the presenter's window), `auto` (who proposed it), and for a clip `file`, `third_party`, `recorded`, `source`, `kind`}], `cutaway_warnings` and `credits` (`credits.txt`, when third-party footage is shown); `short` (`{name, from_sentence, to_sentence, …}`, a render of one short), `breaths` (`{recording file name: {pauses, with_sound, …, depth_db, words}}`, with `audio.breaths`) and `music_levels` (`{voice_lufs, music_lufs, gain_db, under_voice_db, under_pause_db, intro_db, speech_spans}`, with `music.relative_to_voice`). `sve check` reads `stems`, `text_boxes` and `typing`. |
 
 Written by other commands:
 
@@ -396,7 +407,7 @@ Written by other commands:
 | `cache/products.json` | `sve products` (and `sve plan` with `vision.product_plan`) | `{"segments": [{"source", "start", "end", "best": [a, b], "label", "confidence", "score"}], "model", "language"}` |
 | `cache/<id>_clip.npy`, `<id>_clip.json` | anything that uses the vision model | Frame embeddings of a source and their timestamps. |
 | `footage/…`, `footage/credits.json` | `sve broll` | The fetched clips and the record of where each comes from (see [Third-party footage](#third-party-footage-sve-broll)). |
-| `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}` |
+| `vN/check.json` | `sve check` | `{"version", "ok", "errors": [], "warnings": [], "metrics": {}, "listen": ["listen/01_….wav"]}`. With music and voice, `metrics.music_vs_voice` = `{speech_lu, pause_lu, worst_lu, worst_t}`: how far the music sits under the voice while it speaks and in pauses, and the closest moment; a warning when it is closer than `check.music_min_under_voice_lu` (6) while the voice speaks. |
 
 
 ---
@@ -408,7 +419,8 @@ A shot is split at each pause of at least `pauses.min_pause` seconds; the pause 
 `pauses.keep_pause` seconds (half on each side of the cut) and the new piece enters with
 `pauses.transition` (`soft_cut`: a 0.12 s crossfade of sound and picture, added on top so the pause
 heard is still `keep_pause`). Shorter pauses (breaths between sentences) are never cut. Pauses come
-from the cached audio levels of the source (`cache/<id>_analysis.json`, every 0.1 s); a quiet stretch
+from the cached audio levels of the source (`cache/<id>_analysis.json`, every 0.1 s; the analysis also
+records who transcribed its words, `transcription`); a quiet stretch
 with a transcribed word inside is not a pause. Left alone: the hook, beat-locked shots (`beats`),
 sped-up shots, drawn shots, and shots without voice. Shot indices in texts, polaroids and collages are
 renumbered. Existing plans are not changed (only `sve plan` does this).
@@ -460,7 +472,8 @@ And they travel apart.
   cue. Without a cue the presenter is on camera; `[camera]` goes back to the presenter.
 - A cue is written like a graphic cue ([GRAPHICS.md](GRAPHICS.md)): the name, then `key="value"`
   pairs. Names: any graphic template (`bars`, `number`, `list`, `diagram`, `title`, `headline`,
-  `product_card`, `lower_third`, or a pack's own), `photo file="photos/board.jpg"` (a still photo,
+  `product_card`, `line_chart`, `versus`, `code`, `screen`, `scene`, `lower_third`, or a pack's own; a file it
+  names, such as `screen image="shots/settings.png"`, is relative to the project folder), `photo file="photos/board.jpg"` (a still photo,
   path relative to the project; optional `motion`, `motion_amount`, `focus_x`, `focus_y`) and
   `broll query="…"` (a clip that `sve broll` fetches from the allowed sources, or `broll file="clip.mp4"`
   for a clip of your own; see [Third-party footage](#third-party-footage-sve-broll)). The overlays
@@ -468,7 +481,7 @@ And they travel apart.
 - Any cue takes `seconds=N`: at most that long on screen (a `lower_third` usually wants `seconds=4`).
 - A cue needs at least one sentence after it. A graphic cue that cannot be drawn (missing key, unknown
   template) is an error at `sve plan`, with its script line.
-- Spanish names work too (`[barras datos="…"]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
+- Spanish names work too (`[barras datos="…"]`, `[lineas …]`, `[frente_a_frente …]`, `[codigo …]`, `[pantalla …]`, `[camara]`, `[foto archivo="…"]`, `[toma consulta="…"]`,
   `segundos=`; the file may be called `guion.md`): see [LEGACY_KEYS.md](LEGACY_KEYS.md).
 
 ### How the script is matched to the recording
@@ -562,6 +575,9 @@ notes around the presenter (`callouts`, `bullets`) always end when a full-frame 
 The proposals are ordinary entries of `cutaways` marked `"_auto": "support"`: edit their `items`,
 delete the ones you do not want, or write your own cue for that sentence (a sentence under a cue gets
 no proposal). `sve report` marks them with `~`.
+When a full-frame cutaway starts inside a sentence (footage from one of its words), the notes of the
+words said under it are left out; with `script.support_spread: true` (off by default) they come in
+earlier instead, spread over the part of the sentence said on camera.
 
 **Notes and bullets you write.** `[callouts items="Phone; Router; Internet" link=yes]` and
 `[bullets items="No extra battery; Back in an instant"]` are cues like any other. When a `bullets` or
@@ -586,9 +602,36 @@ face shows at least 1.5 s before footage covers it. `sve broll` fetches them lik
 Data said aloud is shown, not searched for: two or more figures of the same kind set against each other
 ("two minutes a week, two hours a year"; "15 % before, 40 % today"; "8 GB on one, 12 GB on the other") become
 `bars` — times in the smallest unit said, each bar named by "before / today" or by the words next to its
-figure — and a quoted source ("according to X, …", "X published that …") becomes a `headline` with X as its
-outlet. They start when the figure (or the source) is said and are proposed wherever the sentence is not
+figure; when a bar's thing cannot be named (only a pronoun and its verb next to the figure) the figure card is
+drawn instead of a wrongly labeled bar — and a quoted source becomes a `headline` with X as its outlet:
+"according to X, …" / "según X, …" / "de acuerdo con X, …"; "X says / said / reported / published / found that …" /
+"X dice / afirma / reportó / publicó / encontró que …"; "a study by X found that …" / "un estudio de X encontró
+que …" (the outlet is X). The source must be named (a word written with a capital; "my mom says…" or
+"people say…" is not a source). They start when the figure (or the source) is said and are proposed wherever the sentence is not
 already covered, whatever the clock says.
+
+**Graphics the director chooses by itself** (each a `script.*` setting, on). Shown, never searched for, in
+this order of preference: a screenshot of the project that the sentence names (a picture in the project
+folder or in `photos/`, `fotos/`, `screens/`, `screenshots/`, `capturas/`, `pantallas/`, `images/`, whose name
+says it is one — `screenshot_wifi_settings.png` — when every word of its name is said) → `screen`
+(`auto_screen`; a `photo` cue whose file is a screenshot, by its name or a phone screen's shape, is shown as
+one too, `"_auto": "screen"`); a command between backticks or a shell command with its arguments → `code`
+(`auto_code`); figures tied to three or more years, in digits or in words, in one sentence or over up to
+three → `line_chart` (`auto_line_chart`); two things with a proper name and a figure each (*vs*, *frente a*,
+or a sentence giving each its figure; rows gathered over two sentences about the same two things) → `versus`
+(`auto_versus`); then `bars` and `headline` as before. A flow between two or more illustrated things
+(branches and loops too) → `diagram`, preferred to a scene (`auto_diagram`). `script.figure_context` (on): a
+figure whose unit is left unsaid takes the one said before it, so two sentences can make one `bars`, each bar
+named by its clause ("the laptop lasts 9 hours. The tablet, 14."); "from 7 to 9" is a time, not a figure.
+`script.scene_fit` (on): no "open an app" scene for a sentence that opens something else ("open the
+window"). `script.verb_bars` (off): a bar with no noun is named by its verb. With all of these off the plan
+is the one of before.
+
+**A voice memo.** When the recording has no picture (the plan's `"pictureless"`: the indices of those
+sources), the director has no camera time: every sentence, the closing ones too, gets a graphic, card or
+footage from its start (a sentence too short to stand alone goes on under its neighbour), and the notes over
+the backdrop keep only figures and illustrations. `sve make` reviews it the same way: there, any stretch with
+nothing on screen is `camera_too_long`.
 
 **Picture-in-picture** (`pip.enabled`; off by default: graphics take the whole frame and the
 presenter is seen in between). When it is on, while a full-frame graphic or
@@ -631,12 +674,17 @@ saturation or sharpening; exposure only nudged) and measures it once for the who
 | `script.punch_in` | 1.08 | Zoom alternated at every visible jump cut (0 = off). |
 | `script.subtitles` | `script` | Subtitles from the script's words (`script`) or from the transcription (`speech`). |
 | `script.support` | `true` | Propose `callouts` notes around the presenter where nothing else is on screen. |
+| `script.support_spread` | `false` | The notes of words said under a full-frame cutaway come in earlier, over the part said on camera (instead of being left out). |
 | `script.close_up` | 1.15 | A third framing: visible cuts go wide → punch-in → wide → close-up (0 = wide / punch-in only). |
 | `script.reframe_every` | 4.0 | Seconds after which a shot is split between two sentences and reframed (0 = off). |
 | `script.drift` | 0.04 | Slow zoom of every camera shot while it plays (0 = off). |
 | `script.auto_broll` | `false` (`true` in `explainer`) | The director: footage where the presenter would stay alone on camera too long. |
 | `script.opening` / `max_camera` | 2.5 / 4.0 | Seconds of camera at the start / afterwards before the director cuts to footage. |
 | `script.auto_min` | 1.8 | Shortest footage the director proposes. |
+| `script.auto_line_chart` / `auto_versus` / `auto_code` / `auto_screen` / `auto_diagram` | `true` | The graphics the director chooses by itself (above): `line_chart`, `versus`, `code`, `screen`, `diagram`. |
+| `script.figure_context` | `true` | A figure whose unit is left unsaid takes the one said before it (two sentences can make one `bars`). |
+| `script.scene_fit` | `true` | No "open an app" scene for a sentence that opens something else. |
+| `script.verb_bars` | `false` | A bar with no noun to name it is named by its verb. |
 | `script.transition` | `dissolve` | How two camera shots are joined (`cut` = a plain jump cut). |
 | `script.cutaway_fade` | 0.2 | Seconds a full-frame graphic / clip fades in and out (0 = hard cut). |
 | `pip.enabled` | `false` | The presenter stays in a window over full-frame cutaways (a cutaway's own `pip` wins). |
@@ -650,14 +698,83 @@ punches), uses no music unless you set `music.file` (kept low under the voice, c
 the beat) and puts the subtitles in the band under the graphics (`subtitles.y: 0.835`,
 `check.safe_bottom: 0.88`).
 
+### Shorts from the same project
+
+A **short** is a stretch of the script rendered as a vertical video of its own: its sentences only, the
+cutaways that fall inside them, the same framing on the face, subtitles and sound. Mark it in the script
+(Spanish `[corto nombre]` … `[/corto]`):
+
+```
+How does a message travel?
+[short packets]
+Every time you send one, the phone cuts it into packets.
+[bars data="Under the sea:95, By satellite:5" unit="%"]
+And they travel apart.
+[/short]
+```
+
+The marks are not cues (the cue in force goes on through them) and the long video ignores them: its plan is
+the same, plus `"shorts": [{"name": "packets", "from_sentence": 1, "to_sentence": 2}]`. A short left open runs
+to the end; shorts do not overlap. `sve plan` lists them with their estimated length.
+
+```
+sve render talk --short packets [--draft]      # one short (repeat --short for more); Spanish --corto
+sve render talk --shorts                       # every short of the plan; Spanish --cortos
+```
+
+Each one goes to a new variant folder that never overwrites another — `v3CortoPackets` / `v3ShortPackets`
+(+ `Borrador` / `Draft`…), files `<project>_corto_<name>` — and its `summary.json` has `short`. A camera shot
+that also plays a sentence outside the short is trimmed halfway between the two sentences; a cutaway that starts
+before the short (or ends after it) is clamped to it; cutaways placed by seconds of the long video and plan texts
+are left out. A landscape project renders its shorts at 1080×1920 (`shorts` profile, framed on the face again);
+`--profile` still wins.
+
+**Shorts proposed by the engine** (`script.shorts: auto`, off by default). `sve plan` looks for stretches that
+stand on their own and records them in `shorts` with `"_auto": "shorts"`, a `score` and a `why` (rendered like
+any other short; `sve plan` runs again → proposed again). Every stretch of consecutive sentences found in the
+recording that lasts `short_min`–`short_max` seconds and **starts with a question or a hook** (a first word like
+*did you know*, *imagine*, *secret*, *nobody*, *never*, *mistake*, *truth* — `sabías`, `imagina`, `secreto`,
+`nadie`, `nunca`, `error`, `verdad`… — or a figure) is a candidate, scored:
+
+| Points | When |
+|---|---|
+| +3 / +2 | it starts with a question / with a hook word or a figure |
+| −1 | its first word leans on what came before (`and`, `but`, `so`, `y`, `pero`, `entonces`…) |
+| +2 / +1 | a full-frame graphic is shown inside it (a cue, or one the director proposed) / else it says a figure |
+| +1 | it ends on a statement (`.` `!`), or with the script's last sentence |
+| +1 | the sentence after it opens something new (a question or a hook) |
+| +1 − \|s − 40\| / 40 | its length s in seconds: about 40 s is best |
+
+The best ones that overlap neither each other nor a short written in the script are kept (`auto-1`, `auto-2`…).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `script.shorts` | `false` | `auto`: propose shorts (written marks work either way). |
+| `script.shorts_max` | 3 | At most this many proposals. |
+| `script.short_min` / `short_max` | 20 / 60 | Seconds a proposed short lasts (estimated from the sentences found). |
+
+### A voice memo instead of a recording
+
+The source of an `explainer` project may be sound only (a voice memo: `.m4a`, `.wav`, `.mp3`…). Nothing else
+changes: the analysis runs on a plain stand-in picture (no scenes, no face), the script is matched to the
+voice, and every shot of that source is drawn on the theme's own moving backdrop (the grid, circuit traces
+with pulses, blinking chips of the pack — what is behind every full-frame graphic) with the voice going
+through the same chain (`audio.clean_voice` included), so a stretch no graphic or clip covers is never black.
+
 ## The whole video with one command (`sve make`)
 
 `sve make <project>` (alias `hacer`): the plan when there is none (`--force` makes it again), the footage
 (fetched, or drawn by the engine when no clip is good enough), a draft render (`--final`: final quality),
 the automatic review (`sve check`) and a short summary. Running it again keeps the plan, the clips and the
-rendered segments.
+rendered segments. `--short NAME` (repeatable) / `--shorts` (Spanish `--corto` / `--cortos`) also render
+those shorts of the plan once the video is settled, each checked like the video.
 
-**It reviews and fixes itself** (explainer projects; `domain/review.py`). Before rendering, the engine
+It works for **every recipe**. An explainer gets the whole review below; the others (`talk`, `unboxing`,
+`haul`, `slideshow`, `vlog`…) the findings that apply to them: plan texts too short to read or outside the
+safe zone, a face cut by the frame, a clip that stops moving, music covering the voice, the loudness. `sve
+plan` and `sve render` never apply any of it: only `sve make` changes a plan that already exists.
+
+**It reviews and fixes itself** (`domain/review.py`). Before rendering, the engine
 places the plan on the video (nothing is rendered for this) and looks for what a viewer would notice; each
 finding has a fixed remedy, applied once, and the footage is fetched again for anything it added:
 
@@ -669,15 +786,41 @@ finding has a fixed remedy, applied once, and the footage is fetched again for a
 | `cutaway_too_long`: a full-frame graphic or photo over `review.graphic_max` | it ends earlier and the presenter comes back for the rest of the sentence (a cue spanning several sentences: a decision) |
 | `camera_too_long`: the presenter alone longer than the director allows (+ `review.camera_slack`) | the director proposes footage for that stretch · nothing to propose: a decision |
 | `sentence_unmatched`: a script sentence not found in the recording | a decision |
+| `broll_low_relevance`: a fetched clip whose match score is under `review.clip_match` (off by default) | another clip → a drawing → removed (by hand: another clip, then a decision) |
+| `face_out_of_frame`: the crop of a camera shot (framing, punch-in, slow zoom at its closest) cuts more than 10 % of the presenter's face (the face the analysis found: `framing.face`) | framed on the face again → plain framing (no punch-in, no slow zoom; kept when the punch-ins are placed again) → a decision |
+| `text_too_short`: a plan text (unboxing card, hook…) shown less than it takes to read | a text anchored to a shot stays to the end of the next shot (when that one has no text) · else a decision |
 
 Then it renders and runs `sve check`; what the check finds on screen is fixed the same way and the video
-rendered again (only what changed; at most `review.rounds` renders): a clip that stops moving
-(`frozen_picture`) ends where it stops; text outside the safe zone and any error of the check are
-decisions. A plan entry a remedy changed keeps the codes in `_fixed`; a remedy that did not hold is
-never tried twice, and what was removed is never proposed again.
+rendered again (only what changed; at most `review.rounds` renders):
+
+| Finding (render) | Remedy |
+|---|---|
+| `frozen_picture`: a clip that stops moving | another clip for the same cue (the next candidate of its search; `review.clip_tries`) → it ends where it stops → a drawing of its sentence (engine cues) → removed |
+| `text_outside_safe_zone` | a plan text: its `y` moved by what is out · a subtitle, or a text under the buttons on the right: a decision |
+| `music_covers_voice`: the music less than `check.music_min_under_voice_lu` under the voice while it speaks | the music lowered by what was missing + 1 dB (`music.under_voice_db` with `music.relative_to_voice`, else its two volumes) |
+| `loudness_off`, any other error of the check | a decision |
+
+**The remedy ladder** (`review.ladder`, on). A finding may have several remedies, tried in order, one per
+round: a remedy that did not hold is never tried twice and the next one is tried; with none left it becomes
+a decision. A b-roll clip that does not work gets **another clip** first: the plan entry keeps the clips
+turned down in `_rejected` and `sve broll` / `sve make` take the next candidate of the same search (never
+one turned down, never one already on screen). Then a **drawing**: the card a director's cue carries
+(`fallback`) or the director's card for the sentence (`domain/director.card`), of a kind it has not had
+(`_was`). Then it is removed. A card whose text is too long is shortened, then drawn as another kind of
+graphic, then removed. A plan entry a remedy changed keeps the codes in `_fixed`; what was removed is never
+proposed again.
+
+**One folder per run.** Each round renders a new attempt; once a later attempt is rendered, the one it
+replaces (made by the same run) is deleted, so a run leaves one version folder — the last attempt's, with
+its own number (`v1Borrador_2` when two rounds were needed). A folder that existed before the run is never
+touched. `review.keep_attempts: true` keeps every attempt.
+
+**Settings it adjusts.** A remedy that is a setting (the music level) is not written to project.yaml: it is
+kept in `review.json` (`"settings"`), used by every later `sve make`, printed, and listed under `TO DO` by
+`sve report` (copy it into the project's settings so `sve render` uses it too).
 
 What was fixed and the **decisions** left — each with its options — are printed and written to
-`<project>/review.json`; `sve report` shows them under `MAKE`. That list is the only thing a person
+`<project>/review.json`; `sve report` shows them first, under `TO DO` (and a count under `MAKE`). That list is the only thing a person
 (or the assistant coordinating the engine) has to answer.
 
 | Key | Default | Meaning |
@@ -686,6 +829,11 @@ What was fixed and the **decisions** left — each with its options — are prin
 | `review.read_cps` | 15 | Characters a viewer reads per second. |
 | `review.graphic_max` | 6.0 | Seconds a full-frame graphic or photo stays at most (0 = off). |
 | `review.camera_slack` | 1.5 | Seconds the presenter alone may run over the director's limits before it counts. |
+| `review.ladder` | `true` | Several remedies per finding, tried in order (above), and the findings of every recipe; `false` = the remedies of before (explainer only). |
+| `review.clip_tries` | 2 | Other clips (the next candidates) tried for one b-roll cue before a drawing. |
+| `review.clip_match` | 0 | A fetched clip whose match score (vision model) is under this is replaced (`broll_low_relevance`); 0 = off (`broll.min_match` is 0.27). |
+| `review.faces` | `true` | Look for faces cut by the frame (needs `framing.face`). |
+| `review.keep_attempts` | `false` | Keep the folder of every render of one `sve make`. |
 
 ## Local decider (optional)
 
@@ -697,21 +845,24 @@ Some of the engine's judgments are closed questions asked by the pure domain cod
 | `title_span` | an illustrated card's title | 2–4 short spans of the sentence |
 | `is_comparison` / `bar_labels` | bars drawn from a sentence | yes / no · candidate names per bar |
 | `action` | an animated `scene` | the 13 actions + none |
-| `icon` | a card's illustration | the illustrations + none |
+| `icon` | a card's illustration | a shortlist: the things the sentence names, the rules' pick, the topic's illustration, none |
 | `card_type` | what the director draws | the candidate drawings |
 | `shorten` | a card too long to read | shorter versions |
+| `product_name` | `sve products` / `sve plan` with `vision.naming: decider` | CLIP's best names for the product (with its best frame) |
 | `clip_shows` / `clip_lively` | b-roll near the thresholds | is it related, even loosely? · does it look clear? (yes / no, with a frame); only a sure "no" (≥ 0.85) turns a clip down, and the next candidate is fetched before any drawing (`cache/footage_rejected.json`) |
 
 Which stages may answer each question is `ROUTES` in `domain/decide.py`, set from a labeled set of 215
-real questions: the language model beat the rules on notes (words picked right 20 % → 75 %), titles
-(59 → 80 %) and shortened cards (50 → 60 %), so those go to it, and so do the b-roll questions; scene
-actions, illustrations, the kind of drawing and bars stayed better with the rules (82 / 60 / 74 %), and the
+real questions (re-measured 15 Nov): `label_words`, `title_span`, `shorten`, `clip_shows` and `clip_lively`
+go to the language model — it beat the rules on notes (verbs found, per word, 51 → 90 %; whole sentences
+16 → 74 %), titles (59 → 85 %) and shortened cards (50 → 60 %), and it sees the frame of a clip; the rest
+(`is_comparison`, `bar_labels`, `action`, `icon`, `card_type`) stay with the rules, which were right more
+often on scene actions, illustrations and the kind of drawing (87 / 60 / 87 % against 37 / 50 / 63 %). The
 zero-shot classifier helped nowhere, so today it is never loaded (it stays available for a route that needs
 it). With the routes measured, a 2-minute script asks the language model about 15 questions (≈20 s).
 
 The rules answer each with a confidence. Questions under `decider.threshold` go, in batches, first to a
 small zero-shot classifier (when their route has it and the question has a hypothesis), then to a local
-language model through Ollama (which sees the frame for clip questions); the vision model is unloaded before it and every model
+language model through Ollama (which sees the frame for clip questions; pictures larger than 960 pixels are sent scaled down); the vision model is unloaded before it and every model
 after its batch. A model's answer replaces the previous one only when it is one of the options and at least
 as sure (and, for the language model, at least `decider.llm_min`). The language model answers with an
 option letter; its confidence comes from the token probabilities (when the server cannot force the answer's
@@ -726,11 +877,15 @@ kept in `cache/decisions_<id>.json` (asked again when the models or `ROUTES_VERS
 | `decider.nli_model` | `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` | The small classifier (`pip install 'social-video-editor[decider]'`). |
 | `decider.llm` | `auto` | `auto` = when a local Ollama server has `llm_model` · `false` = never. |
 | `decider.llm_model` | `qwen3.5:9b` | The local language model (`ollama pull qwen3.5:9b`). |
+| `decider.llm_start` | `true` | The Ollama server is not running → the engine starts it (`ollama serve`) when a step needs the language model and stops it when the command ends, after unloading the model. A server that was already running is left as it was; one on another machine (`OLLAMA_HOST`) is never started; one the engine started is left running when another program has a model loaded on it. `false` = never start it (rules only when it is not running). |
 | `decider.llm_min` | 0.5 | A language-model answer less sure than this keeps the previous one. |
 | `decider.timeout` | 60 | Seconds per language-model request. |
 | `decider.device` | `cpu` | Device of the small classifier (`cpu`, `mps`, `cuda`). |
 
 `OLLAMA_HOST` (default `127.0.0.1:11434`) points to another server; `SVE_OFFLINE=1` uses neither model.
+Ollama does not have to be kept running: with it installed and the model pulled, the engine starts the
+server for the commands that need it and stops it afterwards (`decider.llm_start`), so nothing stays in
+the background between videos. `sve doctor` never starts it.
 
 ## Third-party footage (`sve broll`)
 
@@ -817,10 +972,21 @@ quality. Search answers are cached for a day in the project cache.
   limit of its kind (`broll.max_seconds`); and, with `broll.credit`, a `lower_third` caption (`Video` +
   author and library, or the brand) the first time each author or brand is on screen (`"_auto": "credit"`).
   The previous plan is kept as `plan_previous.json`.
-- At render time, `vN/credits.txt`: one line per clip shown, for the video's description.
+- At render time, `vN/credits.txt`: one line per clip shown, for the video's description, in the project's
+  language (`language: es` by default: `Video: Ana / Pexels, Licencia de Pexels — <page>`, `Video: Acme (canal
+  oficial) — <page>`). The author is shortened as on the caption, a little longer (up to 48 characters): a
+  commons' "Name derivative work of / …" or "Name (team, …)" keeps "Name"; `credits.json` keeps it whole.
 
 A cutaway that already has its file is left alone (`--force` fetches again). A file outside `footage/`
 is your own clip: it needs no record.
+
+**Cleaning up.** Clips that were turned down or replaced stay in `footage/` (`"used": false` in
+`credits.json`), and search answers stay in `cache/footage_search.json`. `sve broll <project> --unused`
+(`--sin-usar`) lists them with their size and deletes nothing; with `--yes` (`--si`) it deletes them: the
+clip, its record and its cached frame (`cache/footage_frames/`), and the search cache. A clip that
+`plan.json` or `plan_previous.json` names (relative, absolute or with backslashes) is never deleted, whatever
+its `used` flag says; a file in `footage/` without a record is yours and is never touched. `sve report`
+shows the count and size of unused clips with this command.
 
 **Limits and checks.** No number of seconds makes other people's footage safe to use; short pieces,
 allowed sources and a record of every file lower the risk and leave a trail. `sve check` warns about:
@@ -905,6 +1071,18 @@ zoom out, pan left; photos whose aspect differs a lot from the output's — port
 landscape video — only zoom in / out). Each shot's `note` is its capture time. With mixed
 sources and no `slideshow`, the regular video plan is made from the videos only.
 
+**Near-duplicates and blurred photos** (off by default, so existing plans do not change). With
+`photo.skip_duplicates: true` (`omitir_duplicadas`), photos next to each other in that order that show the
+same scene — a signature of their brightness steps differs by at most `photo.duplicate_difference`, and
+they were taken at most `photo.duplicate_seconds` apart — form a group and only the sharpest is shown. With
+`photo.skip_blurred: true` (`omitir_borrosas`), a photo is left out when its sharpness (variance of the
+Laplacian at 512 pixels, the measure of the video samples) is under both `photo.min_sharpness` and
+`photo.blur_share` × the album's median, **and** it lost its finest detail (a smooth but sharp picture —
+fog, a sky — is kept). Each photo is read once (OpenCV) and measured in `cache/photo_quality.json`; a photo
+that cannot be read is kept, and no setting leaves out every photo. What was left out is in the plan
+(`skipped_photos`: `source`, `reason` `duplicate` | `blurred`, `why`, and for a duplicate the photo `kept`),
+in the log of `sve plan` and in `sve report`; nothing needs to be reviewed by hand.
+
 ### `sve enhance` (alias `mejorar`)
 
 `sve enhance <project> [--force]` prepares the photos for the output size, never touching the originals:
@@ -926,6 +1104,9 @@ are skipped (a replaced photo gets a new hash).
 | `photo.duration` | 4.5 | Seconds per photo proposed by the planner. |
 | `photo.transition` | `fade` | Transition between photos proposed by the planner. |
 | `photo.motion_amount` | 0.06 | Maximum Ken Burns zoom (at most 0.25). |
+| `photo.skip_duplicates` / `skip_blurred` | `false` / `false` | Leave out near-duplicates (the sharpest of a group is shown) / clearly blurred photos (see above). |
+| `photo.duplicate_seconds` / `duplicate_difference` | 30 / 0.2 | Near-duplicates: taken at most this far apart (when both times are known) / share of the signature that may differ (a 5 % reframing ≈ 0.15; unrelated photos ≥ 0.4). |
+| `photo.min_sharpness` / `blur_share` | 60 / 0.3 | Blurred: sharpness under this and under this share of the album's median (a sharp photo ≈ 500–2000). |
 | `photo.auto_tone` | 0 | Gentle automatic exposure fix at render time, 0–1 (0 = off; the `slideshow` recipe uses 0.6). Dark or backlit photos get a smooth lightness lift (CIE Lab: blacks and whites stay put, hue kept) plus a little local contrast; backlit photos (people in shadow before a bright window or sky) get their shadows lifted locally along an edge-aware illumination map, so the bright areas stay as they are; well-exposed photos are left untouched. Applied before framing, so the blurred background matches. A shot may override it with `"auto_tone"`. |
 | `color.warmth` | 0 | Photos only: gentle warm tint, 0–1 (0 = off). |
 | `color.vignette` | `false` | Photos: strength 0–1 (`true` = 0.5); videos keep their on/off vignette. |
@@ -935,6 +1116,26 @@ are skipped (a replaced photo gets a new hash).
 | `enhance.headroom` | 1.25 | Large photos are reduced to this × the output short side. |
 
 ---
+
+## Composed music
+
+`music.file: compose`: the engine writes an original instrumental track for the video — no samples, no
+loops — into `cache/compose/`, with `<track>.origin.json` next to it (engine version, preset, seed, tempo,
+key, sections, SHA-256 of the samples and of the score). It follows the video: a hit on frame 0; the chorus on
+the first word of the question; a silence (at most 8 s, cut dead in 60 ms) at the conflict and another at
+the twist; an emotive outro with a 1 s fade. These moments come from the script's `#` arc headings, else from
+the first question, the full-screen graphics (the twist is the first sentence after the last one, at 55–90 %)
+or the 72 % point; without sentences, from the cuts at 30 % / 72 %. The beat grid is exact and continuous
+inside a run of music, and an entry after a silence lands exactly on it (`sve check` reviews the cuts against
+that grid). Pack presets: `music: {preset: name, presets: {name: {base: trap, bpm: …, key: …, mode: …,
+progressions: …}}}`. The render writes `summary.music_composed` (file, origin, preset, seed, bpm, key,
+sections) and copies the proof to `vN/music_origin.json` (`summary.music_origin`); `sve report` shows the
+preset, tempo, key and sections on its MUSIC line. `sve check` judges cuts off the beat only when the edit puts
+them there (`music.cuts_on_beat`, `align: exact`, a shot with `beats`: an explainer cuts on the voice, so the
+metric is kept in `check.json` without a warning), and a silence of the mix inside one of the track's own
+silences is by design up to `check.composed_silence_max_sec` (1.5 s; longer, the gap is in the voice). A
+loudness jump at a cut where the voice stem shows speech starting or stopping after a pause the music fills is
+not a jump of the edit (`cut_jumps_speech` in `check.json`).
 
 ## Playlists, AutoMix and long videos
 

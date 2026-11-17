@@ -55,6 +55,17 @@ script:                  # explainer recipe: a script said to the camera (domain
   opening: 2.5           # seconds of face at the start before the first footage (the hook)
   max_camera: 4.0        # then, at most this many seconds of camera in a row
   auto_min: 1.8          # shortest footage the director proposes (time for a card to come in and be read)
+  support_spread: false  # true = the notes of words that fall under a full-frame cutaway come in earlier,
+                         # spread over the part said on camera (more notes next to the presenter)
+  auto_line_chart: true  # the director (auto_broll) draws by itself: figures over 3+ years → a line chart,
+  auto_versus: true      # two named things with a figure each → versus, a command → code, a screenshot of the
+  auto_code: true        # project the sentence names (or a photo cue that is one) → screen, a flow between
+  auto_screen: true      # illustrated things → diagram
+  auto_diagram: true
+  figure_context: true   # a figure whose unit is left unsaid takes the one said before it (two sentences can make
+                         # one bars graphic); "from 7 to 9" is a time, not a figure
+  scene_fit: true        # no "open an app" scene for "open the shower": the thing opened must be one
+  verb_bars: false       # true = a bar with no noun to name it is named by its verb ("You sleep 8 h" → "Sleep")
 
 pip:                     # picture-in-picture: the presenter stays in a window over full-frame cutaways
   enabled: false         # (a cutaway's own "pip": true / false wins)
@@ -91,12 +102,17 @@ selection:               # how every moment of the footage is scored
 analysis:
   samples_per_sec: 4
   scene_threshold: 27
+  jobs: auto             # sources prepared and analyzed at once: auto (= render.jobs / $SVE_JOBS) or 1-16
+                         # (1 = one after another); Whisper always runs one source at a time
 
 transcription:
   model: small           # tiny | base | small | medium | large-v3 (bigger = more accurate and slower)
   language: null         # null = same as `language`
   context: ""            # words that help Whisper (brands, names)
   min_probability: 0.35
+  engine: faster-whisper # who runs Whisper: faster-whisper (CPU) | mlx (Apple GPU, extra [apple]) | auto (mlx
+                         # when installed on Apple Silicon); same words contract; a failing engine falls back to
+                         # faster-whisper; with auto, a source analyzed before keeps the engine it had
 
 color:
   auto: true
@@ -157,6 +173,9 @@ audio:
   true_peak: -1.0        # dBTP
   master_max_gain_db: 24 # mastering never raises the audio more than this (warns if the target is not reached)
   drawn_shot_db: -6      # polaroid / collage: the sound continues from the source this much quieter
+  breaths: false         # with clean_voice: the pauses between sentences (breaths, mouth noise) 12 dB lower,
+                         # never touching words ({depth_db: 12, fade: 0.04, before_word: 0.06, after_word: 0.1})
+  voice_leveler: false   # with clean_voice: slow leveler over the whole recording (quiet sentences come up)
 
 music:
   file: null             # path to an mp3/wav; null = first track of the music/ folder (or no music); none = no music
@@ -175,6 +194,21 @@ music:
   half_beats: true       # cutting between two beats (off-beat) is also fine
   bpm: null             # force the tempo (e.g. 120) when the detected one is wrong (sve music shows alternatives)
   tempo_factor: null    # 2 = double the detected tempo, 0.5 = half (detectors often pick half/double)
+  relative_to_voice: false  # true = the music level is measured against the voice (replaces the volume_* and
+                            # ducking keys when there is voice): under_voice_db under it while it speaks…
+  under_voice_db: 10
+  under_pause_db: 4         # …this much under it in pauses (≥ 0.6 s)…
+  intro_db: 4               # …and this much louder than in pauses before the first word
+  # file: compose → the engine composes an original track for this video (no samples; a proof of
+  # origin is written next to it in cache/compose/). It follows the video: hit on frame 0, cut dead at
+  # the conflict, the chorus on the question, an emotive outro for the solution (docs/PLAN_FORMAT.md).
+  compose:
+    preset: null            # upbeat | calm | tense | warm | trap, or a pack's (graphics.pack → pack.yaml music:)
+    seed: null              # null = from the project name (the same video always gets the same track)
+    bpm: null               # null = the preset's tempo
+    silences: true          # cut dead at the conflict and the twist (false = the music never stops)
+    accents: true           # a soft cymbal + low thump when a full-screen graphic comes in
+    lufs: -16.0             # loudness of the composed file (the mix then sets it against the voice)
 
 sfx:
   enabled: true
@@ -232,9 +266,11 @@ check:                   # sve check <project>: automatic review of a render (th
   loudness_tolerance_lu: 1.0     # integrated loudness within ± this of audio.loudness (else error)
   silence_db: -50                # quieter than this (dBFS) …
   silence_sec: 0.5               # … for longer than this = silence
+  composed_silence_max_sec: 1.5  # music.file: compose — a silence inside the track's own silences is by design up to this
   cut_jump_lu: 8                 # loudness jump across a cut
   sfx_max_vs_mix_lu: -6          # sound effects at most mix − 6 LU
   music_max_vs_original_lu: 0    # audio.asmr: the music no louder than the original sound
+  music_min_under_voice_lu: 6    # with voice: the music at least this far under it while it speaks
   typing_max_per_sec: 20         # typing clicks per second
   typing_max_vs_mix_lu: -6       # typing clicks at most mix − 6 LU
   harsh_ratio: 0.35              # share of the energy in 2–5 kHz (whole video)
@@ -257,6 +293,12 @@ review:                  # sve make: the engine reviews its own plan and render 
   read_cps: 15           # characters a viewer reads per second: a graphic is shown at least its text / this
   graphic_max: 6.0       # seconds a full-frame graphic or photo stays at most; longer, the presenter comes back (0 = off)
   camera_slack: 1.5      # the presenter alone may run this much over script.opening / max_camera before it counts
+  ladder: true           # a remedy that did not hold makes way for the next: another clip → another drawing → removed;
+                         # texts moved into the safe zone / kept longer, faces framed again, music lowered (false = before)
+  clip_tries: 2          # other clips (the next candidates) tried for one b-roll cue before a drawing
+  clip_match: 0          # a fetched clip matching its search under this is replaced (0 = off; broll.min_match is 0.27)
+  faces: true            # a camera shot whose crop cuts the presenter's face is framed again (needs framing.face)
+  keep_attempts: false   # true = keep the folder of every render of one sve make (else only the last one stays)
 
 polaroid:                # shot {"type": "polaroid", "from_shot": k, "beats": 2, "text": "…"}
   width: 0.70
@@ -306,6 +348,11 @@ vision:                  # local CLIP model: recognizes products by itself (opti
   product_plan: false    # plan = one shot per detected product (the unboxing recipe turns it on)
   product_search: false  # true = "search" with criterion "product" uses the vision model (changes the windows
                          # of existing plans, so it is opt-in); "search" by "text" always uses it
+  naming: clip           # how products are named: clip (whole segment, as before) | frames (CLIP on the best
+                         # frames, more often right) | decider (the local language model picks among CLIP's names
+                         # looking at the best frame; recommended for unboxing / haul when Ollama is installed)
+  name_frames: 3         # frames / decider: frames with the highest product score that name the product
+  name_candidates: 5     # decider: CLIP's best names offered to the language model
 
 broll:                   # sve broll: third-party clips for the [broll query="…"] cues (domain/footage.py)
   sources: [official, pexels, pixabay, wikimedia]   # tried in this order; official = a listed brand's own channel
@@ -342,6 +389,8 @@ decider:                 # closed questions the hand rules are unsure of, answer
   nli_model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7   # MIT · pip install 'social-video-editor[decider]'
   llm: auto              # auto = when a local Ollama server has llm_model · false = never
   llm_model: qwen3.5:9b  # Apache-2.0 · brew install ollama && ollama pull qwen3.5:9b
+  llm_start: true        # the Ollama server is not running → the engine starts it (`ollama serve`) and stops it when
+                         # the run ends; a server that was already running is left as it was · false = never start it
   llm_min: 0.5           # a language-model answer less sure than this keeps the previous answer
   timeout: 60            # seconds per language-model request
   device: cpu            # the small classifier: cpu | mps | cuda

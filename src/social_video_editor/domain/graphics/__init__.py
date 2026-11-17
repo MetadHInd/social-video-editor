@@ -10,18 +10,23 @@ diagrams) described as data and drawn locally.
       motion.py     timing curves
       kit.py        shared drawing helpers (house style)
       templates.py  the built-in templates
+      charts.py     line_chart and versus
+      screens.py    code (a terminal / editor) and screen (a screenshot in a frame)
+      suggest.py    which of those a sentence asks for (so the engine chooses them by itself)
       overlays.py   the ones drawn over the picture for a presenter who stays on screen
       scenes.py     illustrated scenes: a thing doing what the sentence says (swipe, drain, sleep…)
 
-Packs (workspace `packs/<name>/`) add a theme and may register their own templates and elements:
+Packs (workspace `packs/<name>/`) add a theme and may register their own templates and elements (an element
+"backdrop" is the picture of a voice memo; a template's `scenery()` may draw a place instead of the stage;
+a `dresser` completes the graphic chosen for a sentence):
 
     from social_video_editor.domain.graphics import element, template, Scene, kit, paths, motion
 """
-from . import kit, motion, overlays, paths, scenes, templates  # noqa: F401  (templates / overlays / scenes register the built-in ones)
+from . import charts, kit, motion, overlays, paths, scenes, screens, templates  # noqa: F401  (they register the built-in templates)
 from .canvas import Canvas, RecordingCanvas, fake_measure, saved
-from .scene import ELEMENTS, TEMPLATES, Scene, Stage, element, make_scene, template
+from .scene import DRESSERS, ELEMENTS, TEMPLATES, Scene, Stage, dress, dresser, element, make_scene, template
 from .spec import parse_cue
 from .theme import DEFAULT_THEME, build_theme
 
-__all__ = ["Canvas", "DEFAULT_THEME", "ELEMENTS", "RecordingCanvas", "Scene", "Stage", "TEMPLATES", "build_theme",
-           "element", "fake_measure", "kit", "make_scene", "motion", "parse_cue", "paths", "saved", "template"]
+__all__ = ["Canvas", "DEFAULT_THEME", "DRESSERS", "ELEMENTS", "RecordingCanvas", "Scene", "Stage", "TEMPLATES", "build_theme",
+           "dress", "dresser", "element", "fake_measure", "kit", "make_scene", "motion", "parse_cue", "paths", "saved", "template"]

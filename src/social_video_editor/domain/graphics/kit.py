@@ -535,22 +535,64 @@ def split_lines(st: Stage, text: str, font: str, size: float, n: int) -> list[st
     return best
 
 
-def caption(cv: Canvas, st: Stage, txt: str, t: float = 0.0, index: int = 0) -> None:
+def caption(cv: Canvas, st: Stage, txt: str, t: float = 0.0, index: int = 0, *, highlight: str | int | None = None,
+            x: float | None = None, y: float | None = None, width: float | None = None, anchor: str = "left",
+            size: float | None = None, max_rows: int = 2, mark: float = 1.0, p: float | None = None,
+            color: str | None = None) -> tuple[float, float, float, float]:
     """The narration box: what is being said, on a paper box low in the frame (below the safe zone),
-    so a graphic and its subtitle are composed together."""
+    so a graphic and its subtitle are composed together. → the box (x, y, w, h).
+
+    Also draws a subtitle line anywhere: `x`, `y` (px) place the box — its top, and its left end or its
+    middle with anchor="center" — instead of the default place; `width` (px) is the widest the box may
+    get; `size` the letters (px); `max_rows` how many lines it keeps. `highlight` marks one word — the
+    one being said — with an ink band behind it: a word of the text (the first match, ignoring case and
+    punctuation) or its 0-based position; `mark` (0-1) is how far the band has grown; `color` its ink
+    (default the accent). `p` (0-1) prints the text in, as kit.text does."""
     c = st.theme["colors"]
-    size = st.px(58 if st.vertical else 46)
+    size = size or st.px(58 if st.vertical else 46)
     pad = size * 0.62
-    max_w = st.W * (0.76 if st.vertical else 0.6) - 2 * pad
-    rows = wrap(st, txt, "label", size, max_w)[:2]
+    max_w = (width - 2 * pad) if width else st.W * (0.76 if st.vertical else 0.6) - 2 * pad
+    rows = wrap(st, txt, "label", size, max_w)[:max_rows]
     lh = size * 1.24
     w = max(st.measure(r, "label", size) for r in rows) + 2 * pad
     h = len(rows) * lh + 2 * pad - size * 0.28
-    if st.vertical:
+    if x is not None or y is not None:
+        bx = (st.px(72) if st.vertical else (st.W - w) / 2) if x is None else (x - w / 2 if anchor == "center" else x)
+        by = (st.H * 0.792 if st.vertical else st.H * 0.975 - h) if y is None else y
+        x, y = bx, by
+    elif st.vertical:
         x, y = st.px(72), st.H * 0.792
     else:
         x, y = (st.W - w) / 2, st.H * 0.975 - h
+    spot = _caption_word(rows, highlight) if highlight is not None else None
     with tilted(cv, box_tilt(st, index), x, y + h / 2):
         box(cv, st, x, y, w, h)
         for k, row in enumerate(rows):
-            text(cv, st, row, x + pad, y + pad + k * lh + size * 0.72, "label", size, c["ink"])
+            base = y + pad + k * lh + size * 0.72
+            if spot is not None and spot[0] == k and mark > 0:            # the word being said
+                before, word = spot[1], spot[2]
+                wx = x + pad + (st.measure(before, "label", size) if before else 0.0)
+                ww = st.measure(word, "label", size)
+                band = rect(wx - size * 0.12, base - size * 0.8, (ww + size * 0.24) * motion.clamp01(mark), size * 1.02)
+                cv.fill(band, resolve_ink(st.theme, color)[0])
+            text(cv, st, row, x + pad, base, "label", size, c["ink"], p=p)
+    return x, y, w, h
+
+
+def _caption_word(rows: list[str], highlight: str | int) -> tuple[int, str, str] | None:
+    """(row, the text before the word on its row, the word) of the highlighted word; None if absent."""
+    def plain(word: str) -> str:
+        return "".join(ch for ch in word.lower() if ch.isalnum())
+
+    words = [(r, k, w) for r, row in enumerate(rows) for k, w in enumerate(row.split(" "))]
+    if isinstance(highlight, bool):
+        return None
+    if isinstance(highlight, int):
+        found = words[highlight] if 0 <= highlight < len(words) else None
+    else:
+        target = plain(str(highlight))
+        found = next(((r, k, w) for r, k, w in words if target and plain(w) == target), None)
+    if found is None:
+        return None
+    r, k, w = found
+    return r, " ".join(rows[r].split(" ")[:k]) + (" " if k else ""), w

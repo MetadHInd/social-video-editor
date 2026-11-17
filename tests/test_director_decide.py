@@ -13,7 +13,7 @@ from social_video_editor.domain import decide as dd
 from social_video_editor.domain import director
 from social_video_editor.domain.explainer import build_plan
 from social_video_editor.domain.graphics import TEMPLATES
-from social_video_editor.domain.graphics.icons import ICONS, describe_icon, match_icon
+from social_video_editor.domain.graphics.icons import describe_icon, match_icon
 from social_video_editor.domain.graphics.scenes import ACTIONS, action_of, action_text, actions_in
 from social_video_editor.domain.script import parse_script
 from social_video_editor.domain.script_align import align, transcript
@@ -93,9 +93,9 @@ def test_the_same_questions_on_every_pass():
 # ── each judgment ──────────────────────────────────────────────────────────────────────────────
 
 def test_an_action_answer_changes_the_scene():
-    text = "Si la masa se queda abierta toda la noche, al día siguiente cuesta amasarla."
+    text = "Si la masa se queda abierta toda la noche, al día siguiente tarda en subir."
     rules = director.card(sentence(text), 3.0, "phone")
-    assert rules["template"] == "scene" and rules["action"] == "wait"              # "cuesta" read as waiting
+    assert rules["template"] == "scene" and rules["action"] == "wait"              # "tarda": a conjugated verb
     fake = FakeDecider({"action": "sleep"})
     got = director.card(sentence(text), 3.0, "phone", decide=fake)
     assert got["template"] == "scene" and got["action"] == "sleep" and got["_decided"] == "llm"
@@ -107,7 +107,7 @@ def test_an_action_answer_changes_the_scene():
 
 def test_none_removes_the_scene():
     text = "El sol de abril calienta la arena de la playa."
-    assert director.card(sentence(text), 0.0, "phone")["action"] == "open"          # "abril" starts like "abrir"
+    assert director.card(sentence(text), 0.0, "phone")["action"] == "work"          # "calienta" (not "abril")
     fake = FakeDecider({"action": "none"})
     got = director.card(sentence(text), 0.0, "phone", decide=fake)
     assert got["template"] == "title" and got["_decided"] == "llm"
@@ -122,7 +122,7 @@ def test_a_plain_verb_is_surer_and_english_is_asked_in_english():
     assert q.default == ("wait",) and q.confidence == 0.85 and q.language == "en"
     assert q.hypothesis == "This sentence is about {}." and dict((o.value, o.text) for o in q.options)["open"] == \
         "opening or starting something"
-    assert [(a, c) for a, _, c in actions_in("hay que guardarla y cuesta".split())] == [("store", True), ("wait", False)]
+    assert [(a, c) for a, _, c in actions_in("hay que guardarla y tarda".split())] == [("store", True), ("wait", False)]
     assert action_of("hay que guardarla".split()) == ("store", 2)
 
 
@@ -151,7 +151,7 @@ def test_a_long_clause_offers_its_parts():
 
 def test_a_weak_bar_label_is_replaced():
     words = words_of("It took 4 hours by train and the bus 9 hours.")
-    assert director.comparison(words)["data"] == "It:4, And the bus:9"
+    assert director.comparison(words) is None                   # "It" names nothing: no bars rather than a wrong name
     fake = FakeDecider({"bar_labels": lambda q: "By train" if q.default == ("It",) else None})
     got = director.comparison(words, fake)
     assert got["data"] == "By train:4, Bus:9" and got["_decided"] == "llm" and got["unit"] == "h"
@@ -160,15 +160,15 @@ def test_a_weak_bar_label_is_replaced():
     assert "By" not in first.values()                                       # a preposition alone names nothing
     rules = FakeDecider()
     director.comparison(words, rules)
-    assert [(q.default, q.confidence) for q in asked(rules, "bar_labels")] == [(("It",), 0.3), (("And the bus",), 0.5)]
+    assert [(q.default, q.confidence) for q in asked(rules, "bar_labels")] == [(("It",), 0.3)]
 
 
 def test_figures_the_rules_do_not_compare_may_be_compared():
-    words = words_of("Marcamos 3 goles y ellos 1 goles.")
+    words = words_of("La casa gasta 3 vatios y Ana 5 vatios.")
     assert director.said_data(words) is None
     fake = FakeDecider({"is_comparison": "yes"})
     got = director.said_data(words, fake)
-    assert got["template"] == "bars" and got["data"] == "Marcamos:3, Ellos:1" and got["_decided"] == "llm"
+    assert got["template"] == "bars" and got["data"] == "Casa:3, Ana:5" and got["_decided"] == "llm"
     (q,) = asked(fake, "is_comparison")
     assert q.kind == "yesno" and q.default == ("no",) and q.confidence == 0.5 and q.hypothesis == "Esta frase {}."
     sure = FakeDecider({"is_comparison": "no"})
@@ -190,16 +190,16 @@ def test_the_card_type_answer_picks_the_drawing():
 
 
 def test_the_title_icon_may_be_none():
-    text = "La masa sube en el horno y la cocina huele a pan."
+    text = "Lleva la batería y el cargador a la playa."
     fake = FakeDecider({"icon": "none"})
     got = director.card(sentence(text), 0.0, "phone", decide=fake)
-    assert got == {"template": "title", "text": "La cocina huele a pan", "_decided": "llm"}
-    (q,) = asked(fake, "icon")
-    assert q.values() == (*ICONS, "none") and q.default == ("phone",) and q.confidence == 0.5   # nothing named
+    assert got["template"] == "title" and "icon" not in got and got["_decided"] == "llm"
+    (q,) = asked(fake, "icon")                       # a shortlist: the things named, the topic's, none
+    assert q.values() == ("battery", "charger", "phone", "none") and q.default == ("battery",) and q.confidence == 0.9
     assert dict((o.value, o.text) for o in q.options)["battery"] == describe_icon("battery", "es")
-    named = FakeDecider()
-    director.card(sentence("Lleva la batería a la playa."), 0.0, "phone", decide=named)
-    assert asked(named, "icon")[0].confidence == 0.9 and asked(named, "icon")[0].default == ("battery",)
+    nothing = FakeDecider()
+    plain = director.card(sentence("La masa sube en el horno y la cocina huele a pan."), 0.0, "phone", decide=nothing)
+    assert plain["icon"] == "phone" and not asked(nothing, "icon")   # names nothing: the topic's, nothing to ask
     assert match_icon("baterías") == ("battery", False) and match_icon("cocina") is None
     assert describe_icon("none", "en") == "none of these things"
 

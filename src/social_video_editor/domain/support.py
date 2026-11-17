@@ -17,7 +17,12 @@ long word or a key word is not): when a sentence has unsure candidates, one `lab
 the decider (domain/decide.py) which of them make good notes. Without a decider the rules keep them all.
 Notes are grouped in one overlay per stretch (up to six notes, a few seconds) and each one appears
 when its word is said. Every proposal carries "_auto": "support" so it can be told apart, edited or
-removed in plan.json; `script.support: false` turns them off.
+removed in plan.json; `script.support: false` turns them off. A word that says again what a sure note
+shows (its plural, or the same illustration) is neither asked about nor shown twice. When a full-frame
+cutaway starts inside a sentence, the notes of the words under it are left out; with
+`script.support_spread` (off by default) they come in earlier, spread over the part said on camera.
+A sentence of a source with no picture (a voice memo: the plan's "pictureless") has no presenter to
+point at: only the notes that read well alone over the backdrop (a figure, an illustration) are kept.
 """
 from __future__ import annotations
 
@@ -29,6 +34,8 @@ from .script import tokens
 
 MAX_ITEMS = 6               # notes in one overlay (the callouts template has six places)
 MAX_PER_SENTENCE = 4
+MAX_OPTIONS = 24            # words asked about in one question (the rest keep the rules' answer)
+SPREAD = False              # script.support_spread: notes of words under a full-frame cutaway move into the part on camera
 MAX_EXTRA = 6               # other words of a sentence offered to the decider (to replace a verb with a noun)
 EXTRA_CONFIDENCE = 0.6      # the rules leave those out; a question is asked when a sentence offers some
 MIN_GAP = 0.6               # seconds between two notes
@@ -154,12 +161,22 @@ def _candidates(words: list[list], language: str, key_word: bool) -> list[dict]:
     return sorted(out, key=lambda n: n["t"])
 
 
-def _extra_words(words: list[list], language: str, taken: set[float], shown: set[str]) -> list[dict]:
+def _stem(label: str) -> str:
+    """A note's word without accents and a plural ending ("Apps" → "app", "Ciudades" → "ciudad")."""
+    t = "".join(tokens(label))
+    return t[:-2] if t.endswith("es") and len(t) > 5 else t[:-1] if t.endswith("s") and len(t) > 3 else t
+
+
+def _extra_words(words: list[list], language: str, taken: set[float], shown: set[str],
+                 sure: list[dict] | None = None) -> list[dict]:
     """Other words of the sentence that may name something (4+ letters, not a stopword, not already a
     note): offered to the decider as well, so a verb it turns down can be replaced by a noun. The rules
-    never keep them (they are not in the rules' answer)."""
+    never keep them (they are not in the rules' answer). A word that says again what a sure note shows
+    (the same word in plural, or the same illustration: "celular" after "teléfono") is not offered."""
     stop = STOPWORDS.get(language, STOPWORDS["en"])
     weak = _WEAK.get(language, _WEAK["en"])
+    stems = {_stem(n["label"]) for n in sure or []}
+    icons = {n["icon"] for n in sure or [] if n.get("icon")}
     out = []
     for i, (word, start, _end) in enumerate(words):
         if _FIGURE.match(word) or (i and _FIGURE.match(words[i - 1][0])):    # a figure and its unit are a note already
@@ -168,6 +185,8 @@ def _extra_words(words: list[list], language: str, taken: set[float], shown: set
         label = _label(word)
         if (len(token) < NOUN_LETTERS or token in stop or token in ALONE or weak.search(token)
                 or float(start) in taken or label.lower() in shown):
+            continue
+        if sure is not None and (_stem(label) in stems or find_icon(_clean(word).lower()) in icons):
             continue
         shown.add(label.lower())
         out.append({"label": label, "icon": find_icon(_clean(word).lower()), "t": float(start), "kind": "word",
@@ -180,12 +199,22 @@ def _notes(words: list[list], language: str, key_word: bool, decide: Decide | No
     out = _candidates(words, language, key_word)
     changed = None
     sure_labels = {n["label"].lower() for n in out if n["conf"] >= SURE}
-    unsure = [n for n in out if n["conf"] < SURE and n["label"].lower() not in sure_labels]
-    extra = _extra_words(words, language, {n["t"] for n in out}, {n["label"].lower() for n in out})
+    sure_stems = {_stem(n["label"]) for n in out if n["conf"] >= SURE}
+    sure_icons = {n["icon"] for n in out if n["conf"] >= SURE and n.get("icon")}
+
+    def again(n: dict) -> bool:            # says again what a sure note shows ("Apps" after "App", "Celular" after "Teléfono")
+        return n["label"].lower() in sure_labels or _stem(n["label"]) in sure_stems or \
+            find_icon(n["word"].lower()) in sure_icons
+
+    unsure = [n for n in out if n["conf"] < SURE and not again(n)]
+    extra = _extra_words(words, language, {n["t"] for n in out}, {n["label"].lower() for n in out},
+                         [n for n in out if n["conf"] >= SURE])
     if unsure or extra:
         options: dict[str, str] = {}
         for n in unsure + extra:
             options.setdefault(n["label"], n["word"])
+        if len(options) > MAX_OPTIONS:                           # one letter per option, and one for "none"
+            options = dict(list(options.items())[:MAX_OPTIONS])
         kept_by_rules = set(n["label"] for n in unsure)
         default = tuple(label for label in options if label not in kept_by_rules)   # the rules leave the extras out
         q = Question("label_words", "multi", PROMPT.get(language, PROMPT["en"]),
@@ -194,7 +223,7 @@ def _notes(words: list[list], language: str, key_word: bool, decide: Decide | No
                      min([n["conf"] for n in unsure] + ([EXTRA_CONFIDENCE] if extra else [])), language)
         answer = ask(decide, q)
         verbs = set(answer.values)                               # the words that are verbs: never a note
-        out = [n for n in out if n["conf"] >= SURE or (n["label"] not in verbs and n["label"].lower() not in sure_labels)]
+        out = [n for n in out if n["conf"] >= SURE or (n["label"] not in verbs and not again(n))]
         out += [n for n in extra if n["label"] not in verbs]     # the other words: notes too
         out.sort(key=lambda n: n["t"])
         if answer.source != "rules" and verbs != set(q.default):
@@ -220,10 +249,41 @@ def _pick(notes: list[dict], last: float | None) -> list[dict]:
     return sorted(chosen, key=lambda n: n["t"])
 
 
-def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> list[dict]:
+def _spread(chosen: list[dict], later: list[dict], begin: float, end: float, last: float | None) -> list[dict]:
+    """Notes whose words are said under a full-frame cutaway (`later`) moved into the part said on camera
+    [begin, end]: each one in the middle of the widest free stretch, MIN_GAP from every other note, while
+    there is room and the sentence has fewer than MAX_PER_SENTENCE. → the moved notes (t = when they appear)."""
+    moved: list[dict] = []
+    if end < begin:
+        return moved
+    for kinds in ORDER:
+        for note in later:
+            if note["kind"] not in kinds or len(chosen) + len(moved) >= MAX_PER_SENTENCE:
+                continue
+            marks = sorted([c["t"] for c in chosen + moved] + ([last] if last is not None else []))
+            edges = [begin - MIN_GAP, *[m for m in marks if begin - MIN_GAP <= m <= end + MIN_GAP], end + MIN_GAP]
+            gaps = [(b - a, a, b) for a, b in zip(edges, edges[1:])]
+            _, a, b = max(gaps)
+            t = min(max((a + b) / 2, begin), end)
+            if all(abs(t - m) >= MIN_GAP - 1e-6 for m in marks):
+                moved.append({**note, "t": round(t, 3)})
+    return moved
+
+
+ALONE_KINDS = ("figure", "icon")    # the notes that read well over a backdrop, without a presenter
+
+
+def propose(plan: dict, language: str = "es", decide: Decide | None = None, settings: dict | None = None,
+            pictureless: set[int] | None = None) -> list[dict]:
     """Cutaway entries (`callouts` overlays) for the sentences said on camera with nothing else on
     screen. The plan is not changed. Sentences under a cutaway of the plan are left alone; a sentence
-    whose cutaway starts at one of its words (from_word) keeps notes on its part said on camera."""
+    whose cutaway starts at one of its words (from_word) keeps notes on its part said on camera.
+    settings: the project's (`script.support_spread`: the notes whose words fall under that cutaway
+    appear earlier, spread over the part said on camera, instead of being lost; off by default).
+    pictureless: the sources with no picture (default: the plan's "pictureless"): their sentences keep
+    only figures and illustrations (ALONE_KINDS)."""
+    spread = bool(((settings or {}).get("script") or {}).get("support_spread", SPREAD))
+    blind = {int(k) for k in plan.get("pictureless") or []} if pictureless is None else set(pictureless)
     taken: set[int] = set()
     cover_from: dict[int, tuple[int, float]] = {}          # sentence → (source, second) a cutaway covers it from
     for c in plan.get("cutaways") or []:
@@ -276,12 +336,21 @@ def propose(plan: dict, language: str = "es", decide: Decide | None = None) -> l
         quiet = not same or float(s["start"]) - last_note[1] > QUIET_SECONDS
         shown = {x.lower() for x in group["items"]} if group else set()
         notes, decided = _notes(s["words"], language, quiet and length >= 1.2, decide)
+        if int(s.get("source", 0)) in blind:
+            notes = [note for note in notes if note["kind"] in ALONE_KINDS]
         offered = [note for note in notes
                    if clock + (note["t"] - float(s["start"])) >= OPENING_SECONDS
                    and note["t"] < until
                    and (alone_after or until - note["t"] >= LAST_SECONDS)
                    and note["label"].lower() not in recent and note["label"].lower() not in shown]
-        for note in _pick(offered, last_note[1] if same else None):
+        chosen = _pick(offered, last_note[1] if same else None)
+        if spread and cut is not None:            # the words under the cutaway: their notes come in before it
+            begin = max(float(s["start"]), float(s["start"]) + OPENING_SECONDS - clock)
+            later = [note for note in notes if note["t"] >= until - LAST_SECONDS and note not in offered
+                     and note["label"].lower() not in recent and note["label"].lower() not in shown]
+            chosen = sorted(chosen + _spread(chosen, later, begin, until - LAST_SECONDS, last_note[1] if same else None),
+                            key=lambda n: n["t"])
+        for note in chosen:
             if group and len(group["items"]) >= MAX_ITEMS:
                 flush()
             if group is None:

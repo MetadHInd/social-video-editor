@@ -20,6 +20,7 @@ from ..domain import check as ck
 from ..domain import footage as fg
 from ..domain.config import labels
 from ..domain.models import UserError
+from ..domain import voice_levels
 from ..domain.music import beats_in_video
 from ..domain.timeline import absolute_texts, compute_timeline
 from .music import effective_analysis, music_analysis
@@ -127,17 +128,19 @@ class Checker:
             for t, n in sorted(clips, key=lambda c: -c[1])[:2]:
                 self.moment("clipping", t, 10 + n, f"{n} clipped samples")
         self.metrics["audio"]["silences"] = sil
-        for a_, b_ in sil:
+        composed = (self.cfg.get("music") or {}).get("_composed") or self.summary.get("music_composed")
+        designed = [x for x in sil if ck.designed_silence(x, composed, float(th["composed_silence_max_sec"]))]
+        if designed:
+            self.metrics["audio"]["designed_silences"] = designed
+            self.notes.append(f"{len(designed)} silence(s) inside the composed track's own silences (by design)")
+        for a_, b_ in (x for x in sil if x not in designed):
             self.warnings.append(f"silence {a_:.2f}–{b_:.2f} s ({b_ - a_:.1f} s below {th['silence_db']} dBFS)")
             self.moment("silence", a_, 1 + (b_ - a_) / th["silence_sec"], f"{b_ - a_:.1f} s of silence")
         jumps = ck.cut_jumps(L["t"], L["momentary"], self.sound_cuts())
         big = [j for j in jumps if abs(j["jump_lu"]) > th["cut_jump_lu"] and not ck.pause_to_voice(j, I)]
         self.metrics["audio"]["cut_jump_max_lu"] = max((abs(j["jump_lu"]) for j in jumps), default=None)
         self.metrics["audio"]["cut_jumps"] = big
-        for j in big:
-            self.warnings.append(f"loudness jump {j['jump_lu']:+.1f} LU at the cut {j['t']:.2f} s "
-                                 f"({j['before']} → {j['after']} LUFS)")
-            self.moment("loud_jump", j["t"], abs(j["jump_lu"]) / th["cut_jump_lu"], f"{j['jump_lu']:+.1f} LU at a cut")
+        self._jumps = big                   # reported after the stems (cut_jumps): the voice stem may explain them
         h = harsh()
         self.metrics["audio"].update(harsh_ratio=h["ratio"], harsh_worst_t=h["worst_t"],
                                      harsh_worst_ratio=h["worst_ratio"])
@@ -210,6 +213,8 @@ class Checker:
         L = {k: self.svc.inspector.loudness(p) for k, p in stems.items()}
         eff = {k: round(ck.finite(v["integrated"], ck.SILENT_LUFS) + gain, 1) for k, v in L.items()}
         self.metrics["stems"] = {**eff, "master_gain_db": round(gain, 2), "mix": I_mix}
+        if self.plan.get("sentences") or (self.cfg.get("music") or {}).get("relative_to_voice"):
+            self._voice = L.get("original")     # the original sound is a voice: it tells speech from a jump
 
         def worst(a: dict, b: dict, offset: float) -> tuple[float, float]:
             """Moment where stem a (+gain) is furthest above b (both audible) → (diff, t)."""
@@ -230,6 +235,8 @@ class Checker:
                                      f"({eff['original']} LUFS)")
                 d, t = worst(L["music"], L["original"], 0.0)
                 self.moment("music_masks", t, 1 + d / 6, f"music {d:+.1f} LU over the original")
+        if "music" in L and "original" in L and not self.cfg["audio"].get("asmr"):
+            self.music_under_voice(L["original"], L["music"])
         bursts = [b for b in self.summary.get("typing") or [] if b[2] >= 3]
         if "sfx" in L and bursts:
             levels = [(ck.window_level(L["sfx"]["t"], L["sfx"]["momentary"], a, b) + gain
@@ -240,6 +247,41 @@ class Checker:
                 self.warnings.append(f"typing clicks too loud: {d:+.1f} LU vs the mix at {t:.1f} s "
                                      f"(max {th['typing_max_vs_mix_lu']:+g})")
                 self.moment("typing_loud", t, 1 + (d - th["typing_max_vs_mix_lu"]) / 6, f"typing {d:+.1f} LU")
+
+    def cut_jumps(self) -> None:
+        """The loudness jumps at cuts, except where the voice stem shows speech starting or stopping
+        (a pause filled by music is not near silence, so the mix alone cannot tell)."""
+        th, voice = self.th, getattr(self, "_voice", None) or {}
+        real = [j for j in getattr(self, "_jumps", []) if not ck.voice_starts_or_stops(j, voice.get("t") or [],
+                                                                                         voice.get("momentary") or [])]
+        if len(real) < len(getattr(self, "_jumps", [])):
+            self.metrics["audio"]["cut_jumps_speech"] = [j for j in self._jumps if j not in real]
+        self.metrics["audio"]["cut_jumps"] = real
+        for j in real:
+            self.warnings.append(f"loudness jump {j['jump_lu']:+.1f} LU at the cut {j['t']:.2f} s "
+                                 f"({j['before']} → {j['after']} LUFS)")
+            self.moment("loud_jump", j["t"], abs(j["jump_lu"]) / th["cut_jump_lu"], f"{j['jump_lu']:+.1f} LU at a cut")
+
+    def music_under_voice(self, voice: dict, music: dict) -> None:
+        """How far the music sits under the voice (both stems pre-master: the same gain), while it speaks
+        and in pauses; a warning when it is closer than check.music_min_under_voice_lu while it speaks."""
+        I = ck.finite(voice.get("integrated"))
+        if I is None or I < -60 or not voice.get("momentary") or not music.get("momentary"):
+            return
+        b = voice_levels.music_balance(I, voice["momentary"], music["momentary"],
+                                       ck.speech_moments(voice["momentary"], I))
+        if b["speech_lu"] is None:
+            return
+        t = voice["t"][b["worst_i"]] - 0.2 if b["worst_i"] is not None and b["worst_i"] < len(voice["t"]) else None
+        self.metrics["music_vs_voice"] = {"speech_lu": b["speech_lu"], "pause_lu": b["pause_lu"],
+                                          "worst_lu": b["worst_lu"], "worst_t": None if t is None else round(t, 1)}
+        lim = float(self.th["music_min_under_voice_lu"])
+        if b["speech_lu"] < lim:
+            self.warnings.append(f"music covers the voice: only {b['speech_lu']:+.1f} LU under it while it speaks "
+                                 f"(min {lim:g})")
+            if t is not None:
+                self.moment("music_covers_voice", t, 1 + (lim - b["worst_lu"]) / 6,
+                            f"music {b['worst_lu']:+.1f} LU under the voice")
 
     def typing_density(self) -> None:
         bursts = self.summary.get("typing")
@@ -328,6 +370,10 @@ class Checker:
             self._beat_deviation([b for b in tl["beats"] if 0 <= b <= total + 1],
                                  round(float(np.median(tempos)), 2) if tempos else None)
             return
+        composed = (self.cfg.get("music") or {}).get("_composed") or self.summary.get("music_composed")
+        if composed:                                                # music.file: compose — the composer's own grid
+            self._beat_deviation(ck.composed_beats(composed, total), composed.get("bpm"))
+            return
         try:
             path = self.svc.projects.find_music(self.cfg["music"], folder)
         except UserError:
@@ -344,8 +390,12 @@ class Checker:
         if not dev:
             return
         med = float(np.median(dev))
+        judged = ck.cuts_follow_beat(self.cfg.get("music"), self.plan.get("shots"))
         self.metrics["beats"] = {"tempo": tempo, "cuts": len(dev), "median_ms": round(med * 1000),
-                                 "max_ms": round(max(dev) * 1000)}
+                                 "max_ms": round(max(dev) * 1000), "judged": judged}
+        if not judged:                      # the cuts follow the voice (music.cuts_on_beat: false): nothing to fix
+            self.notes.append("the cuts follow the voice, not the beat (music.cuts_on_beat: false): not judged")
+            return
         tol = self.th["beat_tolerance_sec"]
         if med > tol:
             self.warnings.append(f"cuts off the beat: median {med * 1000:.0f} ms (max {tol * 1000:.0f} ms)")
@@ -418,6 +468,7 @@ def check_version(svc: Services, project: str, version: str | None = None,
     mix, _ = c.audio(v["video"])
     total = total or (mix["t"][-1] if mix["t"] else 0.0)
     c.stems(mix)
+    c.cut_jumps()
     c.typing_density()
     c.video(v["video"])
     c.texts()

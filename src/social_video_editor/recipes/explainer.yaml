@@ -35,8 +35,11 @@ audio:
   denoise: 0             # per-shot noise reduction would restart at every cut (audible seams)…
   clean_voice: true      # …so the whole recording is cleaned once instead (RNNoise): fans, room, street out
   gain_without_voice_db: 0
+  breaths: true          # breaths / mouth noise between sentences 12 dB lower (whole recording, never on words)
 music:
-  file: none             # set a track you have the rights to use; it stays under the voice
+  file: none             # set a track you have the rights to use; it stays under the voice, or
+                         # compose: the engine composes an original one that follows the script's arc
+  relative_to_voice: true   # measured: 10 dB under the voice while it speaks, 4 dB in pauses, intro 4 dB louder
   cuts_on_beat: false    # cuts follow the sentences, not the beat
   ducking: false
   volume_with_voice_db: -24

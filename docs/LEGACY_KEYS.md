@@ -96,6 +96,11 @@ This file is the human-readable copy of the tables in that module (a test checks
 | `--cada` | `--every` |
 | `--salida` | `--out` |
 | `--simular` | `--dry-run` |
+| `--sin-usar` | `--unused` |
+| `--si` | `--yes` |
+| `--completo` | `--full` |
+| `--corto` | `--short` |
+| `--cortos` | `--shorts` |
 
 ## Recipes and project settings
 
@@ -179,6 +184,7 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `reencuadre_cada` | `reframe_every` |
 | `deriva` | `drift` |
 | `apoyos` | `support` |
+| `apoyos_repartir` | `support_spread` |
 | `primer_plano` | `close_up` |
 | `tomas_auto` | `auto_broll` |
 | `apertura` | `opening` |
@@ -186,6 +192,18 @@ Removed (dropped on load) in `config.output`: `perfiles`
 | `toma_min` | `auto_min` |
 | `transicion` | `transition` |
 | `fundido_tomas` | `cutaway_fade` |
+| `cortos` | `shorts` |
+| `cortos_max` | `shorts_max` |
+| `corto_min` | `short_min` |
+| `corto_max` | `short_max` |
+| `lineas_auto` | `auto_line_chart` |
+| `versus_auto` | `auto_versus` |
+| `codigo_auto` | `auto_code` |
+| `capturas_auto` | `auto_screen` |
+| `diagramas_auto` | `auto_diagram` |
+| `cifras_en_contexto` | `figure_context` |
+| `escenas_ajustadas` | `scene_fit` |
+| `barras_con_verbos` | `verb_bars` |
 
 ### Values of `config.script.take`
 
@@ -295,6 +313,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 |---|---|
 | `muestras_por_seg` | `samples_per_sec` |
 | `umbral_escena` | `scene_threshold` |
+| `trabajos` | `jobs` |
 
 ### Keys of `config.transcription`
 
@@ -304,6 +323,7 @@ Removed (dropped on load) in `config.duration`: `minimo`
 | `idioma` | `language` |
 | `contexto` | `context` |
 | `prob_min` | `min_probability` |
+| `motor` | `engine` |
 
 ### Keys of `config.color`
 
@@ -381,6 +401,8 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `pico` | `true_peak` |
 | `ganancia_max_master_db` | `master_max_gain_db` |
 | `dibujadas_db` | `drawn_shot_db` |
+| `respiraciones` | `breaths` |
+| `nivelador_voz` | `voice_leveler` |
 
 ### Keys of `config.music`
 
@@ -401,6 +423,21 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `bpm` | `bpm` |
 | `factor_tempo` | `tempo_factor` |
 | `lista` | `playlist` |
+| `relativa_a_voz` | `relative_to_voice` |
+| `bajo_voz_db` | `under_voice_db` |
+| `bajo_pausa_db` | `under_pause_db` |
+| `entrada_mas_db` | `intro_db` |
+| `componer` | `compose` |
+
+### Keys of `config.music.compose`
+
+| Spanish | English |
+|---|---|
+| `estilo` | `preset` |
+| `semilla` | `seed` |
+| `silencios` | `silences` |
+| `acentos` | `accents` |
+| `volumen_lufs` | `lufs` |
 
 ### Values of `config.music.file`
 
@@ -408,6 +445,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `ninguna` | `none` |
 | `no` | `none` |
+| `componer` | `compose` |
 
 ### Values of `config.music.align`
 
@@ -441,6 +479,7 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 | `borde_color` | `stroke_color` |
 | `sombra` | `shadow` |
 | `animacion` | `animation` |
+| `estilo` | `style` |
 
 ### Values of `config.subtitles.animation`
 
@@ -448,6 +487,14 @@ Removed (dropped on load) in `config.transitions`: `sonido`
 |---|---|
 | `escribir` | `typewriter` |
 | `ninguna` | `none` |
+
+### Values of `config.subtitles.style`
+
+| Spanish | English |
+|---|---|
+| `caja` | `caption` |
+| `recuadro` | `caption` |
+| `normal` | `pillow` |
 
 ### Keys of `config.texts`
 
@@ -527,6 +574,7 @@ The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPH
 | `llm_min` | `llm_min` |
 | `espera_max` | `timeout` |
 | `dispositivo` | `device` |
+| `arrancar_llm` | `llm_start` |
 
 ### Keys of `config.review` (the engine's own review in `sve make` / `sve hacer`)
 
@@ -536,6 +584,11 @@ The keys inside `theme` (colors, fonts, strokes…) are English only: see [GRAPH
 | `lectura_cps` | `read_cps` |
 | `grafico_max` | `graphic_max` |
 | `holgura_camara` | `camera_slack` |
+| `escalera` | `ladder` |
+| `intentos_toma` | `clip_tries` |
+| `parecido_toma` | `clip_match` |
+| `caras` | `faces` |
+| `guardar_intentos` | `keep_attempts` |
 
 ### Keys of `config.broll` (third-party footage fetched by `sve broll` / `sve tomas`)
 
@@ -588,9 +641,11 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `tolerancia_volumen_lu` | `loudness_tolerance_lu` |
 | `silencio_db` | `silence_db` |
 | `silencio_seg` | `silence_sec` |
+| `silencio_compuesto_max_seg` | `composed_silence_max_sec` |
 | `salto_corte_lu` | `cut_jump_lu` |
 | `sfx_max_vs_mezcla_lu` | `sfx_max_vs_mix_lu` |
 | `musica_max_vs_original_lu` | `music_max_vs_original_lu` |
+| `musica_min_bajo_voz_lu` | `music_min_under_voice_lu` |
 | `tecleo_max_por_seg` | `typing_max_per_sec` |
 | `tecleo_max_vs_mezcla_lu` | `typing_max_vs_mix_lu` |
 | `aspereza` | `harsh_ratio` |
@@ -635,6 +690,16 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `apertura_max` | `opening_max` |
 | `sin_empaque` | `unpacked` |
 | `empaques` | `packaging` |
+| `nombres` | `naming` |
+| `fotogramas_nombre` | `name_frames` |
+| `candidatos_nombre` | `name_candidates` |
+
+### Values of `config.vision.naming`
+
+| Spanish | English |
+|---|---|
+| `fotogramas` | `frames` |
+| `decididor` | `decider` |
 
 ### Keys of `config.vision.weights`
 
@@ -656,6 +721,12 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `duracion_min` | `min_duration` |
 | `duracion_max` | `max_duration` |
 | `tono_auto` | `auto_tone` |
+| `omitir_duplicadas` | `skip_duplicates` |
+| `omitir_borrosas` | `skip_blurred` |
+| `segundos_duplicadas` | `duplicate_seconds` |
+| `diferencia_duplicadas` | `duplicate_difference` |
+| `nitidez_min` | `min_sharpness` |
+| `parte_borrosa` | `blur_share` |
 
 `config.photo.transition` values use the same table as `config.hook.transition`.
 
@@ -736,6 +807,12 @@ The other source names (`pexels`, `pixabay`, `wikimedia`) are the same in both l
 | `movimiento` | `motion` |
 | `cantidad_movimiento` | `motion_amount` |
 | `tono_auto` | `auto_tone` |
+| `omitir_duplicadas` | `skip_duplicates` |
+| `omitir_borrosas` | `skip_blurred` |
+| `segundos_duplicadas` | `duplicate_seconds` |
+| `diferencia_duplicadas` | `duplicate_difference` |
+| `nitidez_min` | `min_sharpness` |
+| `parte_borrosa` | `blur_share` |
 
 Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GRAPHICS.md](GRAPHICS.md)):
 
@@ -772,6 +849,35 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `accion` | `action` |
 | `sujeto` | `subject` |
 | `destino` | `target` |
+| `datos2` | `data2` |
+| `minimo` | `min` |
+| `izquierda` | `left` |
+| `derecha` | `right` |
+| `filas` | `rows` |
+| `lineas` | `lines` |
+| `salida` | `output` |
+| `lenguaje` | `lang` |
+| `indicador` | `prompt` |
+| `aumento` | `zoom` |
+| `marco` | `frame` |
+| `direccion` | `url` |
+| `disposicion` | `layout` |
+
+Values of `layout` (diagram):
+
+| Spanish | English |
+|---|---|
+| `cadena` | `chain` |
+| `flujo` | `flow` |
+
+Values of `frame` (screen):
+
+| Spanish | English |
+|---|---|
+| `navegador` | `browser` |
+| `celular` | `phone` |
+| `ventana` | `window` |
+| `ninguno` | `none` |
 
 ### Values of `plan.shots.type`
 
@@ -795,6 +901,10 @@ Keys of a graphic shot (`type: graphic`, also accepted in a graphic cue; see [GR
 | `marco_ventana` | `pip_frame` |
 | `escena` | `scene` |
 | `diagrama` | `diagram` |
+| `lineas` | `line_chart` |
+| `frente_a_frente` | `versus` |
+| `codigo` | `code` |
+| `pantalla` | `screen` |
 
 ### Values of `plan.shots.role`
 
@@ -890,6 +1000,9 @@ A cutaway or a cue also takes every graphic key of `plan.shots` (`plantilla`, `t
 | `camara` | `camera` |
 | `foto` | `photo` |
 | `toma` | `broll` |
+
+The marks of a short, `[corto nombre]` … `[/corto]` (also `[corto nombre="…"]`), are `[short name]` … `[/short]`
+(read by the script parser itself, domain/script.py).
 
 ### Keys of `plan.texts`
 

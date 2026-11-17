@@ -6,14 +6,86 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Fixed
-- A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
-  (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
-  one frame of the presenter showed through).
-- A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
-  that the transcription split or misheard are kept, so no word is cut in half.
+## [0.6.0] - 2026-11-16
+
+From a script to a finished explainer with one command: the engine chooses and draws the graphics, fetches
+licensed footage, cleans the voice, composes the music, reviews its own render and fixes what it can.
+Everything new is behind a setting; the old recipes render exactly as before.
 
 ### Added
+- **The Ollama server on demand** (`decider.llm_start`, Spanish `arrancar_llm`, on by default): when the
+  decider needs the local language model and no server is running on this machine, the engine starts
+  `ollama serve` itself and stops it when the command ends, after unloading the model — nothing has to be
+  kept running between videos. A server that was already running is never stopped, a server on another
+  machine (`OLLAMA_HOST`) is never started, a server the engine started is left running when another
+  program has a model loaded on it, and a start that fails is said once and the rules answer. `sve doctor`
+  never starts it and says when it would be started. `false` keeps the previous behaviour.
+- **Music the engine composes** (`music.file: compose`, Spanish `componer`): an original instrumental track
+  for each video, synthesized with numpy (no samples, loops or downloads) from a style preset (`upbeat`,
+  `calm`, `tense`, `warm`, `trap`, or a pack's own under `music:` in `pack.yaml`), a seed (default: from the
+  project name) and the video's timing. It follows the explainer's arc: a hit on frame 0, cut dead at the
+  conflict, the chorus on the first word of the question, cut dead at the twist, an emotive lower outro with
+  a 1 s fade — from the script's `#` headings (scene, conflict, question, twist, solution…, English or
+  Spanish) or, without them, from the first question, the full-screen graphics and the cuts. Its beat grid
+  is exact (cuts follow `music.cuts_on_beat` / `align` as with any track; every shot gets the beats for
+  `beat_pulse`). Cached in `cache/compose/` by preset + seed + sections (a new timing makes a new track),
+  with a proof of origin next to it (`.origin.json`: engine version, preset, seed, tempo, key, sections,
+  SHA-256 of the 24-bit samples and of the score, a statement in the project's language). Settings:
+  `music.compose: {preset, seed, bpm, silences, accents, lufs}`. Default unchanged (`none` / `null`).
+- `sve music --compose [--preset P] [--seconds N] [--seed S] [--bpm B] [--out FILE] [--pack NAME]
+  [--project P]`: a standalone track (the arc in whole bars) or the one for a project's plan, with its proof
+  of origin; `.m4a` / `.mp3` outputs keep the lossless `.flac` the proof describes.
+- **The director chooses the newer graphics by itself** (`explainer`, no cue needed; each one a setting, all on):
+  figures tied to three or more years, said in digits or in words, in one sentence or over up to three →
+  `line_chart` (`script.auto_line_chart`); two things with a proper name and a figure each ("the iPhone lasts
+  20 hours and the Pixel 18", or `vs` / `frente a`), rows gathered over two sentences about the same two →
+  `versus` (`script.auto_versus`); a command between backticks or a shell command with its arguments → `code`
+  (`script.auto_code`); a screenshot of the project the sentence names (`captura_ajustes_wifi.png`) → `screen`,
+  and a `photo` cue whose file is a screenshot (by its name or a phone screen's shape) is shown as one
+  (`script.auto_screen`); a flow between illustrated things ("your phone sends the photo to the router and then
+  to the cloud", branches and loops too) → `diagram`, preferred to a scene (`script.auto_diagram`). They are
+  drawn, never searched for, keep the variety rule and carry `"_auto": "director"`; `sve plan` logs what the
+  director chose by kind. With all of them off the plan is exactly the one of before (pinned by a test).
+- **Figures read in context** (`script.figure_context`, on): a figure whose unit is left unsaid takes the one
+  said before it, so "in the morning it takes twelve seconds. / In the evening, four." is one `bars` graphic over
+  both sentences (each bar named by its clause, figures in digits); "from 7 to 9 at night" is a time, not a figure;
+  "at once" is not eleven. `script.scene_fit` (on): "open the shower" is not drawn as an app opening.
+  `script.verb_bars` (off: it lowers the labelled bar checks 100 → 97.8 %): a bar with no noun is named by its
+  verb ("You sleep eight hours and spend five on the phone" → Sleep / On the phone).
+- **A voice memo is covered whole**: with no picture (the plan's `pictureless`, written from the media infos) the
+  director has no camera time at all — every sentence, the closing ones too, gets a graphic, card or footage from
+  its start, a sentence too short to stand alone goes on under its neighbour — and the notes over the backdrop
+  keep only what reads alone (figures and illustrations).
+- **Shorts from the same project** (stage 7): `[short name]` … `[/short]` (Spanish `[corto nombre]` … `[/corto]`)
+  in an explainer script; `sve render <project> --short name` / `--shorts` (`--corto`, `--cortos`) renders each as
+  a vertical video of its own (its sentences, the cutaways inside, framing, subtitles and sound; a variant folder
+  such as `v3CortoName` that never overwrites). The long video's plan is the same (plus `shorts`).
+  `script.shorts: auto` (off) proposes self-contained stretches of 20–60 s by a simple, explained score (starts
+  with a question / hook, holds a graphic or a figure, ends on a statement, ≈40 s), recorded with `_auto: shorts`,
+  `score` and `why` (`domain/shorts.py`).
+- **Subtitles in the narration box** (`subtitles.style: caption`, Spanish `estilo: caja`; default unchanged): the
+  pack's paper box (`kit.caption`) with the word being said marked, same groups and timing as the default
+  subtitles, kept inside the safe zone, one transparent graphic track over the video, both orientations.
+- **A voice memo as the recording**: a source with sound and no picture gets a plain proxy for the analysis and
+  its shots are drawn on the theme's moving backdrop (never black), with the same voice chain.
+- Graphics: a file a graphic names (`image` of `screen` / `product_card`) is found in the project folder, like a
+  photo, in `sve render`, cutaways, `sve plan` and `sve graphic <project>`; a theme font role may be a list of
+  fonts tried in order, and `mono` falls back to a monospace font (DejaVu Sans Mono, Consolas, Courier New…),
+  never to a proportional one.
+- `summary.json`: `short`, `breaths` (what `audio.breaths` lowered, per recording) and `music_levels` (what
+  `music.relative_to_voice` measured).
+
+- **Voice and music levels** (stage 6, `domain/voice_levels.py`): `audio.breaths` (Spanish `respiraciones`; on in
+  `explainer`) lowers the pauses between sentences — breaths, mouth noise — by 12 dB in the same whole-recording
+  pass as `clean_voice`, with short fades inside the pause and margins around the speech and the transcribed
+  words (word starts and soft endings are never touched; measured on a real 47 s selfie: pause energy −8 dB,
+  speech and word onsets unchanged). `audio.voice_leveler` (off: measured as a trade-off, not a clear gain) adds
+  a slow leveler to that pass. `music.relative_to_voice` (Spanish `relativa_a_voz`; on in `explainer`): the music
+  level is measured against the voice of the rendered segments — `under_voice_db` (10) under it while it speaks,
+  `under_pause_db` (4) in pauses of 0.6 s or more, `intro_db` (4) louder before the first word, slew-limited and
+  dipping just before each word — and mixed as a prepared bed; the measured numbers go to
+  `vN/music_levels.json`. Without it the fixed music chain is unchanged. `sve check` reports how far the music
+  sits under the voice (stems) and warns under `check.music_min_under_voice_lu` (6).
 - **Local decider** (`decider:` section, Spanish `decisor:`; on in `explainer` with `auto`): the engine's language
   and picture judgments become closed questions (`domain/decide.py`). The ones the rules are unsure of are
   answered by local models, nothing paid per use: a zero-shot classifier (mDeBERTa XNLI, MIT, `[decider]` extra),
@@ -155,10 +227,151 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `color.reference`: copy the color look of a reference video (brightness, black/white points,
   saturation, color cast), with `color.reference_strength`.
 - Color look: `color.fade` (lifted blacks, softer whites) and `color.tint` (green ↔ magenta).
+- **34 more illustrations** (48 in all), each chosen by its Spanish and English words: `signal`, `building`,
+  `shower`, `tap`, `clock`, `moon`, `download`, `gauge`, `crowd`, `video`, `cable`, `satellite`, `keyboard`,
+  `shield`, `key`, `bug`, `folder`, `file`, `photo`, `camera`, `mic`, `speaker`, `message`, `bell`, `charger`,
+  `trash`, `search`, `gear`, `money`, `calendar`, `pin`, `rocket`, `idea`, `warning` (two- and three-word names
+  too: `hora pico`, `disco duro`). **Seven more scene actions**: `compare` (a balance), `search` (a magnifier
+  that finds a spot), `connect` (a cable that plugs in), `delete` (into the trash), `download` (pieces fall in,
+  a progress bar fills), `share` (one stream split among many), `queue` (a line waits at a gate). `freeze` now
+  has frost ferns, an icy glaze, icicles that drip and real snowflakes; `store` ends with the thing kept beside
+  what was stored before and the place it left marked.
+- `sve broll <project> --unused` (`--sin-usar`) lists the clips no plan uses any more and the search cache, with
+  their size; `--yes` (`--si`) deletes them (clip, record, cached frame). A clip a plan names is never deleted.
+- `sve report` starts with `TO DO`: what the engine could not settle on its own (decisions left by `sve make`, a
+  failed or missing check, b-roll to fetch, unused clips, sentences not recorded, sources not analyzed…), each with
+  the command that resolves it; long sections collapse to their first items and `… N more (--full)`. New
+  `--full` (`--completo`); `--json` keeps everything and adds `todo` and `footage`. The latest version is a draft
+  when only drafts were rendered since the last final one (it said "none yet" for projects made with `sve make`).
+  Measured on synthetic projects of each recipe: unboxing 24 → 22 lines, haul 26 → 21, talk 19 → 15,
+  slideshow 9 → 12, a busy explainer 62 → 50.
+- Slideshows: `photo.skip_duplicates` (`omitir_duplicadas`) shows only the sharpest of the photos that show the same
+  scene in a row, and `photo.skip_blurred` (`omitir_borrosas`) leaves out clearly blurred ones (sharpness and lost
+  fine detail, measured once per photo in `cache/photo_quality.json`). Both off by default; what was left out and
+  why is in `plan.json` (`skipped_photos`), the log and `sve report`.
+- Tests: the b-roll and check tests that render tiny synthetic videos use software x264 (`tests/software_encoder.py`;
+  the hardware path keeps its own tests), about a quarter faster and steady when the GPU is busy.
+- **Four graphic templates and diagram flows** (`docs/GRAPHICS.md`): `line_chart` (values over time; the line
+  draws itself, points pop, the highlighted value is stamped; one or two series), `versus` (two things face to face,
+  row by row, the better side checked and the winner crowned), `code` (a terminal or an editor where the lines are
+  typed, with output and a marked line; theme font `mono`) and `screen` (a screenshot in a browser / phone frame
+  that zooms to a region with a ring, or shows it in a loupe in the band the frame leaves empty). A `diagram`
+  whose thing has two arrows out is laid out as a flow (branches and loops around; `layout: chain|flow`); chains
+  draw exactly as before. Spanish names: `lineas`, `frente_a_frente`, `codigo`, `pantalla` and their keys.
+  `domain/graphics/suggest.py` turns a sentence or data into these specs so the engine can choose them; `kit.caption`
+  draws a subtitle line anywhere with the word being said marked. All are in the style proof.
+- **The director reads sentences more carefully** (no setting; old recipes unchanged): a list needs the shape of
+  one ("A, B y C", one join before the last item, no item opening like a clause), so a run of clauses is no
+  longer drawn as a list; a bar is named by the thing measured ("Por semana", "La app", "Al mes") — a pronoun
+  ("It", "Lo medí"), another figure ("Twenty a day") or a bare verb is not a name, and then the figure card is
+  drawn instead of wrong bars; figures said in words of any size ("ciento sesenta y uno", "fifty-four"),
+  thousands and millions ("17 mil apps" = 17000) and "un segundo" (a quantity with its unit); quotes with
+  "dice / afirma / reportó / encontró que", "de acuerdo con", "says / reported / found that", "a study by X
+  found that" — only from a named source. New scene actions take their subject and target from what is named
+  ("borra las fotos" → the photos into the trash; "descargas … en el celular" → the cloud down to the phone).
+  The icon question offers a shortlist (a question can no longer have more options than answer letters); a
+  title that names nothing shows the topic's picture, the phone instead of the app (which read as a photo).
+- `script.support_spread` (off by default): the notes of words said under a full-frame cutaway come in
+  earlier, spread over the part said on camera, instead of being left out (+20 % notes on a real test plan).
+  A word that says again what a sure note shows (its plural, the same illustration) is not asked about.
+- `domain/flow.py`: a sentence describing a flow ("A manda B a C", "pasa de X a Y y luego a Z", "goes from X
+  to Y") gives the ordered stops of a diagram (not wired to the director yet).
+- **Sources analyzed side by side** (`analysis.jobs`, Spanish `trabajos`; `auto` = `render.jobs` / `$SVE_JOBS`,
+  `1` = one after another): every source's 16 kHz wav is extracted first and Whisper transcribes them one after
+  another on its own thread while the proxies and the picture / scene / sound analysis run. Results and cache
+  files are the same as one at a time (a file listed twice is worked on once). 4 synthetic 30 s talking clips
+  (`scripts/bench.py --scenario analyze`, M1 Pro, 3 runs each, alternated): 26.2 s → 18.4 s (−30 %).
+- `transcription.engine` (Spanish `motor`): `faster-whisper` (default, unchanged), `mlx` (Whisper on the Apple
+  GPU through mlx-whisper, `[apple]` extra) or `auto`. Same words contract; an engine that cannot run or fails
+  falls back to faster-whisper; the analysis records which engine, model and device transcribed it
+  (`transcription` in `<id>_analysis.json`) and `sve doctor` says which engine the settings pick. Transcripts
+  stay cached per source: changing the engine never re-transcribes a finished project, and with `auto` a source
+  analyzed again (`sve analyze --force`) keeps the engine its words came from. mlx stays opt-in: on a real 47 s
+  Spanish recording (model `small`) its greedy decoding changed 9 % of the words and the script alignment found
+  one sentence fewer, and it was 0.7–1.8× as fast as faster-whisper, not the 2× needed to adopt it.
+- `scripts/bench.py --scenario analyze` (analysis and transcription time, engine / model / device recorded,
+  `--engine`, `--analysis-jobs`) and `--scenario explainer75` (final render of a ~75 s explainer: a presenter-like
+  recording, 6 full-frame graphics, subtitles). Both run only when named.
+- `vision.naming` (default `clip`: names exactly as before): `frames` names each product from its frames
+  with the highest product score, against the packaged vocabulary embedded with the image model's own text
+  encoder; `decider` then lets the decider's local language model look at the best frame and pick among
+  CLIP's `name_candidates` best names (new decider topic `product_name`; asking for it is enough, without
+  the language model the CLIP names stand). On a labeled 8-minute unboxing (16 products): exact names
+  3 → 8 (`frames`) → 10 (`decider`; 12 counting the right category), ≈4–5 s per product the first time,
+  cached after. `products.json` keeps its format. Recommended for the unboxing and haul recipes when Ollama
+  is installed.
+- The decider's language model receives pictures larger than 960 pixels scaled down (a full-HD b-roll frame
+  took ≈16 s a question).
+- `sve make` goes further: a **remedy ladder** — a finding whose remedy did not hold gets the next one. A
+  b-roll clip that freezes (or matches its search under `review.clip_match`, off by default) gets another
+  clip, the next candidate of the same search (`_rejected` in the plan; `review.clip_tries`, 2), then ends
+  where it stops, then a drawing of its sentence (the director's card, of a kind it has not had), then is
+  removed; an engine card too long to read is shortened, then drawn another way, then removed. New findings:
+  `face_out_of_frame` (the crop of a shot cuts the presenter's face: framed again, then plain framing),
+  `text_too_short` (a plan text kept to the end of the next shot), plan texts outside the safe zone moved in,
+  `music_covers_voice` (the music lowered by what was missing — a setting kept in `review.json` and listed
+  under TO DO), `loudness_off`. A voice memo allows no camera time in the review either. `review.ladder:
+  false` gives the remedies of before.
+- `sve make` works for **every recipe** (talk, unboxing, haul, slideshow, vlog…) with the findings that apply
+  to them; `sve plan` / `sve render` are unchanged. One run leaves one version folder: an attempt replaced by
+  a later round of the same run is deleted (`review.keep_attempts: true` keeps them; folders from before the
+  run are never touched). `sve make --short NAME` / `--shorts` also render the plan's shorts, each checked.
+- `sve report`: who transcribed the words (SOURCES line), a SHORTS section (proposals with their why), the
+  breaths lowered and the music levels of the latest render, how products are named and how many names are
+  unsure, composed music (preset, tempo, key, sections); still one screen. `sve check` reviews the cuts of a
+  composed track against the composer's own beat grid.
+- `adapters/system/fonts.font_file_exact`: the exact font lookup (no fallback) is public; the graphics
+  renderer uses it.
+- Hooks for packs that draw places: a template's `scenery()` may draw a place instead of the theme's stage; a
+  pack's `backdrop` element is drawn as the picture of a voice memo; `dresser` / `dress()` let a pack complete
+  the graphic chosen for a sentence from the whole sentence; `SceneAction.arrange()` / `play()` put a scene's
+  action in any box. Without a pack nothing changes.
 
 ### Fixed
+- `sve check` with music: cuts off the beat are a warning only when the edit puts cuts on the beat
+  (`music.cuts_on_beat` / `align: exact` / shots with `beats`); a silence inside a composed track's own
+  silence is by design up to `check.composed_silence_max_sec` (1.5 s); a loudness jump where the voice stem
+  shows speech starting after a pause filled by music is not flagged. A composed-music explainer rehearsal:
+  3 warnings → 0, with a dropout elsewhere or a long gap still reported.
+- A script sentence whose numbers are spelled out ("a cincuenta y cuatro") is found in a recording whose
+  transcription writes digits ("a 54"), and the other way round: numbers are matched by value, as one word
+  however they are written ("ciento sesenta y un" = "161", "17 mil" = "17.000" = "17,000", "2,5" = "2.5",
+  "161Mbps", "54%"; Spanish and English), a different number never matches, a lone "un / one" stands for "1"
+  only when the other side says 1, and the written words share the time of the one word heard (subtitles,
+  notes and cut points stay right). The number parser moved from the director to `domain/numbers.py`
+  (its figures are read exactly as before). A real rehearsal: a key sentence was reported missing; now
+  found at 100 %, and two others went from 75–77 % to 92–100 %.
+- Subtitles (both styles and the .srt) no longer lose the first word of a sentence that starts under a
+  transition: a word heard under a dissolve now goes to the shot it is heard in, split at the transition's middle
+  only when both shots play that same moment of the recording (so nothing is written twice). Before, every word
+  starting inside the entry transition was dropped — with the explainer's 0.2 s dissolves, the first word of
+  most sentences after a cut (a real voice memo: 6 of 191 words lost → 0; a real presenter: 3 of 116 → 0).
+  The audio was never affected.
+- Landscape renders: subtitles are raised into the safe zone `sve check` measures (a real 43 s explainer at
+  1920×1080: 13 safe-zone warnings → 0).
+- A full-frame clip held under the next one while that one fades in now stays on screen with FFmpeg 7 too
+  (the overlay repeats its last frame — `eof_action=repeat` — instead of `tpad`, which FFmpeg 7 ignored there:
+  one frame of the presenter showed through).
+- A script sentence no longer begins or ends inside a stretch of speech: words said right against its edges
+  that the transcription split or misheard are kept, so no word is cut in half.
+- Illustrations and scene actions are read from whole words only: a label with no word that names an
+  illustration has none (no more picture from a piece of a word), punctuation around a word no longer hides it
+  (`celular.`), and `tus`/`your`-style words never pick the person. A scene's verb is read by its forms:
+  negated verbs (`no tienes que limpiarlo`, `you don't have to clean it`, `sin cerrarla`) and look-alikes
+  (`abiertas`, `abril`, `cuesta`, `tarde`, `trabajar` read as `freeze`, `quite`) no longer trigger an action;
+  `cargar` without battery words is loading (`wait`) and `save` without them is `store`.
+- `lower_third` in a landscape frame sat on the subtitles (0.72–0.82·H against subtitles from 0.77·H): it now
+  ends at 0.74·H; vertical and square frames are unchanged.
+- A b-roll clip the language model turned down on the second try was downloaded again by the next `sve
+  broll`: it is now kept in `cache/footage_rejected.json` too. `sve broll`, `sve view` and `sve make` place
+  a graphic that names a project-relative picture as the render does.
 - One or two frames of the presenter showed between two full-frame cutaways in a row: clips are now
   laid on the frame grid and hold their last frame to the end of their window.
+- `sve check <project>` without `--version` checks the most recently rendered version, draft or variant included
+  (it failed with "Version folder not found: …/v1" when only drafts existed), skips failed renders and says
+  which version it checked.
+- `credits.txt` (the video's description) is written in the project's language (Spanish by default) and the
+  author is shortened (a commons' "Name derivative work of / …" keeps the name); `credits.json` keeps it whole.
 
 ## [0.5.1] - 2026-11-04
 

@@ -14,6 +14,7 @@ from .graphics.spec import split_list
 from .models import PlanError
 from .script import CAMERA, GRAPHIC, Script
 from .script_align import join_shots, settings
+from .shorts import from_marks
 from .transitions import transition_duration
 from .timeline import Timeline
 
@@ -78,9 +79,12 @@ def build_plan(script: Script, matches: list[dict | None], cfg: dict, script_nam
             entry["item_times"] = times
         cutaways.append(entry)
     found = sum(m is not None for m in matches)
-    return {"note": f"Explainer: {found} of {len(matches)} script sentences found, {len(shots)} shots, "
+    plan = {"note": f"Explainer: {found} of {len(matches)} script sentences found, {len(shots)} shots, "
                     f"{len(cutaways)} cutaways",
             "script": script_name, "shots": shots, "sentences": sentences, "cutaways": cutaways, "texts": []}
+    if script.shorts:                       # [short name] … [/short]: the long video ignores them
+        plan["shorts"] = from_marks(script.shorts)
+    return plan
 
 
 def _sentence_times(spec: dict, said: list[int], matches: list[dict | None]) -> list[list] | None:

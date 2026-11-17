@@ -11,6 +11,7 @@ true = may download it (≈1.2 GB, only once); false = never. `sve products` alw
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 
@@ -22,6 +23,8 @@ from .analyze import prepare_sources
 from .services import Services
 
 LABEL_TEMPLATES = {"es": "una foto de {}", "en": "a photo of {}"}
+NAMING_TEMPLATE = "a photo of {} held in a hand"     # vision.naming frames / decider (packaged vocabulary)
+FRAMES = "product_frames"                          # in the project cache: the frame each product is named from
 
 
 def vision_available(svc: Services, cfg: dict, explicit: bool = False) -> bool:
@@ -77,12 +80,21 @@ class Vision:
         labels = self.svc.recipes.vocabulary(self.language) if self.language != "en" else english
         return self.texts([LABEL_TEMPLATES["en"].format(x) for x in english]), labels
 
+    def naming_vocabulary(self) -> np.ndarray | None:
+        """The vocabulary embedded for naming (vision.naming frames / decider): the packaged English one
+        with the image model's own text encoder; a custom vocabulary keeps the multilingual model (None)."""
+        if dp.naming_mode(self.v) == "clip" or self.v.get("vocabulary"):
+            return None
+        english = self.svc.recipes.vocabulary("en")
+        return np.asarray(self.svc.visual.english_text_embeddings([NAMING_TEMPLATE.format(x) for x in english],
+                                                                  self.v), np.float32)
+
     def detect(self) -> list[dict]:
         sources = [self.source(i) for i in range(len(self.infos))]
         pos, neg = self.prompts()
         vocab, labels = self.vocabulary()
         packaging = self.texts(self.v["packaging"]) if self.v.get("unpacked") and self.v.get("packaging") else None
-        return dp.detect_products(sources, pos, neg, vocab, labels, self.v, packaging)
+        return dp.detect_products(sources, pos, neg, vocab, labels, self.v, packaging, self.naming_vocabulary())
 
     def search_series(self, source: int, search: dict) -> dict | None:
         """Vision score series of one source for a plan "search" (text similarity or product score)."""
@@ -98,7 +110,42 @@ class Vision:
 
 def products_result(vision: Vision, segments: list[dict]) -> dict:
     """The content of cache/products.json."""
-    return {"segments": segments, "model": vision.svc.visual.model_name(vision.v), "language": vision.language}
+    return {"segments": [dp.public(s) for s in segments], "model": vision.svc.visual.model_name(vision.v),
+            "language": vision.language}
+
+
+def name_products(svc: Services, project: Project, vision: Vision, segments: list[dict], cfg: dict) -> list[dict]:
+    """vision.naming: decider → the decider's language model looks at each product's best frame and
+    picks among CLIP's best names (application/decide.py; cached answers). Other modes: unchanged.
+
+    Asking for it is enough: the decider is used even when `decider.enabled` is false (the default);
+    without the language model (no server, `decider.llm: false`) the CLIP names stand."""
+    if dp.naming_mode(vision.v) != "decider" or not segments:
+        return segments
+    from .decide import run_decided
+
+    images: dict[int, str] = {}
+    for k, s in enumerate(segments):
+        if "_frame" not in s:
+            continue
+        info = vision.infos[s["source"]]
+        out = svc.cache.file(project.cache, f"{FRAMES}/{info['id']}_{float(s['_frame']):.2f}.jpg")
+        try:
+            images[k] = str(out if svc.cache.has(out) else svc.encoder.cover(Path(info["proxy"]), float(s["_frame"]), out))
+        except (RuntimeError, OSError, ValueError) as e:
+            log(f"Vision: no frame of product {k + 1} to look at ({e}); its CLIP name stays")
+    if not images:
+        return segments
+    decider = dict(cfg.get("decider") or {})
+    if decider.get("enabled") in (None, False) or str(decider.get("enabled")).strip().lower() in ("false", "no", "off"):
+        decider["enabled"] = "auto"
+    named = run_decided(svc, project, lambda decide: dp.apply_names(segments, images, vision.language, decide),
+                        {**cfg, "decider": decider})
+    changed = sum(1 for a, b in zip(segments, named) if a["label"] != b["label"])
+    asked = sum(1 for s in named if s.get("_named_by"))
+    if asked:
+        log(f"Vision: the language model named {asked} product(s) ({changed} name(s) changed)")
+    return named
 
 
 def find_products(svc: Services, project: Project) -> dict:
@@ -107,7 +154,7 @@ def find_products(svc: Services, project: Project) -> dict:
     infos, analyses = prepare_sources(svc, project, cfg)
     vision_available(svc, cfg, explicit=True)
     vision = Vision(svc, project, infos, analyses, cfg)
-    result = products_result(vision, vision.detect())
+    result = products_result(vision, name_products(svc, project, vision, vision.detect(), cfg))
     svc.projects.write_json(project.cache / "products.json", result)
     return result
 
@@ -152,7 +199,7 @@ def product_plan_or_none(svc: Services, project: Project, infos: list[dict], ana
     if not dp.settings(cfg.get("vision"))["product_plan"] or not vision_available(svc, cfg):
         return None
     vision = Vision(svc, project, infos, analyses, cfg)
-    found = vision.detect()
+    found = [dp.public(s) for s in name_products(svc, project, vision, vision.detect(), cfg)]
     svc.projects.write_json(project.cache / "products.json", products_result(vision, found))
     if not found:
         log("Vision: no products found; using the regular plan.")

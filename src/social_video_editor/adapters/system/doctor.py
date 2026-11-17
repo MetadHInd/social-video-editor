@@ -103,6 +103,19 @@ def part_checks(graphics=None, visual=None, upscaler=None, settings: dict | None
     return out
 
 
+def transcription_checks(transcriber=None, settings: dict | None = None) -> list[Check]:
+    """Which engine transcription.engine picks here (nothing is loaded; only packages are looked up)."""
+    choose = getattr(transcriber, "choose", None)
+    if choose is None:
+        return []
+    t = (settings or {}).get("transcription") or {}
+    engine = choose(t)
+    wanted = str(t.get("engine") or "faster-whisper")
+    others = [f"{e.name}: {why}" for e in transcriber.engines() if e is not engine and (why := e.ready(t))]
+    return [("ok", "transcription engine", f"{engine.name} on {engine.device} (transcription.engine: {wanted})"
+             + (f"; not available — {'; '.join(others)}" if others and wanted != engine.name else ""))]
+
+
 def face_check() -> Check:
     """Framing on the presenter's face (framing.face, the explainer recipe)."""
     if importlib.util.find_spec("cv2") is None:
@@ -120,8 +133,8 @@ def face_check() -> Check:
 
 def decider_checks(classifier=None, reasoner=None, settings: dict | None = None) -> list[Check]:
     """The decider's local models (decider.*): the small zero-shot classifier (installed, downloaded) and
-    the language model server (running, model pulled). Nothing is downloaded or loaded; the server is
-    only asked for its list of models (a local request; none with SVE_OFFLINE)."""
+    the language model server (running, model pulled). Nothing is downloaded, loaded or started; the
+    server is only asked for its list of models (a local request; none with SVE_OFFLINE)."""
     s = decider_settings(settings)
     use = "decider.enabled: auto or true" if str(s["enabled"]).lower() in ("false", "none", "0", "no") else None
     out: list[Check] = []
@@ -129,8 +142,12 @@ def decider_checks(classifier=None, reasoner=None, settings: dict | None = None)
                               ("decider: language model", reasoner, s["llm_model"])):
         if part is None:
             continue
-        why = part.ready(s)
-        if why:
+        why = part.ready({**s, "llm_start": False})      # a check never starts the server
+        can_start = getattr(part, "can_start", None)
+        if why and "not running" in why and callable(can_start) and can_start(s):
+            out.append(("ok", name, f"{model}: Ollama is not running — the engine starts it when a video needs it "
+                                    "and stops it afterwards (decider.llm_start)"))
+        elif why:
             out.append(("optional", name, f"{why} — closed questions the rules are unsure of"))
         else:
             out.append(("ok", name, f"{model}" + (f" (used with {use})" if use else "")))
@@ -169,6 +186,7 @@ def diagnose(svc=None, settings: dict | None = None) -> list[Check]:
     packs = svc.packs.available() if svc is not None and getattr(svc, "packs", None) is not None else None
     return [*ffmpeg_checks(), *font_checks(),
             *part_checks(getattr(svc, "graphics", None), getattr(svc, "visual", None), getattr(svc, "upscaler", None), settings),
+            *transcription_checks(getattr(svc, "transcriber", None), settings),
             face_check(), *decider_checks(getattr(svc, "classifier", None), getattr(svc, "reasoner", None), settings),
             *footage_checks(getattr(svc, "footage", None)), *workspace_checks(packs)]
 

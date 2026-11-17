@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..domain import pauses
 from ..domain.models import Project
+from ..domain import photos as dp
 from ..domain.photos import is_slideshow, photo_plan
 from ..domain.selection import build_plan
 from ..domain.transitions import transition_duration
@@ -21,12 +22,16 @@ def make_plan(svc: Services, project: Project, force: bool = False) -> Path | No
         return None
     infos, analyses = prepare_sources(svc, project)
     if is_slideshow(project.cfg, infos):                      # photos: one shot per photo, chronological
-        plan = photo_plan(infos, project.cfg)
-        log(f"Photo slideshow: {len(plan['shots'])} photos")
+        shown, skipped = skip_photos(svc, project, infos)
+        plan = photo_plan(shown, project.cfg)
+        if skipped:
+            plan["skipped_photos"] = skipped
+        log(f"Photo slideshow: {len(plan['shots'])} photos"
+            + (f" ({len(skipped)} left out: near-duplicates / blurred, see skipped_photos)" if skipped else ""))
     elif project.cfg.get("talk"):                             # meetings / classes: all the speech, long pauses shortened
         plan = talk_plan(infos, analyses, project.cfg)
     elif project.cfg.get("explainer"):                        # a script said to the camera + its cues as cutaways
-        plan = script_plan(svc, project, analyses)
+        plan = script_plan(svc, project, analyses, infos)    # infos: a source without a picture is a voice memo
     else:
         plan = product_plan_or_none(svc, project, infos, analyses, project.cfg)     # unboxing + vision model
     if not plan:
@@ -40,6 +45,43 @@ def make_plan(svc: Services, project: Project, force: bool = False) -> Path | No
     path = svc.projects.save_plan(project, plan)
     log(f"Plan saved to {path}")
     return path
+
+
+QUALITY_CACHE = "photo_quality.json"      # in the project cache: {"<path>|<size>|<mtime_ns>": measure}
+
+
+def skip_photos(svc: Services, project: Project, infos: list[dict]) -> tuple[list[dict], list[dict]]:
+    """photo.skip_duplicates / photo.skip_blurred (both off by default): (the photos to show, the ones
+    left out with why). Each photo is measured once (its pixels, read by the video analyzer) and the
+    measure is cached per file; a photo that cannot be read is kept."""
+    s = dp.quality_settings(project.cfg)
+    photos = [i for i in infos if i.get("image", True)]
+    if not (s["skip_duplicates"] or s["skip_blurred"]) or not photos:
+        return infos, []
+    path = project.cache / QUALITY_CACHE
+    cached = svc.projects.read_json(path)
+    cached = cached if isinstance(cached, dict) else {}
+    measures, fresh = {}, 0
+    for info in photos:
+        fp = svc.probe.fingerprint(info["path"])
+        key = f"{fp['path']}|{fp['size']}|{fp['mtime_ns']}"
+        m = cached.get(key)
+        if not isinstance(m, dict) or m.get("v") != dp.MEASURE_VERSION:
+            try:
+                frames = svc.video.read_frames(str(info["path"]), [0.0])
+                m = dp.measure_photo(frames[0]) if frames else {"v": dp.MEASURE_VERSION}
+            except (RuntimeError, OSError, ValueError) as e:
+                log(f"Photos: {Path(info['path']).name} could not be measured ({e}); it is kept")
+                m = {"v": dp.MEASURE_VERSION}
+            cached[key] = m
+            fresh += 1
+        measures[str(info["path"])] = m
+    if fresh:
+        svc.projects.write_json(path, cached)
+    kept, skipped = dp.skip_photos(photos, measures, s)
+    for x in skipped:
+        log(f"Photos: left out {Path(x['source']).name} — {x['why']}")
+    return kept, skipped
 
 
 def _video_plan(infos: list[dict], analyses: list[dict], cfg: dict) -> dict:

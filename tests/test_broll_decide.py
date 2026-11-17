@@ -13,6 +13,7 @@ import pytest
 
 from conftest import requires_ffmpeg
 from fakes_decide import FakeDecider, FakeReasoner
+from software_encoder import software_encoder  # noqa: F401 (autouse: software x264)
 from social_video_editor import cli
 from social_video_editor.adapters.clip.detector import ClipVisualDetector
 from social_video_editor.application import broll

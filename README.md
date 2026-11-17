@@ -8,6 +8,11 @@ a hook in the first second, cuts that land on the music's beat, typed text cards
 polaroid and collage pieces, ASMR-friendly audio, loudness mastering (targets −14 LUFS) and correct handling of
 iPhone HDR footage.
 
+It also makes **explainer videos from a script**: you write what you say and record yourself, and one
+command (`sve make`) finds your best takes, draws animated graphics and illustrated scenes for what you
+say, fetches licensed b-roll, cleans the voice, composes an original music track, reviews its own render
+and fixes what it can.
+
 Everything the engine decides is written to a plain `plan.json` that you (or an AI agent) can edit
 and render again. Originals are never modified.
 
@@ -44,17 +49,32 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
 - **Beat-synced editing** — music beat grid and "drop" detection; the song can start so its drop
   lands at a chosen second; cuts snap to the nearest beat, or every cut lands exactly on a beat
   (`"beats": N` per shot); `beat_pulse` zooms on every beat.
-- **Animated graphics from data** — bars, big numbers, product cards, titles, headlines, lists and
-  step-by-step diagrams with illustrations (phone, router, server, chip…), written as a few
-  key/value pairs and drawn locally: laid out for vertical or landscape, alive (scenery, blinking
-  lights, a marker that travels), themeable per channel with packs. See [docs/GRAPHICS.md](docs/GRAPHICS.md).
+- **Animated graphics from data** — bars, line charts, versus (two things face to face), big numbers,
+  product cards, titles, headlines, lists, a terminal that types code, a screenshot in a device frame
+  with a zoom, animated scenes (20 actions: send, store, compare, search, download, share…) and
+  diagrams (chains, branches and loops) with 48 illustrations (phone, router, cell tower, server,
+  chip…), written as a few key/value pairs and drawn locally: laid out for vertical or landscape,
+  alive (scenery, blinking lights, a marker that travels), themeable per channel with packs — a pack
+  can also draw its own characters and places. See [docs/GRAPHICS.md](docs/GRAPHICS.md).
+- **The engine chooses the graphics** — in the `explainer` recipe a director reads each sentence and
+  decides what to show without any cue: figures said aloud become bars (also across two sentences, and
+  when the numbers are said in words), dated figures a line chart, two named things a versus, a command
+  a terminal, a flow between things a diagram, a list a list, a quote a headline, an action an animated
+  scene. Cues in the script (`[bars …]`) are still there when you want to decide yourself.
+- **One command that reviews itself** — `sve make` plans, fetches or draws the footage, renders a
+  draft, checks it and fixes what it finds, step by step (another clip → another drawing → removed;
+  a face cut by the frame → re-framed; text out of the safe area → moved; music over the voice →
+  lowered), then tells you what is left to decide. It works for every recipe.
 - **From a script to the video** — write what you say with cues for what is on screen
   (`[bars data="…"]`), record yourself repeating whatever goes wrong, and the `explainer` recipe finds
   the best take of every sentence, puts them in script order and shows each graphic or photo over your
   voice, with subtitles that say what the script says. While the presenter is on screen, small
   illustrated notes pop up around them as things are named, and cuts and long shots rotate three
   framings and drift slowly, so one camera reads like several. Optionally the presenter stays in a
-  corner window (picture-in-picture) over the graphics.
+  corner window (picture-in-picture) over the graphics. Mark stretches with `[short name]` … `[/short]`
+  (or let the engine propose them, `script.shorts: auto`) and `sve render <project> --short name` makes each a
+  vertical video of its own; a voice memo works as the recording too (drawn on the theme's backdrop), and
+  `subtitles.style: caption` draws the subtitles in the graphics' narration box.
   See [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md#scripts-and-cutaways-the-explainer-recipe).
 - **B-roll with a paper trail** — a `[broll query="…"]` cue becomes a clip fetched from sources you
   allow: free stock libraries (Pexels, Pixabay), Wikimedia Commons (open licenses only) and the official
@@ -80,6 +100,15 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   mastering that targets −14 LUFS integrated / −1 dBTP (EBU R128 measurement, capped gain +
   oversampled true-peak limiter, true peak re-verified after AAC; a warning in `summary.json` if it
   cannot get there); `sve check` verifies the result with the same measurement.
+- **Voice** — for recordings of someone talking, the whole recording is cleaned once (RNNoise) so cuts
+  have no seams, and the breaths and mouth noise between sentences are lowered without touching words
+  (`audio.clean_voice`, `audio.breaths`; on in `explainer`).
+- **Music that follows the voice — or composed for the video** — `music.relative_to_voice` keeps the
+  music a fixed distance under the measured voice (10 dB while it speaks, 4 dB in pauses) instead of
+  a fixed level. With `music.file: compose` the engine writes and synthesizes an **original
+  instrumental track** for the video (no samples): a hit on the first frame, silence at the conflict,
+  the chorus at the question, a softer close — and a proof of origin (preset, seed, tempo, sections,
+  hashes) so the same track can be regenerated. `sve music --compose` makes a standalone one.
 - **Color** — iPhone HLG HDR → SDR (BT.709) via a generated 3D LUT, automatic levels, white
   balance and brightness matching across shots, optional creative `.cube` LUT and vignette.
 - **Export** — 1080×1920 H.264 High / yuv420p / BT.709 + AAC 48 kHz, CRF 17 with a 20 Mbps cap,
@@ -96,7 +125,9 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
   or an AI agent needs to know about a project.
 - **Product recognition (optional)** — a local CLIP model finds the products shown in the footage
   (`sve products`), picks windows from a text description (`search.text`) and proposes one shot
-  per product in unboxing plans.
+  per product in unboxing plans. With `vision.naming: decider` a local language model looks at the
+  best frame and picks the product's name among the model's candidates (measured on a labeled video:
+  exact names 3 → 10 of 16).
 
 ## Requirements
 
@@ -138,8 +169,13 @@ python scripts/make_demo.py            # ≈1 min: renders both demos in a temp 
 - **Speed:** video and photo shots render in parallel (`render.jobs`, default `auto` = half the
   CPUs, 1–3: 17 % faster than one at a time in the benchmark; `SVE_JOBS=1` renders one at a time),
   and numba's compiled librosa code is cached in the user cache folder (`NUMBA_CACHE_DIR`): the first song analysis of a new process took 13 s
-  without it and ~3 s with it (measured on 4 cores). `python scripts/bench.py` measures render
-  speed on synthetic 4K footage.
+  without it and ~3 s with it (measured on 4 cores). Sources are analyzed side by side too
+  (`analysis.jobs`, default `auto` = `render.jobs`): the wavs are extracted first and Whisper
+  transcribes them one at a time while the proxies and the picture analysis run (−30 % on 4 clips).
+  `transcription.engine`: `faster-whisper` (default), `mlx` (Apple GPU, the `[apple]` extra; opt-in —
+  measured not faster enough and less accurate on real speech) or `auto`. `python scripts/bench.py`
+  measures render speed on synthetic 4K footage; `--scenario analyze | explainer75` measures the
+  analysis of several clips / an explainer render.
 
 ## Install
 
@@ -194,24 +230,29 @@ sve render my_video --no-music   # → v2SinMusica (same beat-aligned cuts, no s
 | `sve analyze <project> [--force]` | `analizar` (`--forzar`) | Probe every source, make proxies/16 kHz wav, analyze image, scenes, audio and speech (cached). |
 | `sve thumbs <project> [--source N --start S --end S --every S]` | `vistazo` (`--fuente --desde --hasta --cada`) | Contact sheets (frames with time, motion and loudness bars) + transcript in `cache/thumbs/`. |
 | `sve plan <project> [--force]` | `planear` | Propose `plan.json` (an existing one is kept as `plan_previous.json` with `--force`). |
-| `sve render <project> [--draft] [--profile P] [--no-music]` | `--borrador`, `--perfil`, `--sin-musica` | Render a new version folder (or a variant). Profiles: `tiktok`, `reels`, `shorts`, `youtube`, `landscape` (`horizontal`, 1920×1080), `square` (`cuadrado`). `--draft` = half resolution, fast encode. |
+| `sve render <project> [--draft] [--profile P] [--no-music]` | `--borrador`, `--perfil`, `--sin-musica` | Render a new version folder (or a variant). Profiles: `tiktok`, `reels`, `shorts`, `youtube`, `landscape` (`horizontal`, 1920×1080), `square` (`cuadrado`). `--draft` = half resolution, fast encode. `--short NAME` / `--shorts` (`--corto`, `--cortos`): a short of the script (or all of them), each a vertical video in its own folder. |
 | `sve enhance <project> [--force]` | `mejorar` (`--forzar`) | Photo sources: enlarge small photos (Real-ESRGAN when installed, else Lanczos) and reduce very large ones into `cache/photos/`; the originals are never modified. |
 | `sve build <project> [render flags]` | `montar` | Analysis + contact sheets + plan if missing + render. |
 | `sve view <project>` | `ver` | Plan and timeline, shot by shot, with the same beat alignment as the render (runs the analysis if it is missing). |
-| `sve report <project> [--json]` | `informe` | One compact screen (≲50 lines) or JSON: sources, plan/timeline, texts, music, versions and their files, products, check results. Reads only files on disk — instant. |
+| `sve report <project> [--json] [--full]` | `informe` (`--completo`) | One compact screen (≲50 lines) or JSON. First `TO DO`: what the engine could not settle on its own (decisions left by `sve make`, a failed check, b-roll to fetch, unused clips, sentences not recorded…), each with the command or setting that resolves it; then sources, plan/timeline, script, cutaways, music, versions (the latest, a draft included when it is newer), products and check results. Long sections show their first items and `… N more (--full)`; `--full` shows everything, `--json` has everything plus `todo`. Reads only files on disk — instant. |
 | `sve recipes` | `recetas` | List the available recipes. |
 | `sve music "<artist song or URL>"` | `musica` | Download a track with yt-dlp into `music/` and analyze its tempo, beats and drop. |
+| `sve music --compose [--preset P] [--seconds N] [--seed S] [--bpm B] [--out FILE] [--pack NAME] [--project P]` | `musica` | An original track composed by the engine (no samples) and its proof of origin; in a project, `music.file: compose` composes one that follows the video. |
 | `sve products <project>` | `productos` | Recognize the products shown in the sources with the local CLIP model (optional `[vision]` extra; downloaded on first use) and print them; writes `cache/products.json`. See [Product recognition](#product-recognition-optional). |
-| `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). |
+| `sve check <project> [--version vN] [--out DIR]` | `verificar` | Checks a rendered version and writes `vN/check.json` plus short audio excerpts in `listen/` (`escuchar/`). Without `--version` it checks the most recently rendered one, draft or variant included (failed renders are skipped), and says which. |
 | `sve graphic [<project>] --proof \| --shot N \| --cue '…' [--pack NAME] [--video] [--out DIR]` | `grafico` (`--prueba`, `--toma`, `--marca`, `--paquete`, `--salida`) | Previews animated graphics without rendering the video: every template on one sheet (`--proof`), graphic shot N of the plan, or one written as a cue. |
 | `sve broll <project> [--dry-run] [--force]` | `tomas` (`--simular`, `--forzar`) | Fetches a clip for every `broll` cutaway of the plan from the allowed sources into `footage/`, records where it comes from (`footage/credits.json`) and adds the credit caption. `--dry-run` only lists the candidates. Keys: `PEXELS_API_KEY`, `PIXABAY_API_KEY` (environment variables). |
-| `sve make <project> [--final] [--force]` | `hacer` (`--forzar`) | The whole video with one command: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review, the engine's own fixes (re-rendered, ≤ 3 renders) and the decisions left for you (`review.json`). |
+| `sve broll <project> --unused [--yes]` | `tomas` (`--sin-usar`, `--si`) | Lists the clips in `footage/` that no plan uses any more (turned down, replaced with `--force`) and the search cache, with their size; `--yes` deletes them (the clip, its record and its cached frame). A clip `plan.json` or `plan_previous.json` names is never deleted; files without a record (your own) are never touched. `sve report` says when there are some. |
+| `sve make <project> [--final] [--force] [--short NAME \| --shorts]` | `hacer` (`--forzar`, `--corto`, `--cortos`) | The whole video with one command, for every recipe: plan if missing, footage (fetched or drawn), render (draft unless `--final`), review, the engine's own fixes — a ladder of remedies: another clip, another drawing, texts moved into the safe zone, faces framed again, the music lowered… (re-rendered, ≤ 3 renders, one version folder left) — and the decisions left for you (`review.json`). `--short` / `--shorts` also render the plan's shorts. |
 | `sve doctor` | — | Checks FFmpeg (version, filters, encoders), fonts, optional parts (graphics, vision, enhance, music), the b-roll sources and the workspace; exits 1 when something required is missing. |
 
 `sve report` is the cheapest way to understand a project. Example (synthetic project):
 
 ```
 PROJECT demo · recipe unboxing · language es
+TO DO 2 · what the engine could not settle on its own → what does it
+  ⚠ check v2: 1 errors (CHECK below) → sve make <project> fixes what it can; the rest stays in its decisions
+  ⚠ 1 products of low confidence (marked ?) → look: sve thumbs <project> --source S --start A --end B
 SOURCES 2 · 08:14.50 total
   0 clip_a.mov 08:02.00 HDR | 1 clip_b.mov 00:12.50 mute
 PLAN 5 shots · ~8.5 s before beat alignment · 1 group · 3 texts (hook 1, card 1, cta 1)
@@ -222,10 +263,11 @@ MUSIC Some Song.mp3 · start_at auto (rendered from 18.73 s) · 120.0 BPM · tem
 VERSIONS v1 v2 v2SinMusica v10_failed · latest v2
   v2           demo.mp4 · 21.4 s · 5 shots · -14.05 LUFS · +srt · check.json · listen/ 1 files
   v2SinMusica  demo_sin_musica.mp4 · 21.4 s · 5 shots · -14.05 LUFS · +srt
-PRODUCTS 2 segments (test-model, es)
+PRODUCTS 2 segments (test-model, es) · ⚠ 1 low confidence (<0.5, marked ?)
   earrings s0 12.0-15.5 c0.71 | necklace s0 30.0-33.0 c0.31?
-  ⚠ 1 low confidence (<0.5, marked ?): look at those images (sve thumbs <project> --source S --start A --end B)
 CHECK v2: FAILED · 1 errors · 2 warnings · listen: 1 files
+  lufs=-14.05 | shots=5
+  error: text 2 covers the product
   ...
 ```
 
@@ -332,7 +374,10 @@ rules are **unsure of** are answered by **local** models, nothing paid per use:
 1. a small zero-shot classifier (`MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`, MIT,
    ≈560 MB; `pip install -e ".[decider]"`) — wired in but not used by the measured routes today, then
 2. a local language model through [Ollama](https://ollama.com) (`qwen3.5:9b`, Apache-2.0; it can also look
-   at a frame): `brew install ollama && brew services start ollama && ollama pull qwen3.5:9b`.
+   at a frame): `brew install ollama && brew services start ollama && ollama pull qwen3.5:9b`. After the
+   pull the server does not have to be kept running (`brew services stop ollama`): the engine starts it
+   when a step needs it and stops it when the command ends (`decider.llm_start`); a server that was
+   already running is left as it was.
 
 A model's answer replaces the rules' only when it is one of the options and at least as sure; when a model
 is missing, fails or is unsure, the rules' answer stands, so the video is never worse than without them.
@@ -360,6 +405,8 @@ settings:
   photo:
     duration: 4.5                 # seconds per photo (fitted to the music: photo.fit_to_music)
     auto_tone: 0.6                # gentle exposure fix for dark / backlit photos (0 = off)
+    skip_duplicates: true         # the same scene shot twice in a row: only the sharper one (default false)
+    skip_blurred: true            # clearly blurred photos are left out (default false)
   color: {warmth: 0.25, vignette: 0.15}
 ```
 
@@ -374,7 +421,9 @@ sve report holidays                        # photo count, playlist (songs, minut
 `photo.auto_tone` lifts underexposed photos with a smooth lightness curve and a little local
 contrast, and recovers the shadows of backlit ones locally (subjects in front of a bright window or
 sky get brighter, the window or sky does not); blacks and whites stay put, colors keep their hue,
-and well-exposed photos are left untouched. Photo segments are cached at `render.photo_crf` (default 16). Long videos are joined in
+and well-exposed photos are left untouched. `photo.skip_duplicates` / `photo.skip_blurred` (off by
+default) leave out repeated shots of one scene (the sharpest is kept) and blurred photos; the plan and
+`sve report` say which and why. Photo segments are cached at `render.photo_crf` (default 16). Long videos are joined in
 chunks (`render.chunk_threshold` / `render.chunk_size`). Full keys: [docs/PLAN_FORMAT.md](docs/PLAN_FORMAT.md).
 
 ## Language
@@ -498,7 +547,6 @@ defaults is summarized in [docs/RESEARCH.md](docs/RESEARCH.md).
 ## Roadmap
 
 - Subject-aware framing: keep faces and subjects inside the crop for Ken Burns and 16:9 → 9:16 reframing.
-- Smarter photo selection for slideshows: skip near-duplicates and blurry shots.
 - Harmonic (key-aware) song ordering and transitions in AutoMix.
 - A lightweight timeline preview to edit `plan.json` visually.
 - Publish the package on PyPI.
@@ -523,7 +571,9 @@ the container always decodes in software.
 
 Tracks you mix into the video are your responsibility. Platforms may mute or limit videos with
 copyrighted music; `--no-music` renders the same edit without the song so you can add a sound
-from inside the app instead.
+from inside the app instead. `music.file: compose` avoids the question: the track is generated by
+the engine from a seed, and the proof of origin written next to it (`music_origin.json` in the version
+folder) says so.
 
 ## License
 

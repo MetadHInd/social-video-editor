@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..ports import (AudioAnalyzer, CacheStore, FootageSource, GraphicRenderer, ImageComposer, ImageUpscaler, MediaProbe,
-                     MusicDownloader, PackRepository, PhotoRenderer, ProjectRepository, RecipeRepository,
+                     MusicDownloader, MusicSynthesizer, PackRepository, PhotoRenderer, ProjectRepository, RecipeRepository,
                      Reasoner, RenderInspector, SoundEffects, TextClassifier, TextRenderer, Transcriber, VideoAnalyzer,
                      VideoEncoder, VisualDetector)
 
@@ -32,3 +32,4 @@ class Services:
     footage: dict[str, FootageSource] | None = None      # by name, for `sve broll`
     classifier: TextClassifier | None = None             # the decider's small model (zero-shot NLI)
     reasoner: Reasoner | None = None                     # the decider's local language model
+    synth: MusicSynthesizer | None = None                # composes original music (music.file: compose)

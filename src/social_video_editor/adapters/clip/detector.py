@@ -150,6 +150,13 @@ class ClipVisualDetector:
             return np.zeros((0, 512), np.float32)
         return np.stack([self._texts[(name, t)] for t in texts])
 
+    def english_text_embeddings(self, texts: list[str], settings: dict) -> np.ndarray:
+        """Unit embeddings of English texts with the CLIP image model's own text encoder (cached in memory).
+
+        Measured on a labeled unboxing: naming products against the packaged English vocabulary this way
+        is right more often than with the multilingual text model (which imitates this encoder)."""
+        return self.text_embeddings(texts, {**settings, "text_model": self._names(settings)[0]})
+
     # ── frames ────────────────────────────────────────────────────────────────
     def picture_embeddings(self, files: list, settings: dict) -> np.ndarray:
         """Unit embeddings [len(files), d] of picture files; a file that cannot be read gets a zero row."""

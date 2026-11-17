@@ -70,14 +70,21 @@ SHOT_TYPES: dict[str, str] = {"grafico": "graphic"}  # polaroid, collage: same i
 # graphic shots / cues (docs/GRAPHICS.md): template names and their keys
 GRAPHIC_TEMPLATES = {"barras": "bars", "cifra": "number", "ficha": "product_card", "cartel": "title",
                      "titular": "headline", "lista": "list", "rotulo": "lower_third", "diagrama": "diagram",
-                     "apuntes": "callouts", "vinetas": "bullets", "marco_ventana": "pip_frame", "escena": "scene"}
+                     "apuntes": "callouts", "vinetas": "bullets", "marco_ventana": "pip_frame", "escena": "scene",
+                     "lineas": "line_chart", "frente_a_frente": "versus", "codigo": "code", "pantalla": "screen"}
 GRAPHIC_KEYS = {"plantilla": "template", "titulo": "title", "datos": "data", "unidad": "unit", "prefijo": "prefix",
                 "resaltar": "highlight", "maximo": "max", "valor": "value", "etiqueta": "label", "icono": "icon",
                 "debajo": "sub", "desde": "from", "contar": "count", "nombre": "name", "imagen": "image",
                 "caracteristicas": "specs", "precio": "price", "antetitulo": "kicker", "medio": "outlet",
                 "fecha": "date", "elementos": "items", "marcas": "marks", "nodos": "nodes", "iconos": "icons",
                 "flechas": "edges", "subtitulo": "caption", "tiempos": "times", "enlazar": "link",
-                "accion": "action", "sujeto": "subject", "destino": "target"}
+                "accion": "action", "sujeto": "subject", "destino": "target",
+                "datos2": "data2", "minimo": "min", "izquierda": "left", "derecha": "right", "filas": "rows",
+                "lineas": "lines", "salida": "output", "lenguaje": "lang", "indicador": "prompt", "aumento": "zoom",
+                "marco": "frame", "direccion": "url", "disposicion": "layout"}
+# values of graphic keys
+DIAGRAM_LAYOUTS = {"cadena": "chain", "flujo": "flow"}
+SCREEN_FRAMES = {"navegador": "browser", "celular": "phone", "ventana": "window", "ninguno": "none"}
 # script cues (script.md): the cue names that are not graphic templates, and their keys
 CUE_KINDS = {"camara": "camera", "foto": "photo", "toma": "broll"}
 CUE_KEYS = {"segundos": "seconds", "archivo": "file", "consulta": "query", "ventana": "pip", "marca": "brand",
@@ -86,6 +93,7 @@ PIP_CORNERS = {"abajo_derecha": "bottom_right", "abajo_izquierda": "bottom_left"
                "arriba_izquierda": "top_left"}
 SCRIPT_TAKES = {"ultima": "last", "mejor": "best"}
 SCRIPT_SUBTITLES = {"guion": "script", "voz": "speech"}
+SUBTITLE_STYLES = {"caja": "caption", "recuadro": "caption", "normal": "pillow"}
 ROLES = {"gancho": "hook", "historia": "story", "revelacion": "reveal", "cierre": "outro",
          "apertura": "opening", "producto": "product", "estrella": "star"}
 # unchanged: polaroid, collage; any other role (free text) is kept
@@ -98,7 +106,7 @@ HOOK_STRATEGIES = {"inicio": "start"}                # unchanged: teaser
 FRAMING_MODES = {"recortar": "crop", "desenfoque": "blur"}   # unchanged: auto
 FOOTAGE_KINDS = {"oficial": "official", "banco": "stock"}     # b-roll: a brand's own channel / a free library
 MUSIC_ALIGN = {"exacto": "exact"}
-MUSIC_FILE = {"ninguna": "none", "no": "none"}       # music.file: none = no music
+MUSIC_FILE = {"ninguna": "none", "no": "none", "componer": "compose"}   # none = no music; compose = the engine's
 SFX_NAMES = {"tecla": "keystroke", "obturador": "shutter"}   # unchanged: whoosh, pop, flash
 RECIPE_NAMES = {"resena": "review", "antes_despues": "before_after"}
 # unchanged: base, unboxing, tutorial, vlog, storytime
@@ -129,7 +137,9 @@ VISION = Ctx(
           "estrellas": "stars", "vocabulario": "vocabulary", "plan_productos": "product_plan",
           "busqueda_producto": "product_search", "tarjetas": "cards", "contadores": "counters",
           "efecto_producto": "product_effect", "apertura_max": "opening_max",
-          "sin_empaque": "unpacked", "empaques": "packaging"},
+          "sin_empaque": "unpacked", "empaques": "packaging",
+          "nombres": "naming", "fotogramas_nombre": "name_frames", "candidatos_nombre": "name_candidates"},
+    values={"naming": {"fotogramas": "frames", "decididor": "decider"}},
     # unchanged: fps
     children={"weights": Ctx(keys={"indicaciones": "prompts", "objeto": "objectness", "novedad": "novelty",
                                    "nitidez": "sharpness"})},
@@ -138,7 +148,9 @@ VISION = Ctx(
 PHOTO = Ctx(   # new section: still photos and slideshows
     keys={"duracion": "duration", "transicion": "transition", "cantidad_movimiento": "motion_amount",
           "ajustar_a_musica": "fit_to_music", "duracion_min": "min_duration", "duracion_max": "max_duration",
-          "tono_auto": "auto_tone"},
+          "tono_auto": "auto_tone", "omitir_duplicadas": "skip_duplicates", "omitir_borrosas": "skip_blurred",
+          "segundos_duplicadas": "duplicate_seconds", "diferencia_duplicadas": "duplicate_difference",
+          "nitidez_min": "min_sharpness", "parte_borrosa": "blur_share"},
     values={"transition": TRANSITIONS},
 )
 
@@ -162,9 +174,15 @@ CONFIG = Ctx(
         "script": Ctx(keys={"archivo": "file", "coincidencia_min": "min_match", "toma": "take",
                             "margen_inicio": "pad_start", "margen_fin": "pad_end", "union_max": "join_gap",
                             "acercamiento": "punch_in", "subtitulos": "subtitles", "reencuadre_cada": "reframe_every",
-                            "deriva": "drift", "apoyos": "support", "primer_plano": "close_up",
+                            "deriva": "drift", "apoyos": "support", "apoyos_repartir": "support_spread", "primer_plano": "close_up",
                             "tomas_auto": "auto_broll", "apertura": "opening", "camara_max": "max_camera",
-                            "toma_min": "auto_min", "transicion": "transition", "fundido_tomas": "cutaway_fade"},
+                            "toma_min": "auto_min", "transicion": "transition", "fundido_tomas": "cutaway_fade",
+                            "cortos": "shorts", "cortos_max": "shorts_max", "corto_min": "short_min",
+                            "corto_max": "short_max",
+                            "lineas_auto": "auto_line_chart", "versus_auto": "auto_versus", "codigo_auto": "auto_code",
+                            "capturas_auto": "auto_screen", "diagramas_auto": "auto_diagram",
+                            "cifras_en_contexto": "figure_context", "escenas_ajustadas": "scene_fit",
+                            "barras_con_verbos": "verb_bars"},
                       values={"take": SCRIPT_TAKES, "subtitles": SCRIPT_SUBTITLES, "transition": TRANSITIONS}),
         "pip": Ctx(keys={"activo": "enabled", "esquina": "corner", "tam": "size", "segundos_min": "min_seconds"},
                    values={"corner": PIP_CORNERS}),
@@ -180,9 +198,10 @@ CONFIG = Ctx(
                   "cobertura": "coverage"},
             children={"weights": Ctx(keys={"movimiento": "motion", "picos": "peaks", "voz": "voice",
                                            "palabras_clave": "keywords", "nitidez": "sharpness"})}),
-        "analysis": Ctx(keys={"muestras_por_seg": "samples_per_sec", "umbral_escena": "scene_threshold"}),
+        "analysis": Ctx(keys={"muestras_por_seg": "samples_per_sec", "umbral_escena": "scene_threshold",
+                              "trabajos": "jobs"}),
         "transcription": Ctx(keys={"modelo": "model", "idioma": "language", "contexto": "context",
-                                   "prob_min": "min_probability"}),
+                                   "prob_min": "min_probability", "motor": "engine"}),
         "color": COLOR,
         "framing": Ctx(keys={"modo": "mode", "enfoque_x": "focus_x", "enfoque_y": "focus_y",
                              "margen_zoom": "zoom_margin", "empuje_lento": "slow_push", "cara": "face"},
@@ -197,22 +216,28 @@ CONFIG = Ctx(
                            "voz_limpia": "clean_voice", "mezcla_limpieza": "clean_mix", "paso_alto": "highpass",
                            "eq_voz": "voice_eq", "compresor": "compressor",
                            "ganancia_sin_voz_db": "gain_without_voice_db", "pico": "true_peak",
-                           "ganancia_max_master_db": "master_max_gain_db", "dibujadas_db": "drawn_shot_db"}),
+                           "ganancia_max_master_db": "master_max_gain_db", "dibujadas_db": "drawn_shot_db",
+                           "respiraciones": "breaths", "nivelador_voz": "voice_leveler"}),
         "music": Ctx(keys={"archivo": "file", "carpeta": "folder", "volumen_con_voz_db": "volume_with_voice_db",
                            "volumen_sin_voz_db": "volume_without_voice_db", "entrada_seg": "start_at",
                            "fundido_salida": "fade_out", "fundido_entrada": "fade_in",
                            "cortes_en_beat": "cuts_on_beat", "medio_tiempo": "half_beats",
                            "drop_en_seg": "drop_at", "alinear": "align", "_entrada": "_start",
-                           "bpm": "bpm", "factor_tempo": "tempo_factor", "lista": "playlist"},
-                     values={"file": MUSIC_FILE, "align": MUSIC_ALIGN}),
+                           "bpm": "bpm", "factor_tempo": "tempo_factor", "lista": "playlist",
+                           "relativa_a_voz": "relative_to_voice", "bajo_voz_db": "under_voice_db",
+                           "bajo_pausa_db": "under_pause_db", "entrada_mas_db": "intro_db",
+                           "componer": "compose"},
+                     values={"file": MUSIC_FILE, "align": MUSIC_ALIGN},
+                     children={"compose": Ctx(keys={"estilo": "preset", "semilla": "seed", "silencios": "silences",
+                                                    "acentos": "accents", "volumen_lufs": "lufs"})}),
         "sfx": Ctx(keys={"activado": "enabled", "volumen_db": "volume_db", "pop_en_textos": "pop_on_texts",
                          "tecleo": "typing", "tecleo_db": "typing_db", "tecleo_max_por_seg": "typing_max_per_sec",
                          "whoosh_en_transiciones": "whoosh_on_transitions"}),
         "subtitles": Ctx(keys={"max_palabras": "max_words", "max_caracteres": "max_chars",
                                "mayusculas": "uppercase", "fuente": "font", "tam": "size", "resalte": "highlight",
                                "borde": "stroke", "borde_color": "stroke_color", "sombra": "shadow",
-                               "animacion": "animation"},
-                         values={"animation": ANIMATIONS}),
+                               "animacion": "animation", "estilo": "style"},
+                         values={"animation": ANIMATIONS, "style": SUBTITLE_STYLES}),
         "texts": Ctx(keys={"estilos": "styles"},
                      children={"styles": Ctx(entry=TEXT_STYLE, entry_names=TEXT_STYLES)}),
         "export": Ctx(keys={"portada": "cover", "portada_seg": "cover_at"}),
@@ -220,9 +245,10 @@ CONFIG = Ctx(
                               "destello": "flash"}),
         "collage": Ctx(keys={"columnas": "columns"}),
         "check": Ctx(keys={"tolerancia_volumen_lu": "loudness_tolerance_lu", "silencio_db": "silence_db",
-                           "silencio_seg": "silence_sec", "salto_corte_lu": "cut_jump_lu",
+                           "silencio_seg": "silence_sec", "silencio_compuesto_max_seg": "composed_silence_max_sec", "salto_corte_lu": "cut_jump_lu",
                            "sfx_max_vs_mezcla_lu": "sfx_max_vs_mix_lu",
                            "musica_max_vs_original_lu": "music_max_vs_original_lu",
+                           "musica_min_bajo_voz_lu": "music_min_under_voice_lu",
                            "tecleo_max_por_seg": "typing_max_per_sec", "tecleo_max_vs_mezcla_lu": "typing_max_vs_mix_lu",
                            "aspereza": "harsh_ratio", "aspereza_ventana": "harsh_window_ratio",
                            "negro_min_seg": "black_min_sec", "congelado_min_seg": "freeze_min_sec",
@@ -232,9 +258,10 @@ CONFIG = Ctx(
                            "escuchar_max": "listen_max", "escuchar_seg": "listen_sec"}),
         "decider": Ctx(keys={"activado": "enabled", "umbral": "threshold", "modelo_nli": "nli_model",
                              "modelo_llm": "llm_model", "llm": "llm", "llm_min": "llm_min", "espera_max": "timeout",
-                             "dispositivo": "device"}),
+                             "dispositivo": "device", "arrancar_llm": "llm_start"}),
         "review": Ctx(keys={"vueltas": "rounds", "lectura_cps": "read_cps", "grafico_max": "graphic_max",
-                            "holgura_camara": "camera_slack"}),
+                            "holgura_camara": "camera_slack", "escalera": "ladder", "intentos_toma": "clip_tries",
+                            "parecido_toma": "clip_match", "caras": "faces", "guardar_intentos": "keep_attempts"}),
         "vision": VISION,
         "photo": PHOTO,
         "graphics": Ctx(keys={"paquete": "pack", "tema": "theme"}),      # the theme's own keys are English only
@@ -267,7 +294,8 @@ SHOT = Ctx(
           "voz": "voice", "grupo": "group", "_golpes": "_beats", "duracion": "duration",
           "movimiento": "motion", "cantidad_movimiento": "motion_amount", "tono_auto": "auto_tone", **GRAPHIC_KEYS},
     # unchanged: dur, zoom, subdivision, color (its keys use the color table)
-    values={"role": ROLES, "transition": TRANSITIONS, "type": SHOT_TYPES, "template": GRAPHIC_TEMPLATES},
+    values={"role": ROLES, "transition": TRANSITIONS, "type": SHOT_TYPES, "template": GRAPHIC_TEMPLATES,
+            "layout": DIAGRAM_LAYOUTS, "frame": SCREEN_FRAMES},
     children={"effects": EFFECT, "search": SEARCH, "_searched": SEARCH, "color": COLOR},
     removed=frozenset({"_apariciones"}),
 )
@@ -285,7 +313,7 @@ CUTAWAY = Ctx(
           "idioma_consulta": "query_lang", "reserva": "fallback",
           "enfoque_x": "focus_x", "enfoque_y": "focus_y", **CUE_KEYS, **GRAPHIC_KEYS},
     values={"type": {**SHOT_TYPES, **CUE_KINDS}, "template": {**GRAPHIC_TEMPLATES, **CUE_KINDS}, "framing": FRAMING_MODES,
-            "source": FOOTAGE_KINDS},
+            "source": FOOTAGE_KINDS, "layout": DIAGRAM_LAYOUTS, "frame": SCREEN_FRAMES},
 )
 PLAN = Ctx(keys={"nota": "note", "tomas": "shots", "textos": "texts", "candidatos_extra": "extra_candidates",
                  "guion": "script", "frases": "sentences", "tomas_encima": "cutaways"},

@@ -31,8 +31,10 @@ class VideoEncoder(Protocol):
     def extract_wav(self, info: dict, out: Path) -> Path:
         """Mono 16 kHz audio for transcription / analysis."""
 
-    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80) -> Path:
-        """The source's whole audio track with the background noise taken out (48 kHz stereo WAV)."""
+    def clean_voice(self, info: dict, out: Path, mix: float = 1.0, highpass: int = 80,
+                    polish: dict | None = None) -> Path:
+        """The source's whole audio track with the background noise taken out (48 kHz stereo WAV);
+        polish (domain.voice_levels.polish_settings): leveler / lowered breaths, also over the whole track."""
 
     def encode_shot(self, shot: dict, info: dict, cfg: dict, stats: dict, has_voice: bool,
                     W: int, H: int, draft: bool, out: Path) -> Path:
@@ -172,6 +174,9 @@ class ProjectRepository(Protocol):
     def variant_folder(self, project: Project, suffix: str) -> Path: ...
     def last_version(self, project: Project) -> Path | None: ...
     def versions(self, project: Project) -> list[Path]: ...
+    def latest_rendered(self, folder: str | Path) -> Path | None:
+        """The most recently rendered version folder, drafts and variants included (failed renders skipped)."""
+        ...
     def load_version(self, folder: str | Path, version: str | None = None) -> dict:
         """A rendered version (read only): {"dir", "name", "video", "summary", "plan", "config", "stems"}."""
 
@@ -197,6 +202,9 @@ class ProjectRepository(Protocol):
     def list_files(self, folder: Path) -> list[Path]:
         """Files (not folders) directly inside `folder`; [] if it does not exist."""
 
+    def file_size(self, path: Path) -> int:
+        """Bytes of a file, or of everything inside a folder; 0 when it does not exist."""
+        ...
     def file_hash(self, path: Path) -> str | None:
         """SHA-256 of a file's content (hex), None if it does not exist."""
 
@@ -263,6 +271,10 @@ class VisualDetector(Protocol):
 
     def text_embeddings(self, texts: list[str], settings: dict):
         """Embeddings [len(texts), d] of texts in any supported language."""
+
+    def english_text_embeddings(self, texts: list[str], settings: dict):
+        """Embeddings [len(texts), d] of English texts with the image model's own text encoder (more
+        precise than the multilingual one, English only), in the same space as the frames."""
 
     def image_embeddings(self, images: list, settings: dict):
         """Embeddings [len(images), d] of RGB pictures (H×W×3 arrays), e.g. parts of a frame."""
@@ -403,3 +415,20 @@ class FootageSource(Protocol):
         """Downloads a candidate next to `dest` (the extension is the file's own) → its path.
         piece: only those seconds (start, end) of a long video. preview: a small copy to look
         through (sources of short clips ignore both and download the clip)."""
+
+
+class MusicSynthesizer(Protocol):
+    """Turns a composed score (domain/compose.py) into audio: every sound synthesized, no samples."""
+
+    def render(self, score: dict, out: Path, settings: dict | None = None) -> dict:
+        """The score → a stereo 24-bit file at `out` (.flac or .wav) → {"file", "sha256" (of the
+        24-bit samples), "lufs", "peak_db", "duration", "sample_rate", "channels", "bits"}.
+        settings: {"lufs", "ceiling_db", "voice_dip_db", "mix" (LU of each role from the drums),
+        "pad": {"cutoff"}, "sample_rate"}."""
+
+    def pack_presets(self, pack: str) -> dict:
+        """The `music:` block of a pack's pack.yaml ({"preset": default name, "presets": {name: {…}}});
+        {} without one."""
+
+    def encode(self, src: Path, out: Path) -> Path:
+        """A compressed copy for listening (.m4a / .mp3 / .ogg, chosen by the extension)."""

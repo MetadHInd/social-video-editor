@@ -16,16 +16,30 @@ confidence is None (the caller treats it as `llm_min`).
 Sampling is greedy with no repetition penalties: some models ship a presence penalty, which would
 count against the option letters already written in the prompt and change the answer.
 
+A picture larger than IMAGE_MAX_SIDE pixels on its longest side is sent scaled down (a full-HD frame took
+the model ≈16 s a question, the same frame at 960 pixels ≈4 s, with the same answers on the b-roll
+questions compared).
+
+The server on demand (`decider.llm_start`, on by default): when no server answers on this machine and
+the `ollama` program is installed, ready() starts `ollama serve` itself and the process stops it when
+it ends (after unloading the model). A server that was already running is never stopped, a server on
+another machine (OLLAMA_HOST) is never started, and a server this process started is left running when
+another program has a model loaded on it.
+
 Nothing here ever raises for a server or model failure: choose() returns ([], None) and the rules'
 answer stands.
 """
 from __future__ import annotations
 
+import atexit
 import base64
 import json
 import math
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -38,6 +52,15 @@ INSTALL_HINT = "brew install ollama && brew services start ollama"
 TAGS_TIMEOUT = 0.5          # seconds: a local server answers at once
 READY_TTL = 5.0             # seconds a ready() answer is reused
 RELEASE_TIMEOUT = 10
+START_TIMEOUT = 20.0        # seconds a server started here gets to answer
+STOP_TIMEOUT = 5.0          # seconds it gets to end before it is killed
+IDLE_WAIT = 2.0             # seconds the server gets to show no model loaded before it is stopped
+LOCAL_NAMES = ("127.0.0.1", "localhost", "[::1]")
+# where the program lives when it is not on PATH (apps started outside a login shell, macOS only)
+MAC_PROGRAMS = ("/opt/homebrew/bin/ollama", "/usr/local/bin/ollama",
+                "/Applications/Ollama.app/Contents/Resources/ollama")
+NOT_RUNNING = "Ollama is not running"
+IMAGE_MAX_SIDE = 960        # pixels: larger pictures are scaled down before they are sent
 KEEP_ALIVE = "2m"           # between the questions of one batch; release() unloads at the end
 # greedy, and no penalty for letters that are already in the prompt (a model's own defaults may set one)
 OPTIONS = {"temperature": 0, "presence_penalty": 0, "frequency_penalty": 0, "repeat_penalty": 1,
@@ -67,6 +90,28 @@ def host() -> str:
 
 def offline() -> bool:
     return os.environ.get("SVE_OFFLINE", "").strip() not in ("", "0")
+
+
+def local() -> bool:
+    """Whether the server (OLLAMA_HOST) is on this machine: the only one the engine may start."""
+    netloc = host().split("://", 1)[1].split("/", 1)[0]
+    return netloc.rsplit(":", 1)[0].lower() in LOCAL_NAMES
+
+
+def program() -> str | None:
+    """Full path of the `ollama` program, None when it is not installed."""
+    found = shutil.which("ollama")
+    if found:
+        return found
+    if sys.platform == "darwin":
+        return next((p for p in MAC_PROGRAMS if Path(p).is_file()), None)
+    return None
+
+
+def wants_start(settings: dict) -> bool:
+    """decider.llm_start (a missing key = no: only a caller that asks for it gets a server started)."""
+    value = settings.get("llm_start")
+    return value is True or str(value).strip().lower() in ("true", "yes", "si", "sí", "1", "on", "auto")
 
 
 def schema(keys: list[str], many: bool) -> dict:
@@ -140,12 +185,35 @@ def confidence(logprobs, chosen: list[tuple[str, int]], keys: list[str], many: b
         return None
 
 
+def picture(path: Path, max_side: int = IMAGE_MAX_SIDE) -> str:
+    """The picture as base64 for the request: as it is, or scaled down (JPEG) when it is larger than
+    `max_side` on its longest side; a file Pillow cannot read is sent as it is."""
+    raw = Path(path).read_bytes()
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(raw)) as im:
+            if max(im.size) > max_side:
+                small = im.convert("RGB")
+                small.thumbnail((max_side, max_side))
+                out = io.BytesIO()
+                small.save(out, "JPEG", quality=90)
+                raw = out.getvalue()
+    except (OSError, ValueError, ImportError):
+        pass
+    return base64.b64encode(raw).decode("ascii")
+
+
 class OllamaReasoner:
     def __init__(self):
         self._ready: dict[tuple[str, str], tuple[float, str | None]] = {}
         self._unsupported: dict[str, set[str]] = {}      # model → request fields its runner rejected
         self._used: set[str] = set()                      # models this process asked (release() unloads them)
         self._told: set[str] = set()
+        self._server: subprocess.Popen | None = None      # the `ollama serve` this process started
+        self._start_failed: str | None = None             # why a start did not work (not tried again)
 
     def _tell(self, message: str) -> None:
         if message not in self._told:
@@ -175,23 +243,117 @@ class OllamaReasoner:
         cached = self._ready.get(key)
         if cached and now - cached[0] < READY_TTL:
             return cached[1]
+        names: set[str] | None = None
         try:
-            tags = self._request("/api/tags", None, TAGS_TIMEOUT)
-            names = {str(m.get(f)) for m in tags.get("models") or [] for f in ("name", "model") if m.get(f)}
-            wanted = {model} if ":" in model else {model, f"{model}:latest"}
-            reason = None if names & wanted else f"model {model} is not pulled (ollama pull {model})"
+            names = self._tags()
         except urllib.error.HTTPError as e:
             reason = f"the Ollama server at {host()} answered HTTP {e.code}"
         except (OSError, ValueError, AttributeError):
-            reason = f"Ollama is not running (install: {INSTALL_HINT})"
-        self._ready[key] = (now, reason)
+            reason = self._start(settings)                 # None = a server answers now
+            if reason is None:
+                try:
+                    names = self._tags()
+                except (OSError, ValueError, AttributeError):
+                    reason = f"{NOT_RUNNING} (it stopped answering)"
+        if names is not None:
+            wanted = {model} if ":" in model else {model, f"{model}:latest"}
+            reason = None if names & wanted else f"model {model} is not pulled (ollama pull {model})"
+        self._ready[key] = (time.monotonic(), reason)
         return reason
+
+    def _tags(self) -> set[str]:
+        """The names of the models the server has."""
+        tags = self._request("/api/tags", None, TAGS_TIMEOUT)
+        return {str(m.get(f)) for m in tags.get("models") or [] for f in ("name", "model") if m.get(f)}
+
+    # ── the server on demand ──────────────────────────────────────────────────
+    def can_start(self, settings: dict) -> bool:
+        """Whether a server that is not running would be started here (decider.llm_start, the program
+        installed, OLLAMA_HOST on this machine, not offline)."""
+        return wants_start(settings) and not offline() and local() and program() is not None
+
+    def _answers(self) -> bool:
+        try:
+            self._request("/api/tags", None, TAGS_TIMEOUT)
+            return True
+        except urllib.error.HTTPError:
+            return True                                    # an HTTP error is still an answer
+        except (OSError, ValueError):
+            return False
+
+    def _start(self, settings: dict) -> str | None:
+        """Starts `ollama serve` when it may (can_start) → None once a server answers; otherwise why
+        there is none. The process stops it when it ends (stop())."""
+        if not local():
+            return f"the Ollama server at {host()} does not answer"
+        exe = program()
+        if exe is None:
+            return f"{NOT_RUNNING} (install: {INSTALL_HINT})"
+        if not self.can_start(settings):
+            return f"{NOT_RUNNING} (start it: ollama serve, or set decider.llm_start: true)"
+        if self._start_failed:
+            return self._start_failed
+        try:
+            proc = subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self._start_failed = f"{NOT_RUNNING} and could not be started ({e})"
+            return self._start_failed
+        deadline = time.monotonic() + START_TIMEOUT
+        while time.monotonic() < deadline and proc.poll() is None:
+            if self._answers():
+                self._server = proc
+                atexit.register(self.stop)
+                log("Decider: started the local Ollama server (it is stopped when the engine finishes)")
+                return None
+            time.sleep(0.2)
+        if proc.poll() is not None:
+            if self._answers():                            # somebody else started one at the same time
+                return None
+            self._start_failed = f"{NOT_RUNNING} and could not be started (ollama serve ended with code {proc.returncode})"
+        else:
+            self._end(proc)
+            self._start_failed = f"{NOT_RUNNING} and did not answer {START_TIMEOUT:g} s after it was started"
+        return self._start_failed
+
+    @staticmethod
+    def _end(proc: subprocess.Popen) -> None:
+        proc.terminate()
+        try:
+            proc.wait(STOP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    def _loaded(self) -> bool:
+        """Whether the server has a model in memory (false when it does not answer)."""
+        try:
+            return bool(self._request("/api/ps", None, TAGS_TIMEOUT).get("models"))
+        except Exception:  # noqa: BLE001 - best effort
+            return False
+
+    def stop(self) -> None:
+        """Stops the server this process started (never one that was already running): its models are
+        unloaded first, and it is left running when another program still has a model loaded on it."""
+        proc, self._server = self._server, None
+        if proc is None or proc.poll() is not None:
+            return
+        for model in list(self._used):
+            self._unload(model)
+        deadline = time.monotonic() + IDLE_WAIT
+        while self._loaded() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        if self._loaded():
+            log("Decider: the local Ollama server is left running (another program has a model loaded)")
+            return
+        self._end(proc)
+        self._ready.clear()
+        log("Decider: stopped the local Ollama server")
 
     # ── choose ────────────────────────────────────────────────────────────────
     def _body(self, model: str, prompt: str, keys: list[str], many: bool, image: Path | None) -> dict:
         message: dict = {"role": "user", "content": prompt}
         if image is not None:
-            message["images"] = [base64.b64encode(Path(image).read_bytes()).decode("ascii")]
+            message["images"] = [picture(image)]
         body = {"model": model, "messages": [message], "stream": False, "format": schema(keys, many),
                 "think": False, "options": dict(OPTIONS), "keep_alive": KEEP_ALIVE,
                 "logprobs": True, "top_logprobs": 5}
@@ -247,8 +409,10 @@ class OllamaReasoner:
     def release(self, settings: dict) -> None:
         """Unloads the model from the server's memory (only when this process used it)."""
         model = self._model(settings)
-        if model not in self._used:
-            return
+        if model in self._used:
+            self._unload(model)
+
+    def _unload(self, model: str) -> None:
         self._used.discard(model)
         try:
             self._request("/api/generate", {"model": model, "keep_alive": 0}, RELEASE_TIMEOUT)

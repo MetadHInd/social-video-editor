@@ -4,46 +4,59 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..domain import director, explainer, script_align, support
+from ..domain import director, explainer, script_align, shorts, support
+from ..domain.backdrop import has_picture
 from ..domain.graphics import TEMPLATES
 from ..domain.models import PlanError, Project
 from ..domain.script import GRAPHIC, parse_script
 from ..domain.timebase import mmss
 from ..domain.timeline import compute_timeline
 from ..log import log
-from .cutaways import place_cutaways
+from .cutaways import place_cutaways, project_files
 from .decide import run_decided
 from .graphic import build_scene, graphics_theme
 from .services import Services
 
 MAX_LOG_LINES = 12
+SCREEN_FOLDERS = ("", "photos", "fotos", "screens", "screenshots", "capturas", "pantallas", "images", "imagenes")
+MAX_SCREENS = 200           # pictures looked at for screenshots the script may name
 
 
-def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
+def script_plan(svc: Services, project: Project, analyses: list[dict], infos: list[dict] | None = None) -> dict:
     """plan.json from the script: every sentence found in the recording (the chosen take), joined into
-    shots in script order, and one cutaway per cue. Pauses are shortened afterwards (application/plan.py)."""
+    shots in script order, and one cutaway per cue. Pauses are shortened afterwards (application/plan.py).
+    infos: the sources' media infos (a source without a picture — a voice memo — is written in the plan's
+    "pictureless": the director then covers all of it)."""
     cfg = project.cfg
     name, text = svc.projects.read_script(project)
     theme = graphics_theme(svc, cfg)                     # also registers the pack's own templates
     script = parse_script(text, svc.projects.translate_cue, set(TEMPLATES))
-    _check_graphics(svc, cfg, script, theme)
+    _check_graphics(svc, cfg, script, theme, project.dir)
     words = script_align.transcript(analyses)
     if not words:
         raise PlanError("The recording has no transcribed speech: the script cannot be matched to it "
                         "(is there a voice in the sources? check transcription.language)")
     matches = script_align.align([s.text for s in script.sentences], words, cfg)
     plan = explainer.build_plan(script, matches, cfg, name)
+    blind = [k for k, info in enumerate(infos or []) if not has_picture(info)]
+    if blind:
+        plan["pictureless"] = blind
     cues = len(plan["cutaways"])
     overlay = {name for name, t in TEMPLATES.items() if getattr(t, "overlay", False)}
-    auto_broll = bool(director.settings(cfg)["auto_broll"])
+    d = director.settings(cfg)
+    auto_broll = bool(d["auto_broll"])
     notes_on = bool(explainer.script_settings(cfg).get("support"))
+    screens: list[str] = []
+    if d["auto_screen"]:
+        plan["cutaways"] = director.screen_cues(plan["cutaways"], _sizes(svc, project, plan["cutaways"]))
+        screens = _screenshots(svc, project) if auto_broll else []
 
     def propose(decide) -> tuple[list[dict], list[dict]]:
         """The director's footage (where the presenter would stay alone too long), then notes around the
         presenter where nothing else is on screen; the plan is not changed (this may run more than once)."""
-        cuts = director.propose(plan, cfg, overlay, decide=decide) if auto_broll else []
+        cuts = director.propose(plan, cfg, overlay, decide=decide, screens=screens) if auto_broll else []
         merged = {**plan, "cutaways": sorted(plan["cutaways"] + cuts, key=lambda c: c.get("at_sentence", 0))}
-        notes = support.propose(merged, cfg.get("language", "es"), decide=decide) if notes_on else []
+        notes = support.propose(merged, cfg.get("language", "es"), decide=decide, settings=cfg) if notes_on else []
         return cuts, notes
 
     if auto_broll or notes_on:
@@ -58,6 +71,14 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
     log(f"Script {name}: {len(script.sentences)} sentences, {sum(m is not None for m in matches)} found, {cues} cues"
         + (f", {auto['director']} b-roll proposed" if auto.get("director") else "")
         + (f", {auto['support']} overlays proposed" if auto.get("support") else ""))
+    for line in director_lines(plan):
+        log(line)
+    if shorts.auto_on(cfg):                 # script.shorts: auto → stretches that stand on their own
+        proposed = shorts.propose(plan["sentences"], plan["cutaways"], cfg, plan.get("shorts"))
+        if proposed or plan.get("shorts"):
+            plan["shorts"] = plan.get("shorts", []) + proposed
+    for line in shorts.lines(plan):
+        log(f"  short {line.strip()}")
     lines = []
     for s, m in zip(script.sentences, matches):
         if m is None:
@@ -74,7 +95,58 @@ def script_plan(svc: Services, project: Project, analyses: list[dict]) -> dict:
     return plan
 
 
-def _check_graphics(svc: Services, cfg: dict, script, theme: dict) -> None:
+def director_lines(plan: dict) -> list[str]:
+    """What the director chose, in a line or two: the graphics it draws by itself (by kind), the footage
+    it asks for, the photo cues shown as screenshots and whether the recording is a voice memo."""
+    mine = [c for c in plan.get("cutaways") or [] if c.get("_auto") == "director"]
+    drawn = Counter(str(c.get("template")) for c in mine if c.get("type") == "graphic")
+    footage = sum(c.get("type") == "broll" for c in mine)
+    lines = []
+    if drawn or footage:
+        kinds = ", ".join(f"{n} {t}" for t, n in drawn.most_common())
+        lines.append("  director: " + ", ".join(x for x in (kinds, f"{footage} b-roll" if footage else "") if x))
+    screens = sum(c.get("_auto") == "screen" for c in plan.get("cutaways") or [])
+    if screens:
+        lines.append(f"  director: {screens} photo cue(s) shown as a screenshot (screen)")
+    if plan.get("pictureless"):
+        lines.append("  director: a voice memo (no picture): every sentence gets something on screen")
+    return lines
+
+
+def _sizes(svc: Services, project: Project, cutaways: list[dict]) -> dict:
+    """Width and height of the pictures of the photo cues (to tell a phone screenshot by its shape)."""
+    out = {}
+    for c in cutaways:
+        name = str(c.get("file") or "")
+        if c.get("type") != "photo" or not name:
+            continue
+        path = project.dir / name
+        if not svc.projects.exists(path):
+            continue
+        try:
+            info = svc.probe.probe(path)
+        except Exception:                   # an unreadable picture: its shape is not known
+            continue
+        if info.get("width") and info.get("height"):
+            out[name] = (int(info["width"]), int(info["height"]))
+    return out
+
+
+def _screenshots(svc: Services, project: Project) -> list[str]:
+    """The project's screenshots the script may name (director.screen_for), relative to the project:
+    pictures in its folder or in SCREEN_FOLDERS whose name says they are one."""
+    out: list[str] = []
+    for sub in SCREEN_FOLDERS:
+        for path in svc.projects.list_files(project.dir / sub if sub else project.dir):
+            name = f"{sub}/{path.name}" if sub else path.name
+            if director.is_screenshot(name) and name not in out:
+                out.append(name)
+            if len(out) >= MAX_SCREENS:
+                return out
+    return out
+
+
+def _check_graphics(svc: Services, cfg: dict, script, theme: dict, base=None) -> None:
     """Builds every graphic cue once, so a bad cue is reported now with its script line (not at render)."""
     if svc.graphics is None or svc.graphics.ready():
         return
@@ -83,7 +155,7 @@ def _check_graphics(svc: Services, cfg: dict, script, theme: dict) -> None:
         if cue.kind != GRAPHIC:
             continue
         try:
-            build_scene(svc, cfg, cue.spec, W, H, theme)
+            build_scene(svc, cfg, project_files(svc, base, cue.spec), W, H, theme)
         except PlanError as e:
             raise PlanError(f"Script line {cue.line}: {e}") from None
 
@@ -93,7 +165,7 @@ def frame_plan(svc: Services, project: Project, plan: dict, infos: list[dict], a
     cfg = project.cfg
     tl = compute_timeline(plan, cfg)
     W, H = int(cfg["output"]["width"]), int(cfg["output"]["height"])
-    placed, warnings = place_cutaways(svc, cfg, plan, tl, W, H)
+    placed, warnings = place_cutaways(svc, cfg, plan, tl, W, H, base=project.dir)
     counts = explainer.frame_shots(plan, tl, placed, cfg, infos, analyses)
     windows = sum(c.pip for c in placed)
     log(f"Explainer: {len(tl)} shots, {tl.total:.1f} s, {len(placed)} cutaways"

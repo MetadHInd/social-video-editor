@@ -62,6 +62,7 @@ def _chat(content: str, logprobs: list | None = None) -> dict:
 def online(monkeypatch):
     monkeypatch.delenv("SVE_OFFLINE", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.setattr(ol, "program", lambda: None)       # no test ever starts a real server
 
 
 def _serve(monkeypatch, handler) -> FakeServer:
@@ -196,6 +197,145 @@ def test_release_unloads_only_a_model_it_used(online, monkeypatch):
     r.release(S)                                                         # errors are ignored
 
 
+# ── the server on demand (decider.llm_start) ──────────────────────────────────
+class FakeProcess:
+    """Stands in for subprocess.Popen: `ollama serve` that runs until it is terminated."""
+
+    def __init__(self, world, code=None):
+        self.world, self.returncode, self.signals = world, code, []
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.signals.append("terminate")
+        self.returncode, self.world["up"] = 0, False
+
+    def kill(self):
+        self.signals.append("kill")
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+def _machine(monkeypatch, up=False, loaded=(), start_code=None, answers=True):
+    """A machine with the program installed and a fake server that is `up` or not; starting the program
+    brings it up (unless it ends at once with `start_code`, or never answers)."""
+    world = {"up": up, "loaded": list(loaded), "started": [], "registered": [], "process": None}
+
+    def handler(path, body):
+        if not world["up"]:
+            return urllib.error.URLError("connection refused")
+        if path == "tags":
+            return {"models": [{"name": "qwen3.5:9b"}]}
+        if path == "ps":
+            return {"models": [{"name": m} for m in world["loaded"]]}
+        if path == "chat":
+            world["loaded"] = sorted({*world["loaded"], body["model"]})
+            return _chat('{"answer": "a"}')
+        if path == "generate" and body.get("keep_alive") == 0:
+            world["loaded"] = [m for m in world["loaded"] if m != body["model"]]
+        return {}
+
+    def popen(args, **kw):
+        world["started"].append(list(args))
+        world["process"] = FakeProcess(world, start_code)
+        world["up"] = start_code is None and answers
+        return world["process"]
+
+    world["server"] = _serve(monkeypatch, handler)
+    monkeypatch.setattr(ol, "program", lambda: "/opt/bin/ollama")
+    monkeypatch.setattr(ol.subprocess, "Popen", popen)
+    monkeypatch.setattr(ol.atexit, "register", lambda fn: world["registered"].append(fn))
+    monkeypatch.setattr(ol.time, "sleep", lambda sec: None)
+    return world
+
+
+def test_a_server_that_is_not_running_is_started_and_stopped_at_the_end(online, monkeypatch, capsys):
+    world = _machine(monkeypatch)
+    r = ol.OllamaReasoner()
+    assert S["llm_start"] is True and r.can_start(S)
+    assert r.ready(S) is None                                            # started, and it has the model
+    assert world["started"] == [["/opt/bin/ollama", "serve"]] and world["registered"] == [r.stop]
+    assert r.ready(S) is None and len(world["started"]) == 1             # once
+    assert r.choose("p", ["a", "b"], S) == (["a"], None) and world["loaded"] == ["qwen3.5:9b"]
+    r.stop()                                                             # what the process does when it ends
+    assert world["loaded"] == [] and world["process"].signals == ["terminate"] and world["up"] is False
+    r.stop()                                                             # nothing left to stop
+    assert world["process"].signals == ["terminate"]
+    out = capsys.readouterr().out
+    assert "started the local Ollama server" in out and "stopped the local Ollama server" in out
+
+
+def test_a_server_that_was_already_running_is_left_as_it_was(online, monkeypatch):
+    world = _machine(monkeypatch, up=True)
+    r = ol.OllamaReasoner()
+    assert r.ready(S) is None and r.choose("p", ["a", "b"], S) == (["a"], None)
+    r.release(S)
+    r.stop()
+    assert world["started"] == [] and world["registered"] == [] and world["up"] is True
+
+
+@pytest.mark.parametrize("settings, env, why", [
+    ({**S, "llm_start": False}, None, "Ollama is not running (start it: ollama serve, or set decider.llm_start: true)"),
+    ({k: v for k, v in S.items() if k != "llm_start"}, None, "Ollama is not running (start it"),
+    (S, "192.168.1.5:11434", "the Ollama server at http://192.168.1.5:11434 does not answer"),   # another machine's
+])
+def test_the_server_is_not_started_when_it_may_not(online, monkeypatch, settings, env, why):
+    world = _machine(monkeypatch)
+    if env:
+        monkeypatch.setenv("OLLAMA_HOST", env)
+    r = ol.OllamaReasoner()
+    assert not r.can_start(settings)
+    assert r.ready(settings).startswith(why) and world["started"] == []
+    monkeypatch.setenv("SVE_OFFLINE", "1")
+    assert not ol.OllamaReasoner().can_start(S)
+
+
+def test_local_servers(monkeypatch):
+    for value, expected in ((None, True), ("localhost:11500", True), ("0.0.0.0", True), ("[::1]:11434", True),
+                            ("192.168.1.5", False), ("https://models.example.com", False)):
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+        if value:
+            monkeypatch.setenv("OLLAMA_HOST", value)
+        assert ol.local() is expected, value
+
+
+def test_a_start_that_fails_is_said_and_not_tried_again(online, monkeypatch):
+    world = _machine(monkeypatch, start_code=1)                          # `ollama serve` ends at once
+    r = ol.OllamaReasoner()
+    why = r.ready(S)
+    assert why == "Ollama is not running and could not be started (ollama serve ended with code 1)"
+    r._ready.clear()
+    assert r.ready(S) == why and len(world["started"]) == 1 and world["registered"] == []
+
+    world = _machine(monkeypatch, answers=False)                         # it runs but never answers
+    monkeypatch.setattr(ol, "START_TIMEOUT", 0.05)
+    r = ol.OllamaReasoner()
+    assert r.ready(S) == "Ollama is not running and did not answer 0.05 s after it was started"
+    assert world["process"].signals == ["terminate"] and r._server is None
+
+
+def test_a_server_another_program_is_using_is_left_running(online, monkeypatch, capsys):
+    world = _machine(monkeypatch)
+    monkeypatch.setattr(ol, "IDLE_WAIT", 0.05)
+    r = ol.OllamaReasoner()
+    assert r.ready(S) is None
+    world["loaded"] = ["other:latest"]                                   # loaded by somebody else
+    r.stop()
+    assert world["process"].signals == [] and world["up"] is True
+    assert "left running" in capsys.readouterr().out
+
+
+def test_doctor_never_starts_the_server(online, monkeypatch):
+    world = _machine(monkeypatch)
+    rows = doctor.decider_checks(None, ol.OllamaReasoner(), {})
+    assert world["started"] == []
+    assert rows[0][:2] == ("ok", "decider: language model") and "starts it when a video needs it" in rows[0][2]
+    rows = doctor.decider_checks(None, ol.OllamaReasoner(), {"decider": {"llm_start": False}})
+    assert rows[0][0] == "optional" and rows[0][2].startswith("Ollama is not running (start it")
+
+
 # ── zero-shot classifier ──────────────────────────────────────────────────────
 class FakePipeline:
     """Like transformers' zero-shot pipeline: labels sorted by score (here: by length, longest first)."""
@@ -326,3 +466,16 @@ def test_letters_written_together_are_read_one_by_one():
     assert [x for x, _ in letters("a, c", ["a", "b", "c"], True)] == ["a", "c"]
     assert letters("ab", ["a", "b", "c"], False) == []           # one answer expected: "ab" is not one letter
     assert letters("hello", ["a", "b", "c"], True) == []
+
+
+def test_large_pictures_are_scaled_down_before_they_are_sent(tmp_path):
+    from PIL import Image
+
+    big, small, broken = tmp_path / "big.png", tmp_path / "small.jpg", tmp_path / "broken.jpg"
+    Image.new("RGB", (1920, 1080), (200, 30, 30)).save(big)
+    Image.new("RGB", (540, 960), (30, 200, 30)).save(small)
+    broken.write_bytes(b"not a picture")
+    sent = Image.open(io.BytesIO(base64.b64decode(ol.picture(big))))
+    assert sent.format == "JPEG" and max(sent.size) == ol.IMAGE_MAX_SIDE and sent.size[0] / sent.size[1] == 16 / 9
+    assert base64.b64decode(ol.picture(small)) == small.read_bytes()            # small enough: as it is
+    assert base64.b64decode(ol.picture(broken)) == b"not a picture"

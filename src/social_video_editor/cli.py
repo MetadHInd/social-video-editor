@@ -5,22 +5,27 @@
   sve thumbs  <project> [--source 0 --start 60 --end 90 --every 1]
   sve plan    <project> [--force]
   sve render  <project> [--draft] [--profile youtube|landscape|horizontal] [--no-music]
+  sve render  <project> --short NAME | --shorts   (a short of the script: [short NAME] … [/short]; vertical)
   sve build   <project> [--draft]          (analyze + thumbs + plan if missing + render)
   sve view    <project>                    (plan and timeline summary)
-  sve report  <project> [--json]           (one-screen project report; reads only files on disk)
+  sve report  <project> [--json] [--full]  (one-screen project report, what to do first; reads only files on disk)
   sve recipes
   sve music "artist song"                  (downloads to music/ with yt-dlp and analyzes the beat)
+  sve music --compose [--preset P] [--seconds N] [--seed S] [--out FILE] [--pack NAME] [--project P]
+                                           (an original track composed by the engine + its proof of origin)
   sve check   <project> [--version v3] [--out DIR]   (automatic review → vN/check.json + listen/)
   sve products <project>                   (products recognized by the vision model → cache/products.json)
   sve enhance <project> [--force]          (photo sources: upscale small ones / reduce big ones → cache/photos/)
   sve graphic [<project>] --proof | --shot N | --cue '…'   (preview animated graphics; --pack NAME, --video)
   sve broll   <project> [--dry-run] [--force]   (fetches a clip for every [broll query="…"] cue → footage/ + credits.json)
-  sve make    <project> [--final] [--force]       (everything: plan if missing, footage, render, review)
+  sve broll   <project> --unused [--yes]        (clips no plan uses + the search cache, with sizes; --yes deletes them)
+  sve make    <project> [--final] [--force] [--short NAME | --shorts]   (everything: plan if missing,
+              footage, render, review and its remedies — every recipe)
   sve doctor                               (checks FFmpeg, fonts, models and optional parts)
 
 Spanish aliases are accepted: nuevo, analizar, vistazo, planear, montar, ver, informe, recetas, musica, verificar,
 productos, mejorar, grafico, tomas, hacer and --borrador, --perfil, --sin-musica, --forzar, --receta, --fuentes, --fuente, --desde,
---hasta, --cada, --simular.
+--hasta, --cada, --simular, --sin-usar, --si, --completo, --corto, --cortos.
 """
 from __future__ import annotations
 
@@ -72,7 +77,14 @@ def cmd_plan(svc, a):
 
 def cmd_render(svc, a):
     p = _project(svc, a.project)
-    render(svc, p, load_plan(svc, p), draft=a.draft, profile=canonical_profile(profile_name(a.profile)), no_music=a.no_music)
+    profile = canonical_profile(profile_name(a.profile))
+    if getattr(a, "short", None) or getattr(a, "shorts", False):
+        from .application.render import render_shorts
+
+        render_shorts(svc, p, load_plan(svc, p), None if a.shorts else a.short, draft=a.draft, profile=profile,
+                      no_music=a.no_music)
+        return
+    render(svc, p, load_plan(svc, p), draft=a.draft, profile=profile, no_music=a.no_music)
 
 
 def cmd_build(svc, a):
@@ -89,7 +101,7 @@ def cmd_view(svc, a):
 
 def cmd_report(svc, a):
     r = build_report(svc, _project(svc, a.project))
-    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r)))
+    print(json.dumps(report_json(r), ensure_ascii=False) if a.json else "\n".join(report_lines(r, full=a.full)))
 
 
 def cmd_recipes(svc, a):
@@ -97,10 +109,51 @@ def cmd_recipes(svc, a):
 
 
 def cmd_music(svc, a):
+    from .domain.models import UserError
+
+    if a.compose:
+        cmd_compose(svc, a)
+        return
+    if not a.query:
+        raise UserError('Say what to download (sve music "artist song"), or compose a track: sve music --compose')
     path, am = download_music(svc, a.query)
     print(f"Downloaded: {path.name} — {am['duration']:.0f} s, {am['tempo']} BPM, drop at {am['drop']:.1f} s")
     print("\n".join(tempo_lines(am)))
     print(f"To use it: in project.yaml → settings → music → file: \"{path.parent.name}/{path.name}\"")
+
+
+def cmd_compose(svc, a):
+    """sve music --compose: a standalone track, or (--project) the one composed for a project's plan."""
+    from .application import music as am
+    from .domain import compose as dc
+
+    if a.project:
+        from .domain.timeline import compute_timeline
+
+        project = _project(svc, a.project)
+        cfg = project.cfg
+        if a.pack:
+            cfg = {**cfg, "graphics": {**(cfg.get("graphics") or {}), "pack": a.pack}}
+        cfg = {**cfg, "music": {**cfg["music"], "compose": {**dc.settings(cfg["music"]),
+                                **{k: v for k, v in (("seed", a.seed), ("bpm", a.bpm)) if v is not None}}}}
+        plan = load_plan(svc, project)
+        path, score, _ = am.compose_for_video(svc, project, plan, cfg, compute_timeline(plan, cfg), a.preset)
+        if a.out and Path(a.out).suffix.lower() not in (".flac", ".wav"):
+            print(f"Listening copy: {svc.synth.encode(path, Path(a.out))}")
+        print("\n".join(dc.section_lines(score)))
+        print(f"Track: {path}\nProof of origin: {path.with_name(path.stem + am.ORIGIN_SUFFIX)}")
+        return
+    cfg = svc.recipes.load("base")
+    if a.pack:
+        cfg = {**cfg, "graphics": {**(cfg.get("graphics") or {}), "pack": a.pack}}
+    name, preset = am.preset_for(svc, cfg, a.preset)
+    seconds = float(a.seconds or 60)
+    out = Path(a.out) if a.out else svc.projects.music_dir() / "composed" / f"{name}_{a.seed or 'auto'}_{seconds:g}s.flac"
+    path, proof = am.compose_track(svc, out, seconds, name, a.seed, a.bpm, cfg)
+    print("\n".join(dc.section_lines(proof["score"])))
+    print(f"Track: {path} — {proof['audio']['lufs']} LUFS, peak {proof['audio']['peak_db']} dBFS")
+    print(f"Proof of origin: {path.with_name(path.stem + am.ORIGIN_SUFFIX)}")
+    print(f'To use the engine\'s music in a video: settings → music → file: compose (compose: {{preset: {name}}})')
 
 
 def cmd_check(svc, a):
@@ -108,6 +161,8 @@ def cmd_check(svc, a):
     from .domain.check import report_lines
 
     result, notes = check_version(svc, a.project, a.version, a.out)
+    if not a.version:
+        print(f"Checking the latest rendered version: {result['version']} (another one: --version vN)")
     print("\n".join(report_lines(result, notes)))
 
 
@@ -124,6 +179,7 @@ def cmd_enhance(svc, a):
 def cmd_graphic(svc, a):
     from .adapters.files.workspace import workspace
     from .application import graphic
+    from .application.cutaways import project_files
     from .domain.models import UserError
 
     if a.project:
@@ -137,11 +193,13 @@ def cmd_graphic(svc, a):
     if a.proof:
         paths = graphic.proof(svc, cfg, out / "proof", video=a.video)
     elif a.cue:
-        paths = graphic.preview(svc, cfg, legacy_es_graphic(graphic.cue_spec(a.cue)), out, name="cue")
+        spec = legacy_es_graphic(graphic.cue_spec(a.cue))
+        paths = graphic.preview(svc, cfg, project_files(svc, project and project.dir, spec), out, name="cue")
     elif a.shot is not None:
         if project is None:
             raise UserError("--shot needs a project (sve graphic <project> --shot N)")
-        paths = graphic.preview(svc, cfg, graphic.plan_graphic(load_plan(svc, project), a.shot), out, name=f"shot{a.shot}")
+        spec = project_files(svc, project.dir, graphic.plan_graphic(load_plan(svc, project), a.shot))
+        paths = graphic.preview(svc, cfg, spec, out, name=f"shot{a.shot}")
     else:
         raise UserError("Say what to draw: --proof, --shot N or --cue 'bars data=\"A:1, B:2\"'")
     for p in paths:
@@ -151,13 +209,23 @@ def cmd_graphic(svc, a):
 def cmd_broll(svc, a):
     from .application.broll import broll_lines, fetch_broll
 
+    if a.unused:
+        from .application.broll_unused import unused_footage, unused_lines
+
+        print("\n".join(unused_lines(unused_footage(svc, _project(svc, a.project), delete=a.yes))))
+        return
+    if a.yes:
+        from .domain.models import UserError
+
+        raise UserError("--yes only goes with --unused (sve broll <project> --unused --yes)")
     print("\n".join(broll_lines(fetch_broll(svc, _project(svc, a.project), dry_run=a.dry_run, force=a.force))))
 
 
 def cmd_make(svc, a):
     from .application.make import make, make_lines
 
-    print("\n".join(make_lines(make(svc, _project(svc, a.project), final=a.final, force=a.force))))
+    print("\n".join(make_lines(make(svc, _project(svc, a.project), final=a.final, force=a.force,
+                                    shorts=a.short, all_shorts=a.shorts))))
 
 
 def cmd_doctor(svc, a):
@@ -198,6 +266,10 @@ def parser() -> argparse.ArgumentParser:
         s.add_argument("--draft", "--borrador", action="store_true")
         s.add_argument("--profile", "--perfil", choices=PROFILE_CHOICES)
         s.add_argument("--no-music", "--sin-musica", action="store_true", dest="no_music")
+        if name == "render":
+            s.add_argument("--short", "--corto", action="append", metavar="NAME",
+                           help="render only this short of the plan ([short NAME] … [/short]); repeatable")
+            s.add_argument("--shorts", "--cortos", action="store_true", help="render every short of the plan")
         s.set_defaults(f=fn)
     s = sub.add_parser("view", aliases=["ver"], help="plan and timeline summary")
     s.add_argument("project")
@@ -205,14 +277,24 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("report", aliases=["informe"], help="one-screen project report (for people and AI agents)")
     s.add_argument("project")
     s.add_argument("--json", action="store_true", help="machine-readable output")
+    s.add_argument("--full", "--completo", action="store_true", help="every line of every section (not collapsed)")
     s.set_defaults(f=cmd_report)
     sub.add_parser("recipes", aliases=["recetas"], help="list recipes").set_defaults(f=cmd_recipes)
-    s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp")
-    s.add_argument("query")
+    s = sub.add_parser("music", aliases=["musica"], help="download a song with yt-dlp, or compose an original one")
+    s.add_argument("query", nargs="?")
+    s.add_argument("--compose", "--componer", action="store_true",
+                   help="compose an original instrumental track (no samples; a proof of origin next to it)")
+    s.add_argument("--preset", "--estilo", help="style: upbeat, calm, tense, warm, trap (or a pack's)")
+    s.add_argument("--seconds", "--segundos", type=float, help="length of a standalone track (default 60)")
+    s.add_argument("--seed", "--semilla", type=int, help="same seed + preset + length = the same track")
+    s.add_argument("--bpm", type=float, help="tempo (default: the preset's)")
+    s.add_argument("--out", "--salida", help="file to write (.flac, .wav, .m4a, .mp3; default music/composed/)")
+    s.add_argument("--pack", "--paquete", help="use this pack's music presets (packs/<name>/pack.yaml music:)")
+    s.add_argument("--project", "--proyecto", help="compose for this project's plan (its sentences and graphics)")
     s.set_defaults(f=cmd_music)
     s = sub.add_parser("check", aliases=["verificar"], help="automatic review of a render (check.json + listen/)")
     s.add_argument("project")
-    s.add_argument("--version", dest="version", help="version folder (default: latest vN)")
+    s.add_argument("--version", dest="version", help="version folder (default: the latest rendered one, draft included)")
     s.add_argument("--out", "--salida", dest="out", help="write check.json and snippets here instead")
     s.set_defaults(f=cmd_check)
     s = sub.add_parser("products", aliases=["productos"], help="products recognized by the vision model")
@@ -236,11 +318,17 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--dry-run", "--simular", action="store_true", dest="dry_run",
                    help="list what would be fetched; download nothing, change nothing")
     s.add_argument("--force", "--forzar", action="store_true", help="fetch again the cutaways that already have a clip")
+    s.add_argument("--unused", "--sin-usar", action="store_true",
+                   help="list the clips no plan uses and the search cache, with their size (deletes nothing)")
+    s.add_argument("--yes", "--si", action="store_true", help="with --unused: delete them")
     s.set_defaults(f=cmd_broll)
     s = sub.add_parser("make", aliases=["hacer"], help="the whole video: plan if missing, footage, render, review")
     s.add_argument("project")
     s.add_argument("--final", action="store_true", help="render in final quality (default: a draft)")
     s.add_argument("--force", "--forzar", action="store_true", help="make the plan again")
+    s.add_argument("--short", "--corto", action="append", metavar="NAME",
+                   help="also render this short of the plan once the video is settled; repeatable")
+    s.add_argument("--shorts", "--cortos", action="store_true", help="also render every short of the plan")
     s.set_defaults(f=cmd_make)
     sub.add_parser("doctor", help="check FFmpeg, fonts, models and optional parts").set_defaults(f=cmd_doctor)
     return ap

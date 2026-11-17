@@ -35,29 +35,36 @@ DEFAULTS = {
     "nli_model": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
     "llm": "auto",          # auto = when a local server has the model · false = never
     "llm_model": "qwen3.5:9b",
+    "llm_start": True,      # the local server is started when it is not running, and stopped when the run ends
     "llm_min": 0.5,         # a language-model answer less sure than this keeps the previous answer
     "timeout": 60,          # seconds per language-model request
     "device": "cpu",        # the small classifier: cpu | mps | cuda
 }
 
 # topic → the stages (after the rules) that may answer it, in order
-# Measured on 215 labeled questions from real scripts: the language model beats the rules on notes
-# (words picked right 20 % → 75 %), titles (59 → 80 %) and shortened texts (50 → 60 %); on scene actions,
-# illustrations and the kind of drawing the rules were right more often (82 / 60 / 74 %) than either
-# model, and the zero-shot classifier helped nowhere — those stay with the rules (an empty route).
+# Measured on 215 labeled questions from real scripts (re-measured 15 Nov with the verbs question): the
+# language model beats the rules on notes (verbs found, per word, 51 → 90 %; whole sentences 16 → 74 %),
+# titles (59 → 85 %) and shortened texts (50 → 60 %); on scene actions, illustrations and the kind of
+# drawing the rules are right more often (87 / 60 / 87 % against 37 / 50 / 63 % for the model), and the
+# zero-shot classifier helped nowhere — those stay with the rules (an empty route).
 ROUTES: dict[str, tuple[str, ...]] = {
     "label_words": ("llm",),            # which words of a sentence are conjugated verbs (never a note)
     "title_span": ("llm",),             # which part of a sentence reads well as a card title
     "shorten": ("llm",),                # which shorter version of a card's text still says it
-    "clip_shows": ("llm",),             # does this picture show what is said? (with the picture; not measured yet)
-    "clip_lively": ("llm",),            # does this picture show something happening? (with the picture; not measured yet)
+    "clip_shows": ("llm",),             # is this picture related to what is said? (with the picture; 43 labeled
+                                        # frame–sentence pairs: kept / dropped right 29 → 40, no good clip dropped)
+    "clip_lively": ("llm",),            # does this picture look clear? (with the picture; 42 labeled frames, 12 of
+                                        # them darkened or blurred copies: 28 → 41, no good clip dropped)
+    "product_name": ("llm",),           # which of CLIP's names fits the product in its best frame (with the picture;
+                                        # unboxing set: exact names 8 → 10 of 16 over CLIP on the same frames)
     "is_comparison": (),                # are these figures set against each other?
     "bar_labels": (),                   # the name of each bar
     "action": (),                       # what an illustrated scene shows the thing doing
     "icon": (),                         # which illustration a sentence names
     "card_type": (),                    # which drawing fits a sentence (figure, list, scene, title…)
 }
-ROUTES_VERSION = 3            # 3: label_words asks which words are verbs (not which make good notes)
+ROUTES_VERSION = 4            # 3: label_words asks which words are verbs (not which make good notes)
+                              # 4: icon offers a shortlist; notes are not asked about twice
 
 
 @dataclass(frozen=True)
@@ -78,6 +85,11 @@ class Question:
     language: str = "es"
     hypothesis: str | None = None           # zero-shot template with "{}" (an option's text); None = NLI cannot answer
     image: str | None = None                # a picture to look at (a file path), for the language model
+
+    def __post_init__(self):
+        if len(self.options) + (self.kind == "multi") > len(KEYS):    # a multi question has a "none" letter too
+            raise ValueError(f"question '{self.topic}' has {len(self.options)} options; the language model answers "
+                             f"with one letter each and there are {len(KEYS)} (offer a shortlist)")
 
     @property
     def key(self) -> str:
