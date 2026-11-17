@@ -7,17 +7,23 @@ footage, photo or song is used:
   * vertical clips: FFmpeg `gradients` backgrounds with a moving Pillow-drawn shape on top;
   * photos: Pillow drawings (gradient sky, sun, hills, a "Photo N" label) with EXIF capture dates,
     written under shuffled file names so the chronological ordering is visible;
-  * music: synthesized click / kick / chord-pad loops (numpy), two of them form the playlist.
+  * music: synthesized click / kick / chord-pad loops (numpy), two of them form the playlist;
+  * a voice memo: the demo script spoken by macOS `say` (a tone where there is no `say`). Its words
+    are then timed evenly over the recording, so the result is the same on every machine and does not
+    depend on what a speech model hears.
 
-Two projects are built in a throw-away workspace and rendered with the regular CLI
+Three projects are built in a throw-away workspace and rendered with the regular CLI
 (`python -m social_video_editor …`):
 
   1. `vertical_demo` — a short 9:16 edit from a hand-written plan.json: hook card, zoom punch,
      beat pulse, polaroid, collage, transitions, every cut on the beat;
   2. `slideshow_demo` — the `slideshow` recipe on a dozen photos with a 2-track AutoMix playlist,
-     photo changes fitted to the beats of the mix (landscape 16:9).
+     photo changes fitted to the beats of the mix (landscape 16:9);
+  3. `explainer_demo` — the `explainer` recipe on a voice memo and a script (`script.md`): each cue of
+     the script becomes an animated graphic over the sentence that follows it (title, illustrated
+     scene, bars, list, versus, number), with word-by-word subtitles (9:16).
 
-Short excerpts of both renders are converted to small optimized GIFs (palettegen / paletteuse)
+Short excerpts of the renders are converted to small optimized GIFs (palettegen / paletteuse)
 in docs/media/. GIFs are the only media committed to the repository.
 
 Usage:
@@ -38,6 +44,24 @@ from pathlib import Path
 from _synth import REPO, ffmpeg, latest_video, make_clips, make_photos, sve, synth_track, write_project
 
 MAX_GIF_BYTES = 3 * 1024 * 1024
+
+# The explainer demo: what is said, and before each sentence the graphic that goes with it.
+EXPLAINER_SECONDS = 30.0
+EXPLAINER_SCRIPT = """\
+# Synthetic demo script (scripts/make_demo.py)
+[title text="Why batteries|get old" icon="battery" kicker="Synthetic demo"]
+Why does your phone battery die a little faster every single year?
+[scene action="drain" subject="battery" text="Every charge wears it"]
+Every time you charge it, the battery wears out a tiny bit.
+[bars title="Charge a battery holds" data="New:100, After two years:80" unit="%"]
+A new battery holds 100 percent of its charge, and after two years only 80 percent.
+[list title="What wears it out" items="Heat; Fast charging; Staying full" marks="-"]
+Three things wear it out: heat, fast charging and staying at full charge.
+[versus left="Fast charger" right="Slow charger" rows="Time to full:1 h*|3 h; Heat:High|Low*; Wear:More|Less*"]
+A fast charger fills it sooner, but a slow charger keeps it cool.
+[number value="80" unit="%" label="is a good place to stop charging"]
+So stop charging at 80 percent and your battery will last much longer.
+"""
 
 
 # ── projects ─────────────────────────────────────────────────────────────────
@@ -76,6 +100,35 @@ def slideshow_project(workspace: Path) -> Path:
     synth_track(workspace / "music" / "demo_set" / "02_track_b.wav", bpm=124, bars=18, root_hz=233.1, seed=3)
     settings = {"language": "en", "music": {"playlist": ["demo_set"], "automix": {"enabled": True}}}
     return write_project(workspace, "slideshow_demo", "slideshow", [str(album)], settings)
+
+
+def explainer_sentences() -> list[str]:
+    """What is said in EXPLAINER_SCRIPT (its lines that are neither a heading nor a cue)."""
+    return [x for x in EXPLAINER_SCRIPT.splitlines() if x and x[0] not in "#["]
+
+
+def explainer_project(workspace: Path) -> Path:
+    """A voice memo (sound only) and its script: the engine covers every sentence with a graphic."""
+    from bench import speech_wav            # the benchmark's synthetic narration (`say`, or a tone)
+
+    memo = speech_wav(workspace / "sources" / "memo" / "voice_memo.wav", " ".join(explainer_sentences()),
+                      EXPLAINER_SECONDS)
+    # no footage search and no local language model: the demo needs neither a network nor Ollama
+    settings = {"language": "en", "script": {"auto_broll": False}, "decider": {"enabled": False}}
+    d = write_project(workspace, "explainer_demo", "explainer", [str(memo)], settings)
+    (d / "script.md").write_text(EXPLAINER_SCRIPT, encoding="utf-8")
+    return d
+
+
+def render_explainer(workspace: Path) -> None:
+    """analyze → the script's words timed evenly (instead of what a speech model heard) → plan → render."""
+    from bench import write_script_words
+
+    d = explainer_project(workspace)
+    sve(workspace, "analyze", "explainer_demo")
+    write_script_words(d, explainer_sentences(), EXPLAINER_SECONDS)
+    sve(workspace, "plan", "explainer_demo", "--force")
+    sve(workspace, "render", "explainer_demo", "--draft")
 
 
 # ── GIFs ─────────────────────────────────────────────────────────────────────
@@ -127,11 +180,15 @@ def main(argv=None) -> None:
             slideshow_project(workspace)
             sve(workspace, "plan", "slideshow_demo")
             sve(workspace, "render", "slideshow_demo", "--draft")
+            print("── explainer demo (9:16, from a script) ──")
+            render_explainer(workspace)
         vertical = latest_video(workspace / "projects" / "vertical_demo")
         slides = latest_video(workspace / "projects" / "slideshow_demo")
+        explainer = latest_video(workspace / "projects" / "explainer_demo")
         print("── GIFs ──")
         to_gif(vertical, a.out / "demo_vertical.gif", start=0, dur=12.5, width=270, fps=12)
         to_gif(slides, a.out / "demo_slideshow.gif", start=0, dur=12, width=480, fps=12, speed=2.0)
+        to_gif(explainer, a.out / "demo_explainer.gif", start=0, dur=EXPLAINER_SECONDS, width=270, fps=12)
     finally:
         if tmp is not None:
             tmp.cleanup()

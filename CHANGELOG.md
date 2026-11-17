@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- README demo: a third GIF, an explainer made from a script (`scripts/make_demo.py` builds a voice memo and a
+  `script.md` whose cues become a title, an illustrated scene, bars, a list, a versus card and a number, with
+  word-by-word subtitles); the vertical and slideshow GIFs are rebuilt with the current engine.
+
 ## [0.6.0] - 2026-11-16
 
 From a script to a finished explainer with one command: the engine chooses and draws the graphics, fetches
